@@ -6,15 +6,15 @@ import { Thread } from "./thread";
 import "./index.css";
 
 function App() {
-  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [me, setMe] = useState<{ configured: boolean; signedIn: boolean } | null>(null);
   useEffect(() => {
     fetch("/api/me")
-      .then((r) => r.json() as Promise<{ signedIn: boolean }>)
-      .then((me) => setSignedIn(me.signedIn))
-      .catch(() => setSignedIn(false));
+      .then((r) => r.json() as Promise<{ configured: boolean; signedIn: boolean }>)
+      .then(setMe)
+      .catch(() => setMe({ configured: false, signedIn: false }));
   }, []);
-  if (signedIn === null) return null;
-  return signedIn ? <Thread /> : <SignIn />;
+  if (me === null) return null;
+  return me.signedIn ? <Thread /> : <SignIn configured={me.configured} />;
 }
 
 createRoot(document.getElementById("root")!).render(
