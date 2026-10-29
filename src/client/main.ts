@@ -22,6 +22,9 @@ const CONNECT_TIMEOUT = Duration.seconds(8);
 const MAX_PROMPT = 4000;
 export const COMPOSER_ID = "composer";
 export const THREAD_ID = "thread";
+export const FOLDER_TRIGGER_ID = "folder-trigger";
+export const folderOptionId = (index: number) => `folder-opt-${index}`;
+export const LENGTH_ERROR = `keep it under ${MAX_PROMPT.toLocaleString("en-US")} characters.`;
 
 // MODEL
 
@@ -29,6 +32,8 @@ export const Session = defineTaggedUnion({
   Loading: {},
   SignedOut: { configured: Schema.Boolean },
   SignedIn: {},
+  /** /api/me failed or returned garbage; not the same as "not configured". */
+  Failed: {},
 });
 export type Session = typeof Session.Type;
 
@@ -50,6 +55,11 @@ export const Model = Schema.Struct({
   synced: Schema.Boolean,
   partial: Schema.NullOr(Schema.Array(ContentBlock)),
   error: Schema.NullOr(Schema.String),
+  /** Set by a send until the server answers; stops a double tap from sending twice. */
+  sending: Schema.Boolean,
+  stopping: Schema.Boolean,
+  /** False for a moment after a send, so a double click on send never lands on stop. */
+  stopArmed: Schema.Boolean,
   draft: Schema.String,
   folders: Schema.Array(Folder),
   picked: Schema.NullOr(Folder),
@@ -62,17 +72,22 @@ export type Model = typeof Model.Type;
 /** The folder the next prompt targets: the user's pick, else the agent's last one. */
 export const targetFolder = (model: Model): Folder => model.picked ?? model.agent?.folder ?? ROOT_FOLDER;
 export const isBusy = (model: Model) => model.agent?.busy === true;
+/** Busy, or a send the server has not answered yet. */
+export const isLocked = (model: Model) => model.sending || isBusy(model);
 
 // MESSAGE
 
 export const Message = defineMessageUnion({
   GotMe: { me: Me },
+  FailedMe: {},
+  ClickedRetryMe: {},
   GotFolders: { folders: Folders },
   ConnectedSocket: {},
   ReleasedSocket: {},
   FailedSocket: {},
   ClosedSocket: {},
-  RetriedConnect: {},
+  /** `attempts` ties a timer to the failure that scheduled it; stale timers are ignored. */
+  RetriedConnect: { attempts: Schema.Int },
   ReceivedState: { state: AgentState },
   ReceivedHistory: { messages: Schema.Array(MessageParam) },
   ReceivedMessage: { message: MessageParam, at: Schema.Finite },
@@ -82,11 +97,13 @@ export const Message = defineMessageUnion({
   SubmittedDraft: {},
   ClickedStarter: { text: Schema.String },
   ClickedStop: {},
+  ArmedStop: {},
   SentFrame: {},
   FailedFrame: { error: Schema.String },
   ToggledStep: { key: Schema.String },
   ToggledFolderMenu: {},
   ClosedFolderMenu: {},
+  LeftFolderMenu: {},
   PickedFolder: { folder: Folder },
   ClickedSignOut: {},
   CompletedEffect: {},
@@ -143,13 +160,12 @@ const getJson = (path: string) =>
     return (await response.json()) as unknown;
   });
 
-/** A failed or malformed /api/me reads as "not configured", as in v1. */
 export const FetchMe = Command.define("FetchMe", {
-  messages: [Message.GotMe],
+  messages: [Message.GotMe, Message.FailedMe],
   execute: getJson("/api/me").pipe(
     Effect.flatMap(decodeMe),
-    Effect.orElseSucceed((): Me => ({ configured: false, signedIn: false })),
     Effect.map((me) => Message.GotMe({ me })),
+    Effect.orElseSucceed(() => Message.FailedMe()),
   ),
 });
 
@@ -182,7 +198,7 @@ export const RetryConnect = Command.define("RetryConnect", {
   messages: [Message.RetriedConnect],
   execute: ({ attempts }) =>
     Effect.sleep(Duration.millis(Math.min(10_000, 1000 * 2 ** Math.max(0, attempts - 1)))).pipe(
-      Effect.as(Message.RetriedConnect()),
+      Effect.as(Message.RetriedConnect({ attempts })),
     ),
 });
 
@@ -195,12 +211,53 @@ export const SignOut = Command.define("SignOut", {
   ),
 });
 
-export const FocusComposer = Command.define("FocusComposer", {
-  messages: [Message.CompletedEffect],
-  execute: Render.afterCommit.pipe(
-    Effect.flatMap(() => Effect.sync(() => document.getElementById(COMPOSER_ID)?.focus({ preventScroll: true }))),
+export const ArmStop = Command.define("ArmStop", {
+  messages: [Message.ArmedStop],
+  execute: Effect.sleep(Duration.millis(300)).pipe(Effect.as(Message.ArmedStop())),
+});
+
+const finePointer = () => matchMedia("(pointer: fine)").matches;
+const nothingFocused = () => document.activeElement === null || document.activeElement === document.body;
+
+const focusAfterCommit = (selector: string, allowed: () => boolean) =>
+  Effect.sync(allowed).pipe(
+    Effect.flatMap((ok) =>
+      Render.afterCommit.pipe(
+        Effect.flatMap(() =>
+          Effect.sync(() => {
+            const el = document.querySelector(selector);
+            if (ok && el instanceof HTMLElement) el.focus({ preventScroll: true });
+          }),
+        ),
+      ),
+    ),
     Effect.as(Message.CompletedEffect()),
-  ),
+  );
+
+/**
+ * `always`: the user asked for the composer. `idle`: only if nothing holds focus.
+ * `keep`: after a send or stop; touch keeps the soft keyboard shut unless it was already open.
+ */
+export const FocusComposer = Command.define("FocusComposer", {
+  args: { when: Schema.Literals(["always", "idle", "keep"]) },
+  messages: [Message.CompletedEffect],
+  execute: ({ when }) => {
+    // Read before the commit: the send can unmount the focused node.
+    const composerHadFocus = document.activeElement?.id === COMPOSER_ID;
+    return focusAfterCommit(`#${COMPOSER_ID}`, () =>
+      when === "always" ? true : when === "idle" ? finePointer() && nothingFocused() : finePointer() || composerHadFocus,
+    );
+  },
+});
+
+export const FocusFolderItem = Command.define("FocusFolderItem", {
+  messages: [Message.CompletedEffect],
+  execute: focusAfterCommit(`[role="menuitemradio"][tabindex="0"]`, () => true),
+});
+
+export const FocusFolderTrigger = Command.define("FocusFolderTrigger", {
+  messages: [Message.CompletedEffect],
+  execute: focusAfterCommit(`#${FOLDER_TRIGGER_ID}`, () => true),
 });
 
 // Scroll state lives in the DOM, so the stick-to-bottom check does too: follow new content only
@@ -229,19 +286,29 @@ type UpdateReturn = Update.Return<Model, Message, AgentSocketService>;
 
 const send = (model: Model, raw: string): UpdateReturn => {
   const text = raw.trim();
-  if (!text || isBusy(model) || model.connection._tag !== "Connected") return { model };
-  if (text.length > MAX_PROMPT)
-    return { model: modifyFields(model, { error: () => `Keep it under ${MAX_PROMPT.toLocaleString("en-US")} characters.` }) };
+  if (!text || isLocked(model) || model.connection._tag !== "Connected") return { model };
+  if (text.length > MAX_PROMPT) return { model: modifyFields(model, { error: () => LENGTH_ERROR }) };
   return {
-    model: modifyFields(model, { draft: () => "", error: () => null, menuOpen: () => false }),
-    commands: [SendFrame({ event: { type: "send", text, folder: targetFolder(model) } }), ScrollThread({ force: true })],
+    model: modifyFields(model, { draft: () => "", error: () => null, menuOpen: () => false, sending: () => true, stopArmed: () => false }),
+    commands: [
+      SendFrame({ event: { type: "send", text, folder: targetFolder(model) } }),
+      ScrollThread({ force: true }),
+      ArmStop(),
+      FocusComposer({ when: "keep" }),
+    ],
   };
 };
 
 const lost = (model: Model): UpdateReturn => {
   const attempts = model.attempts + 1;
   return {
-    model: modifyFields(model, { connection: () => Connection.Lost(), attempts: () => attempts, partial: () => null }),
+    model: modifyFields(model, {
+      connection: () => Connection.Lost(),
+      attempts: () => attempts,
+      partial: () => null,
+      sending: () => false,
+      stopping: () => false,
+    }),
     commands: [RetryConnect({ attempts })],
   };
 };
@@ -255,17 +322,23 @@ export const update = (model: Model, message: Message): UpdateReturn =>
             commands: [FetchFolders()],
           }
         : { model: modifyFields(model, { session: () => Session.SignedOut({ configured: me.configured }) }) },
+    FailedMe: () => ({ model: modifyFields(model, { session: () => Session.Failed() }) }),
+    ClickedRetryMe: () => ({ model: modifyFields(model, { session: () => Session.Loading() }), commands: [FetchMe()] }),
     GotFolders: ({ folders }) => ({ model: modifyFields(model, { folders: () => folders }) }),
     ConnectedSocket: () => ({
       model: modifyFields(model, { connection: () => Connection.Connected(), attempts: () => 0, error: () => null }),
-      commands: [FocusComposer()],
+      commands: [FocusComposer({ when: "idle" })],
     }),
     ReleasedSocket: () => ({ model }),
     FailedSocket: () => lost(model),
     ClosedSocket: () => (model.connection._tag === "Connected" ? lost(model) : { model }),
-    RetriedConnect: () =>
-      model.connection._tag === "Lost" ? { model: modifyFields(model, { connection: () => Connection.Connecting() }) } : { model },
-    ReceivedState: ({ state }) => ({ model: modifyFields(model, { agent: () => state }) }),
+    RetriedConnect: ({ attempts }) =>
+      model.connection._tag === "Lost" && attempts === model.attempts
+        ? { model: modifyFields(model, { connection: () => Connection.Connecting() }) }
+        : { model },
+    ReceivedState: ({ state }) => ({
+      model: modifyFields(model, { agent: () => state, sending: (s) => s && !state.busy, stopping: (s) => s && state.busy }),
+    }),
     ReceivedHistory: ({ messages }) => ({
       model: modifyFields(model, { history: () => messages, partial: () => null, synced: () => true }),
       commands: [ScrollThread({ force: true })],
@@ -274,6 +347,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model: modifyFields(model, {
         history: (h) => [...h, m],
         partial: () => null,
+        sending: () => false,
         clock: (c) => (m.role === "assistant" ? onMessage(c, model.history.length, at) : c),
       }),
       commands: [ScrollThread({ force: false })],
@@ -282,21 +356,38 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model: modifyFields(model, { partial: () => content, clock: (c) => (content ? onPartial(c, content, at) : c) }),
       commands: [ScrollThread({ force: false })],
     }),
-    ReceivedError: ({ message: error }) => ({ model: modifyFields(model, { error: () => error }) }),
-    UpdatedDraft: ({ value }) => ({ model: modifyFields(model, { draft: () => value }) }),
+    ReceivedError: ({ message: error }) => ({ model: modifyFields(model, { error: () => error, sending: () => false }) }),
+    UpdatedDraft: ({ value }) => ({
+      model: modifyFields(model, {
+        draft: () => value,
+        error: (e) => (e === LENGTH_ERROR && value.trim().length <= MAX_PROMPT ? null : e),
+      }),
+    }),
     SubmittedDraft: () => send(model, model.draft),
     ClickedStarter: ({ text }) => send(model, text),
-    ClickedStop: () => ({ model, commands: [SendFrame({ event: { type: "stop" } })] }),
+    ClickedStop: () =>
+      !model.stopArmed || model.stopping
+        ? { model }
+        : {
+            model: modifyFields(model, { stopping: () => true }),
+            commands: [SendFrame({ event: { type: "stop" } }), FocusComposer({ when: "keep" })],
+          },
+    ArmedStop: () => ({ model: modifyFields(model, { stopArmed: () => true }) }),
     SentFrame: () => ({ model }),
-    FailedFrame: ({ error }) => ({ model: modifyFields(model, { error: () => error }) }),
+    FailedFrame: ({ error }) => ({ model: modifyFields(model, { error: () => error, sending: () => false, stopping: () => false }) }),
     ToggledStep: ({ key }) => ({
       model: modifyFields(model, { expanded: (ks) => (ks.includes(key) ? ks.filter((k) => k !== key) : [...ks, key]) }),
     }),
-    ToggledFolderMenu: () => ({ model: modifyFields(model, { menuOpen: (open) => !open }) }),
-    ClosedFolderMenu: () => ({ model: modifyFields(model, { menuOpen: () => false }) }),
+    ToggledFolderMenu: () => ({
+      model: modifyFields(model, { menuOpen: (open) => !open }),
+      commands: model.menuOpen ? [] : [FocusFolderItem()],
+    }),
+    ClosedFolderMenu: () =>
+      model.menuOpen ? { model: modifyFields(model, { menuOpen: () => false }), commands: [FocusFolderTrigger()] } : { model },
+    LeftFolderMenu: () => ({ model: modifyFields(model, { menuOpen: () => false }) }),
     PickedFolder: ({ folder }) => ({
       model: modifyFields(model, { picked: () => folder, menuOpen: () => false }),
-      commands: [FocusComposer()],
+      commands: [FocusComposer({ when: "always" })],
     }),
     ClickedSignOut: () => ({ model, commands: [SignOut()] }),
     CompletedEffect: () => ({ model }),
@@ -314,6 +405,9 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     synced: false,
     partial: null,
     error: null,
+    sending: false,
+    stopping: false,
+    stopArmed: true,
     draft: "",
     folders: [],
     picked: null,
@@ -347,7 +441,8 @@ const socketMessages = (socket: WebSocket) =>
         const onFrame = (event: MessageEvent) => {
           const exit = decodeServerFrame(event.data);
           if (Exit.isSuccess(exit)) Queue.offerUnsafe(queue, toMessage(exit.value, Date.now()));
-          else console.warn("dropped a malformed agent frame", exit.cause);
+          // The cause can echo library file names; keep it out of production consoles.
+          else if (import.meta.env.DEV) console.warn("dropped a malformed agent frame", exit.cause);
         };
         const onClose = () => {
           Queue.offerUnsafe(queue, Message.ClosedSocket());

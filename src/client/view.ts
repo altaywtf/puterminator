@@ -5,7 +5,19 @@ import { type Credits, creditsLeft, type Folder, type LastAudit, ROOT_FOLDER } f
 import { type Item, type Turn, toTurns } from "../shared/thread";
 import { art, type Mood, moodOf } from "./art";
 import logoUrl from "./logo.svg?inline";
-import { COMPOSER_ID, isBusy, Message, type Model, Session, THREAD_ID, targetFolder } from "./main";
+import {
+  COMPOSER_ID,
+  FOLDER_TRIGGER_ID,
+  folderOptionId,
+  isBusy,
+  isLocked,
+  LENGTH_ERROR,
+  Message,
+  type Model,
+  Session,
+  THREAD_ID,
+  targetFolder,
+} from "./main";
 import { renderMarkdown } from "./markdown";
 import { auditOf, callLine, describeStep, fmt, size } from "./steps";
 import { thoughtSeconds } from "./thinking";
@@ -25,6 +37,9 @@ const STARTER_NOTES: Record<string, string> = {
 
 // The narrow shell: 40rem of content plus the gutter.
 const COLUMN = "mx-auto grid w-full max-w-[calc(40rem+40px)] px-5 max-[480px]:px-4";
+
+// On-screen keyboards rarely send Shift+Enter, so on touch Enter is a newline and the button sends.
+const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
 // ---------- atoms ----------
 
@@ -55,26 +70,16 @@ const status = (h: H, model: Model) =>
       : h.span([h.Class("flex items-center gap-2 text-[11px] text-fg-3")], [dot(h), "connecting"]);
 
 /** One 56px topbar row over the content; no inset panel, no shadow. */
-const shell = (h: H, model: Model, children: Html[]) =>
+const frame = (h: H, topbarEnd: Html[], children: Html[], busy = false) =>
   h.div(
-    [h.Class("grid h-dvh grid-rows-[auto_minmax(0,1fr)] bg-bg text-fg")],
+    [h.Class("grid h-dvh grid-rows-[auto_minmax(0,1fr)] bg-bg text-fg"), ...(busy ? [h.AriaBusy(true)] : [])],
     [
       h.header(
         [h.Class("u-topbar")],
         [
           h.div(
             [h.Class(`${COLUMN} u-topbar-row flex! gap-4`)],
-            [
-              h.span([h.Class("u-topbar-mark")], [mark(h, 24), h.span([h.Class("text-fg-strong")], ["puterminator"])]),
-              h.span([h.Class("u-tag max-[420px]:hidden")], ["read-only"]),
-              h.span([h.Class("grow")], []),
-              status(h, model),
-              h.span([h.Class("truncate text-[13px] text-fg-3 max-[560px]:hidden")], [model.agent?.username ?? ""]),
-              h.button(
-                [h.Type("button"), h.Class("hit text-[13px] text-fg-2 transition-colors duration-160 hover:text-fg"), h.OnClick(Message.ClickedSignOut())],
-                ["sign out"],
-              ),
-            ],
+            [h.span([h.Class("u-topbar-mark")], [mark(h, 24), h.span([h.Class("text-fg-strong")], ["puterminator"])]), ...topbarEnd],
           ),
         ],
       ),
@@ -82,9 +87,68 @@ const shell = (h: H, model: Model, children: Html[]) =>
     ],
   );
 
+/** Always mounted, so screen readers announce changes; streamed text itself stays out of it. */
+const liveStatus = (h: H, model: Model) =>
+  h.div(
+    [h.Class("sr-only"), h.Role("status"), h.AriaLive("polite")],
+    [
+      model.connection._tag === "Lost"
+        ? "connection lost. reconnecting."
+        : isBusy(model)
+          ? "puterminator is working."
+          : model.history.length > 0
+            ? "reply ready."
+            : "",
+    ],
+  );
+
+const shell = (h: H, model: Model, children: Html[]) =>
+  frame(
+    h,
+    [
+      h.span([h.Class("u-tag max-[420px]:hidden")], ["read-only"]),
+      h.span([h.Class("grow")], []),
+      status(h, model),
+      h.span([h.Class("truncate text-[13px] text-fg-3 max-[560px]:hidden")], [model.agent?.username ?? ""]),
+      h.button(
+        [
+          h.Type("button"),
+          h.Class("hit text-[13px] text-fg-2 transition-colors duration-160 hover:text-fg active:text-fg"),
+          h.OnClick(Message.ClickedSignOut()),
+        ],
+        ["sign out"],
+      ),
+    ],
+    [liveStatus(h, model), ...children],
+  );
+
+/** The shell's frame while /api/me resolves, so the swap to sign-in or the thread keeps its shape. */
+const loadingView = (h: H) => h.div([h.Class("h-dvh bg-bg"), h.AriaBusy(true)], [h.span([h.Class("sr-only"), h.Role("status")], ["loading"])]);
+
 // ---------- sign in ----------
 
-const signInView = (h: H, configured: boolean) =>
+type SignIn = "ready" | "unconfigured" | "failed";
+
+const signInAction = (h: H, kind: SignIn) =>
+  kind === "ready"
+    ? h.a([h.Href("/auth/login"), h.Class("u-btn u-btn--primary justify-self-start")], ["continue with put.io ↗"])
+    : kind === "unconfigured"
+      ? h.div(
+          [h.Class("grid justify-items-start gap-3")],
+          [
+            h.button([h.Type("button"), h.Disabled(true), h.Class("u-btn")], ["continue with put.io"]),
+            h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-2")], [dot(h, "warn"), "sign-in isn’t wired up yet."]),
+          ],
+        )
+      : h.div(
+          [h.Class("grid justify-items-start gap-3")],
+          [
+            h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-2"), h.Role("alert")], [dot(h, "error"), "couldn’t reach puterminator."]),
+            h.button([h.Type("button"), h.Class("u-btn"), h.OnClick(Message.ClickedRetryMe())], ["try again"]),
+          ],
+        );
+
+const signInView = (h: H, kind: SignIn) =>
   h.div(
     [h.Class("grid min-h-dvh place-items-center bg-bg p-6 text-fg")],
     [
@@ -94,7 +158,7 @@ const signInView = (h: H, configured: boolean) =>
           h.div(
             [h.Class("u-panel u-ticks grid gap-6 p-8!")],
             [
-              art(h, configured ? "asleep" : "unplugged", 72),
+              art(h, kind === "ready" ? "asleep" : "unplugged", 72),
               h.div(
                 [h.Class("grid gap-2")],
                 [
@@ -102,15 +166,7 @@ const signInView = (h: H, configured: boolean) =>
                   h.p([h.Class("m-0 text-[13px] text-fg-2")], ["reads your put.io, scores the mess and says what to fix. changes nothing."]),
                 ],
               ),
-              configured
-                ? h.a([h.Href("/auth/login"), h.Class("u-btn u-btn--primary justify-self-start")], ["continue with put.io ↗"])
-                : h.div(
-                    [h.Class("grid justify-items-start gap-3")],
-                    [
-                      h.span([h.Class("u-btn opacity-40"), h.AriaDisabled(true)], ["continue with put.io"]),
-                      h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-2")], [dot(h, "warn"), "sign-in isn’t wired up yet."]),
-                    ],
-                  ),
+              signInAction(h, kind),
             ],
           ),
         ],
@@ -132,7 +188,7 @@ const mono = (h: H, text: string, extra = "") =>
 
 const toggle = (h: H, key: string, open: boolean, bodyId: string, children: Html[]) =>
   h.button(
-    [h.Type("button"), h.Class("step-head hit"), h.AriaExpanded(open), h.AriaControls(bodyId), h.OnClick(Message.ToggledStep({ key }))],
+    [h.Type("button"), h.Class("step-head hit"), h.AriaExpanded(open), ...(open ? [h.AriaControls(bodyId)] : []), h.OnClick(Message.ToggledStep({ key }))],
     [slot(h, chev(h)), ...children],
   );
 
@@ -191,7 +247,7 @@ const ticks = (h: H, value: number, worst: boolean) => {
   return h.span(
     [h.Class("flex gap-[3px]"), h.AriaHidden(true)],
     Array.from({ length: 10 }, (_, i) =>
-      h.i([h.Class(`grow-bar block h-1 w-full ${i < on ? (worst ? "bg-accent" : "bg-fg-2") : "bg-line"}`), h.Style({ animationDelay: `${i * 30}ms` })], []),
+      h.i([h.Class(`grow-bar block h-1 w-full ${i < on ? (worst ? "bg-accent" : "bg-fg-2") : "bg-line"}`), h.Style({ animationDelay: `${i * 12}ms` })], []),
     ),
   );
 };
@@ -302,9 +358,9 @@ const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live
 };
 
 const agentView = (h: H, turn: Turn, model: Model, caretKey: string | null, live: boolean) =>
-  h.keyed("div")(
+  h.keyed("article")(
     turn.key,
-    [h.Class("grid min-w-0 gap-3"), h.DataAttribute("role", "assistant")],
+    [h.Class("grid min-w-0 gap-3"), h.DataAttribute("role", "assistant"), h.AriaLabel("puterminator")],
     [
       h.div(
         [h.Class("flex items-center gap-2.5")],
@@ -315,9 +371,13 @@ const agentView = (h: H, turn: Turn, model: Model, caretKey: string | null, live
   );
 
 const userView = (h: H, turn: Turn, live: boolean) =>
-  h.keyed("div")(
+  h.keyed("article")(
     turn.key,
-    [h.Class(`grid justify-items-end gap-1.5 border-t border-line pt-6 first:border-t-0 first:pt-0 ${live ? "enter-soft" : ""}`), h.DataAttribute("role", "user")],
+    [
+      h.Class(`grid justify-items-end gap-1.5 border-t border-line pt-6 first:border-t-0 first:pt-0 ${live ? "enter-soft" : ""}`),
+      h.DataAttribute("role", "user"),
+      h.AriaLabel("you"),
+    ],
     [
       label(h, "you"),
       h.div(
@@ -329,10 +389,10 @@ const userView = (h: H, turn: Turn, live: boolean) =>
 
 const followUps = (h: H, items: readonly string[], enabled: boolean) =>
   h.div(
-    [h.Class("flex flex-wrap gap-2 ps-[30px] max-[480px]:ps-0")],
+    [h.Class("flex flex-wrap gap-x-2 gap-y-3 ps-[30px] pointer-coarse:gap-y-4 max-[480px]:ps-0")],
     items.map((s) =>
       h.button(
-        [h.Type("button"), h.Disabled(!enabled), h.Class("u-btn u-btn--sm text-fg-2! disabled:opacity-40"), h.OnClick(Message.ClickedStarter({ text: s }))],
+        [h.Type("button"), h.Disabled(!enabled), h.Class("hit u-btn u-btn--sm text-fg-2! disabled:opacity-40"), h.OnClick(Message.ClickedStarter({ text: s }))],
         [`${s} →`],
       ),
     ),
@@ -349,13 +409,13 @@ const starterRows = (h: H, enabled: boolean) =>
             h.Type("button"),
             h.Disabled(!enabled),
             h.Class(
-              "group grid grid-cols-[1fr_auto] items-baseline gap-x-4 border-t border-line py-3 text-start transition-colors duration-160 last:border-b disabled:opacity-40",
+              "group grid grid-cols-[1fr_auto] items-baseline gap-x-4 border-t border-line py-3 text-start transition-colors duration-160 last:border-b active:bg-raised disabled:opacity-40",
             ),
             h.OnClick(Message.ClickedStarter({ text: s })),
           ],
           [
-            h.span([h.Class("text-fg-strong transition-colors duration-160 group-hover:text-accent")], [s]),
-            h.span([h.Class("text-[12px] text-fg-4 transition-transform duration-160 group-hover:translate-x-0.5 group-hover:text-fg-2")], ["→"]),
+            h.span([h.Class("text-fg-strong transition-colors duration-160 group-hover:text-accent group-active:text-accent")], [s]),
+            h.span([h.Class("text-[12px] text-fg-4 transition-transform duration-160 group-hover:text-fg-2 motion-safe:group-hover:translate-x-0.5")], ["→"]),
             h.span([h.Class("col-span-2 text-[13px] text-fg-3")], [STARTER_NOTES[s] ?? ""]),
           ],
         ),
@@ -382,14 +442,44 @@ const lastScanStrip = (h: H, last: LastAudit, credits: Credits) =>
     ],
   );
 
-const statusRows = (h: H, model: Model) =>
-  model.error === null ? [] : [h.div([h.Class("u-notice items-center!"), h.Role("alert")], [dot(h, "error"), h.span([], [model.error])])];
+/** Shown once a retry has failed too, so a single blip stays in the topbar. */
+const connectionNotice = (h: H, model: Model) =>
+  model.attempts < 2
+    ? []
+    : [
+        h.div(
+          [h.Class("u-notice items-center!"), h.Role("status")],
+          [
+            dot(h, "warn"),
+            h.span([h.Class("grow")], ["can’t reach the agent. retrying…"]),
+            ...(model.connection._tag === "Lost"
+              ? [h.button([h.Type("button"), h.Class("hit u-btn u-btn--sm"), h.OnClick(Message.RetriedConnect({ attempts: model.attempts }))], ["retry now"])]
+              : []),
+          ],
+        ),
+      ];
+
+// The length error renders in the composer, next to the field it is about.
+const statusRows = (h: H, model: Model) => [
+  ...connectionNotice(h, model),
+  ...(model.error === null || model.error === LENGTH_ERROR
+    ? []
+    : [h.div([h.Class("u-notice items-center!"), h.Role("alert")], [dot(h, "error"), h.span([], [model.error])])]),
+];
 
 // ---------- composer ----------
 
 const folderMenu = (h: H, model: Model, below: boolean) => {
   const target = targetFolder(model);
   const options: Folder[] = [ROOT_FOLDER, ...model.folders.filter((f) => f.id !== ROOT_FOLDER.id)];
+  // The target can be a nested folder the list doesn't hold; then the first option takes focus.
+  const active = Math.max(0, options.findIndex((f) => f.id === target.id));
+  const last = options.length - 1;
+  // Arrow keys move between items in place; no model state needed for a roving focus.
+  const moveFrom = (i: number) => (key: string) => {
+    const to = key === "ArrowDown" ? (i + 1) % options.length : key === "ArrowUp" ? (i + last) % options.length : key === "Home" ? 0 : key === "End" ? last : null;
+    return to === null ? Option.none() : Option.some({ focusSelector: `#${folderOptionId(to)}`, message: Message.CompletedEffect() });
+  };
   return h.div(
     [
       h.Class("relative min-w-0"),
@@ -398,6 +488,7 @@ const folderMenu = (h: H, model: Model, below: boolean) => {
     [
       h.button(
         [
+          h.Id(FOLDER_TRIGGER_ID),
           h.Type("button"),
           h.Class("pick hit max-w-[220px] min-w-0"),
           h.AriaHasPopup("menu"),
@@ -418,17 +509,23 @@ const folderMenu = (h: H, model: Model, below: boolean) => {
               [
                 h.Role("menu"),
                 h.AriaLabel("target folder"),
+                h.OnKeyDown((key) => (key === "Tab" ? Message.LeftFolderMenu() : Message.CompletedEffect())),
                 h.Class(
-                  `pop absolute start-0 z-20 grid max-h-72 w-max max-w-[min(300px,calc(100vw-48px))] min-w-52 overflow-y-auto border border-line bg-raised py-1 ${below ? "top-full mt-1 origin-top-left" : "bottom-full mb-1 origin-bottom-left"}`,
+                  `pop absolute start-0 z-20 grid max-h-72 w-max max-w-[min(300px,calc(100vw-48px))] min-w-52 overflow-y-auto overscroll-contain border border-line bg-raised py-1 ${below ? "top-full mt-1 origin-top-left" : "bottom-full mb-1 origin-bottom-left"}`,
                 ),
               ],
-              options.map((f) =>
+              options.map((f, i) =>
                 h.button(
                   [
+                    h.Id(folderOptionId(i)),
                     h.Type("button"),
                     h.Role("menuitemradio"),
                     h.AriaChecked(f.id === target.id),
-                    h.Class("flex h-8 min-w-0 items-center gap-2.5 px-3 text-start text-[13px] text-fg-2 transition-colors duration-160 hover:bg-bg hover:text-fg aria-checked:text-fg"),
+                    h.Tabindex(i === active ? 0 : -1),
+                    h.Class(
+                      "flex h-8 min-w-0 items-center gap-2.5 px-3 text-start text-[13px] text-fg-2 transition-colors duration-160 hover:bg-bg hover:text-fg focus-visible:bg-bg focus-visible:text-fg focus-visible:outline-offset-[-1px] active:bg-bg active:text-fg aria-checked:text-fg",
+                    ),
+                    h.OnKeyDownFocus(moveFrom(i)),
                     h.OnClick(Message.PickedFolder({ folder: f })),
                   ],
                   [
@@ -447,12 +544,14 @@ const folderMenu = (h: H, model: Model, below: boolean) => {
 const composer = (h: H, model: Model, placeholder: string, floating: boolean) => {
   const busy = isBusy(model);
   const connected = model.connection._tag === "Connected";
-  const canSend = connected && model.draft.trim().length > 0;
+  const canSend = connected && !model.sending && model.draft.trim().length > 0;
+  const tooLong = model.error === LENGTH_ERROR;
+  const errorId = `${COMPOSER_ID}-error`;
   const sep = h.span([h.Class("text-fg-4 max-[400px]:hidden"), h.AriaHidden(true)], ["·"]);
   return h.form(
     [
       h.Class(
-        "pointer-events-auto grid w-full gap-3 rounded-xs border border-line-strong bg-raised px-4 pt-3.5 pb-3 transition-colors duration-160 hover:border-line-hover focus-within:border-fg-3!",
+        `pointer-events-auto grid w-full gap-3 rounded-xs border bg-raised px-4 pt-3.5 pb-3 transition-colors duration-160 ${tooLong ? "border-danger/60!" : "border-line-strong hover:border-line-hover focus-within:border-fg-3!"}`,
       ),
       h.OnSubmit(Message.SubmittedDraft()),
     ],
@@ -464,13 +563,17 @@ const composer = (h: H, model: Model, placeholder: string, floating: boolean) =>
         h.Rows(1),
         h.Placeholder(placeholder),
         h.Autocomplete("off"),
-        h.EnterKeyHint("send"),
+        h.EnterKeyHint(COARSE ? "enter" : "send"),
+        ...(tooLong ? [h.AriaInvalid(true), h.AriaDescribedBy(errorId)] : []),
         h.Class(
-          "block max-h-[160px] min-h-[24px] w-full resize-none border-0 bg-transparent p-0 text-[16px] leading-normal text-fg-strong caret-accent outline-none [field-sizing:content] placeholder:text-fg-3 focus-visible:outline-none min-[761px]:text-[14px]",
+          "block max-h-[160px] min-h-[24px] w-full resize-none border-0 bg-transparent p-0 text-[16px] leading-normal text-fg-strong caret-accent outline-none [field-sizing:content] placeholder:text-fg-3 focus-visible:outline-none pointer-fine:text-[14px]",
         ),
         h.OnInput((value) => Message.UpdatedDraft({ value })),
-        h.OnKeyDownPreventDefault((key, mods) => (key === "Enter" && !mods.shiftKey && !mods.altKey ? Option.some(Message.SubmittedDraft()) : Option.none())),
+        h.OnKeyDownPreventDefault((key, mods) => (key === "Enter" && !COARSE && !mods.shiftKey && !mods.altKey ? Option.some(Message.SubmittedDraft()) : Option.none())),
       ]),
+      ...(tooLong
+        ? [h.p([h.Id(errorId), h.Class("m-0 flex items-center gap-2 text-[12px] text-fg-2"), h.Role("alert")], [dot(h, "error"), LENGTH_ERROR])]
+        : []),
       h.div(
         [h.Class("flex min-w-0 items-center gap-2 text-[11px] text-fg-3")],
         [
@@ -481,10 +584,22 @@ const composer = (h: H, model: Model, placeholder: string, floating: boolean) =>
           ...(model.agent
             ? [h.span([h.Class("tabular-nums max-[360px]:hidden"), h.Title("credits left this month")], [`${fmt(creditsLeft(model.agent.credits))} credits`])]
             : []),
+          // Keyed so send and stop are separate elements: focus and a second click never carry over.
           busy
-            ? h.button([h.Type("button"), h.Class("u-btn u-btn--sm"), h.OnClick(Message.ClickedStop())], [dot(h, "live"), "stop"])
-            : h.button(
-                [h.Type("submit"), h.Disabled(!canSend), h.Class("u-btn u-btn--sm u-btn--primary disabled:opacity-30 disabled:active:scale-100")],
+            ? h.keyed("button")(
+                "stop",
+                [
+                  h.Type("button"),
+                  h.Disabled(model.stopping),
+                  h.AriaLabel(model.stopping ? "stopping reply" : "stop reply"),
+                  h.Class("hit u-btn u-btn--sm"),
+                  h.OnClick(Message.ClickedStop()),
+                ],
+                [dot(h, "live"), model.stopping ? "stopping…" : "stop"],
+              )
+            : h.keyed("button")(
+                "send",
+                [h.Type("submit"), h.Disabled(!canSend), h.Class("hit u-btn u-btn--sm u-btn--primary disabled:opacity-30 disabled:active:scale-100")],
                 ["send"],
               ),
         ],
@@ -496,13 +611,12 @@ const composer = (h: H, model: Model, placeholder: string, floating: boolean) =>
 // ---------- page ----------
 
 const emptyThread = (h: H, model: Model) => {
-  const busy = isBusy(model);
-  const enabled = model.connection._tag === "Connected" && !busy;
+  const enabled = model.connection._tag === "Connected" && !isLocked(model);
   return h.div(
     [h.Id(THREAD_ID), h.Class("flex-1 overflow-y-auto overscroll-contain")],
     [
       h.div(
-        [h.Class(`${COLUMN} enter gap-8 pt-[10vh] pb-16`)],
+        [h.Class(`${COLUMN} enter gap-8 pt-[10svh] pb-16`)],
         [
           h.div(
             [h.Class("grid grid-cols-[1fr_auto] items-center gap-8 max-[520px]:grid-cols-1")],
@@ -533,7 +647,8 @@ const emptyThread = (h: H, model: Model) => {
 const threadPage = (h: H, model: Model) => {
   const busy = isBusy(model);
   const turns = toTurns(model.history, model.partial, busy);
-  if (!model.synced) return shell(h, model, [h.div([h.Id(THREAD_ID), h.Class("flex-1")], [])]);
+  if (!model.synced)
+    return shell(h, model, [h.div([h.Id(THREAD_ID), h.Class("flex-1 overflow-y-auto")], [h.div([h.Class(`${COLUMN} pt-[10svh]`)], connectionNotice(h, model))])]);
   if (turns.length === 0) return shell(h, model, [emptyThread(h, model)]);
 
   const last = turns.at(-1);
@@ -547,23 +662,24 @@ const threadPage = (h: H, model: Model) => {
 
   return shell(h, model, [
     h.div(
-      [h.Id(THREAD_ID), h.Class("flex-1 overflow-y-auto overscroll-contain [scroll-padding-bottom:200px]")],
+      [h.Id(THREAD_ID), h.Class("flex-1 overflow-y-auto overscroll-contain [scroll-padding-bottom:56px]")],
       [
         h.div(
-          [h.Class(`${COLUMN} gap-7 pt-10 pb-[220px]`)],
+          [h.Class(`${COLUMN} gap-7 pt-10 pb-14`)],
           [
             ...turns.map((t) => (t.role === "user" ? userView(h, t, busy && (t === last || t === turns.at(-2))) : agentView(h, t, model, caretKey, busy && t === last))),
             ...(pending ? [agentView(h, { key: "pending", role: "assistant", items: [] }, model, null, true)] : []),
             ...statusRows(h, model),
             ...(!busy && model.error === null && last?.role === "assistant" && next.length > 0
-              ? [followUps(h, next, model.connection._tag === "Connected")]
+              ? [followUps(h, next, model.connection._tag === "Connected" && !model.sending)]
               : []),
           ],
         ),
       ],
     ),
+    // A flex row, not an overlay: the scroller shrinks as the draft grows. -mt-10 lets the fade overlap it.
     h.div(
-      [h.Class("pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-b from-transparent to-bg to-35% pt-10 pb-[max(16px,env(safe-area-inset-bottom))]")],
+      [h.Class("pointer-events-none relative -mt-10 flex-none bg-linear-to-b from-transparent to-bg to-35% pt-10 pb-[max(16px,env(safe-area-inset-bottom))]")],
       [h.div([h.Class(COLUMN)], [composer(h, model, "reply…", true)])],
     ),
   ]);
@@ -572,8 +688,9 @@ const threadPage = (h: H, model: Model) => {
 export const view = (model: Model, h: H): Document => ({
   title: "puterminator",
   body: Session.match(model.session, {
-    Loading: () => h.div([h.Class("h-dvh bg-bg")], []),
-    SignedOut: ({ configured }) => signInView(h, configured),
+    Loading: () => loadingView(h),
+    SignedOut: ({ configured }) => signInView(h, configured ? "ready" : "unconfigured"),
+    Failed: () => signInView(h, "failed"),
     SignedIn: () => threadPage(h, model),
   }),
 });

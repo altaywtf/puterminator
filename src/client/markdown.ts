@@ -20,7 +20,7 @@ function render(node: Nodes): Child {
     case "html":
       return node.value;
     case "inlineCode":
-      return ih.code([ih.Class("rounded-xs bg-raised px-1 text-[13px] text-fg-strong [overflow-wrap:anywhere] box-decoration-clone")], [node.value]);
+      return ih.code([ih.Class("rounded-xs bg-raised px-1 text-[13px] text-fg-strong box-decoration-clone")], [node.value]);
     case "code":
       return ih.pre(
         [ih.Class("m-0 overflow-x-auto border border-line bg-sunk p-3 text-[13px] leading-normal")],
@@ -73,7 +73,8 @@ function render(node: Nodes): Child {
       return ih.hr([ih.Class("w-full border-0 border-t border-line")]);
     case "table":
       return ih.div(
-        [ih.Class("overflow-x-auto")],
+        // Cells inherit overflow-wrap:anywhere from the root; tables scroll instead of breaking tokens.
+        [ih.Class("overflow-x-auto [overflow-wrap:normal]")],
         [
           ih.table(
             [ih.Class("border-collapse text-[13px] tabular-nums")],
@@ -113,5 +114,6 @@ export const renderMarkdown = (text: string, streaming: boolean): Html => {
       nodes[nodes.length - 1] = ih.p([ih.Class("m-0 max-w-[64ch] text-pretty text-fg")], [...children(last), caret()]);
     else nodes.push(caret());
   }
-  return ih.div([ih.Class("grid min-w-0 gap-2.5")], nodes);
+  // Bare URLs and release names have no break points; `pre` keeps scrolling since it never wraps.
+  return ih.div([ih.Class("grid min-w-0 gap-2.5 [overflow-wrap:anywhere]")], nodes);
 };
