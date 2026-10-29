@@ -52,7 +52,11 @@ export const makeStore = (sql: Sql) => {
       sql.exec("INSERT OR REPLACE INTO secrets (key, value) VALUES ('putio_token', ?)", token);
     },
     deleteToken: () => {
-      sql.exec("DELETE FROM secrets WHERE key = 'putio_token'");
+      sql.exec("DELETE FROM secrets WHERE key IN ('putio_token', 'download_token')");
+    },
+    secret: (key: string): string | null => strOrNull(sql.exec("SELECT value FROM secrets WHERE key = ?", key)[0]?.value),
+    setSecret: (key: string, value: string) => {
+      sql.exec("INSERT OR REPLACE INTO secrets (key, value) VALUES (?, ?)", key, value);
     },
 
     /** Rows that fail to decode are skipped; v1 only ever wrote valid ones. */

@@ -59,6 +59,11 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
       }
       return json(200, { ...page(Number((body.get("cursor") ?? "c0").slice(1))), status: "OK" });
     }
+    if (url.pathname === "/v2/account/info" && url.searchParams.get("download_token") === "1")
+      return json(200, { info: { user_id: 1, username: "altay", download_token: "dl-token" }, status: "OK" });
+    const one = url.pathname.match(/^\/v2\/files\/(\d+)$/);
+    const found = one && opts.files.find((f) => f.id === Number(one[1]));
+    if (found) return json(200, { file: { ...found, screenshot: `https://img.put.io/s/${found.id}.jpg` }, status: "OK" });
     return json(404, { status: "ERROR", error_type: "NOT_FOUND", status_code: 404 });
   };
   return { fetch: fetchImpl as typeof fetch, log };

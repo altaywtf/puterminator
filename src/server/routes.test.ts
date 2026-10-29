@@ -98,6 +98,8 @@ describe("OAuth callback", () => {
       setAuth: (token, username) => Effect.sync(() => void calls.push([uid, token, username])),
       signOut: () => Effect.void,
       rootFolders: () => Effect.succeed([]),
+      thumbnail: () => Effect.succeed(null),
+      stream: () => Effect.succeed(null),
       fetch: () => Effect.die("unused"),
     });
     const handle = makeHandler({ config: config.value, agentFor: agent, putioFetch: putio });

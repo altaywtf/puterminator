@@ -29,7 +29,7 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         model: config.model,
         monthlyTokenCap: config.monthlyTokenCap,
         anthropic: anthropicLayer({ apiKey: config.anthropicApiKey, ...(devFetch ? { fetch: devFetch } : {}) }),
-        ...(devFetch ? { putioFetch: devFetch } : {}),
+        ...(devFetch && config.devUpstream ? { putioFetch: devFetch, putioBase: config.devUpstream } : {}),
         broadcast: (event: ServerEvent) => {
           const frame = encodeEvent(event);
           for (const ws of raw.getWebSockets()) {
@@ -60,6 +60,8 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         setAuth: (token: string, username: string) => agent.setAuth(token, username),
         signOut: () => agent.signOut,
         rootFolders: () => agent.rootFolders.pipe(Effect.orDie),
+        thumbnail: (id: number) => agent.thumbnail(id),
+        stream: (id: number) => agent.stream(id),
       };
     });
   }),

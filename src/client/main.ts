@@ -72,6 +72,10 @@ export const Model = Schema.Struct({
   treeOpen: Schema.Boolean,
   treeExpanded: Schema.Array(Schema.Finite),
   treeFocus: Schema.NullOr(Schema.Finite),
+  /** The video playing in the overlay; `src` arrives from /api/files/:id/stream. */
+  player: Schema.NullOr(
+    Schema.Struct({ id: Schema.Finite, name: Schema.String, src: Schema.NullOr(Schema.String), failed: Schema.Boolean }),
+  ),
 });
 export type Model = typeof Model.Type;
 
@@ -105,6 +109,10 @@ export const Message = defineMessageUnion({
   ToggledTreeNode: { id: Schema.Finite },
   /** Opens the tree with every ancestor expanded and scrolls the file into view. */
   RevealedFile: { id: Schema.Finite, ancestors: Schema.Array(Schema.Finite) },
+  OpenedPlayer: { id: Schema.Finite, name: Schema.String },
+  GotStream: { id: Schema.Finite, src: Schema.String },
+  FailedStream: { id: Schema.Finite },
+  ClosedPlayer: {},
   UpdatedDraft: { value: Schema.String },
   SubmittedDraft: {},
   ClickedStarter: { text: Schema.String },
@@ -268,6 +276,70 @@ export const FocusFolderItem = Command.define("FocusFolderItem", {
 });
 
 export const treeNodeId = (id: number) => `tree-${id}`;
+export const PLAYER_ID = "player";
+
+const StreamResponse = Schema.Struct({ hls: Schema.String });
+
+export const FetchStream = Command.define("FetchStream", {
+  args: { id: Schema.Finite },
+  messages: [Message.GotStream, Message.FailedStream],
+  execute: ({ id }) =>
+    Effect.tryPromise(() => fetch(`/api/files/${id}/stream`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(StreamResponse)),
+      Effect.map(({ hls }) => Message.GotStream({ id, src: hls })),
+      Effect.orElseSucceed(() => Message.FailedStream({ id })),
+    ),
+});
+
+// One player at a time; hls.js only loads for browsers without native HLS (everything but Safari).
+let hls: { destroy: () => void } | null = null;
+
+const detach = () => {
+  hls?.destroy();
+  hls = null;
+};
+
+export const AttachPlayer = Command.define("AttachPlayer", {
+  args: { id: Schema.Finite, src: Schema.String },
+  messages: [Message.CompletedEffect, Message.FailedStream],
+  execute: ({ id, src }) =>
+    Render.afterCommit.pipe(
+      Effect.flatMap(() =>
+        Effect.tryPromise(async () => {
+          const video = document.getElementById(PLAYER_ID);
+          if (!(video instanceof HTMLVideoElement)) return;
+          detach();
+          if (video.canPlayType("application/vnd.apple.mpegurl")) {
+            await new Promise<void>((resolve, reject) => {
+              video.addEventListener("loadedmetadata", () => resolve(), { once: true });
+              video.addEventListener("error", () => reject(new Error("media error")), { once: true });
+              video.src = src;
+            });
+          } else {
+            const { default: Hls } = await import("hls.js/light");
+            if (!Hls.isSupported()) throw new Error("no MSE");
+            const player = new Hls();
+            hls = player;
+            // Wait for the playlist, so a dead stream shows the failure state instead of a black box.
+            await new Promise<void>((resolve, reject) => {
+              player.on(Hls.Events.MANIFEST_PARSED, () => resolve());
+              player.on(Hls.Events.ERROR, (_event, data) => (data.fatal ? reject(new Error(data.details)) : undefined));
+              player.loadSource(src);
+              player.attachMedia(video);
+            });
+          }
+          void video.play().catch(() => undefined);
+        }),
+      ),
+      Effect.as(Message.CompletedEffect()),
+      Effect.orElseSucceed(() => Message.FailedStream({ id })),
+    ),
+});
+
+export const DetachPlayer = Command.define("DetachPlayer", {
+  messages: [Message.CompletedEffect],
+  execute: Effect.sync(detach).pipe(Effect.as(Message.CompletedEffect())),
+});
 
 export const ScrollTreeNode = Command.define("ScrollTreeNode", {
   args: { id: Schema.Finite },
@@ -436,6 +508,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       }),
       commands: [ScrollTreeNode({ id })],
     }),
+    OpenedPlayer: ({ id, name }) => ({
+      model: modifyFields(model, { player: () => ({ id, name, src: null, failed: false }) }),
+      commands: [FetchStream({ id })],
+    }),
+    GotStream: ({ id, src }) =>
+      model.player?.id === id
+        ? { model: modifyFields(model, { player: (p) => (p ? { ...p, src } : p) }), commands: [AttachPlayer({ id, src })] }
+        : { model },
+    FailedStream: ({ id }) =>
+      model.player?.id === id ? { model: modifyFields(model, { player: (p) => (p ? { ...p, failed: true } : p) }) } : { model },
+    ClosedPlayer: () => ({ model: modifyFields(model, { player: () => null }), commands: [DetachPlayer()] }),
     ClickedSignOut: () => ({ model, commands: [SignOut()] }),
     CompletedEffect: () => ({ model }),
   });
@@ -465,6 +548,7 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     treeOpen: false,
     treeExpanded: [],
     treeFocus: null,
+    player: null,
   },
   commands: [FetchMe()],
 });

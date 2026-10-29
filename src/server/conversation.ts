@@ -8,7 +8,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, type Library } from "../shared/contract";
 import { audit, isMessyName, junkReason } from "./audit";
-import { listAll, putioLayer, rootFolders } from "./putio";
+import { downloadToken, fileMedia, hlsUrl, listAll, putioLayer, rootFolders } from "./putio";
 import { type AnthropicClient, effectTool, runTurn, type TurnError, weightedTokens } from "./runner";
 import { month, type Store } from "./store";
 import { buildTree } from "./tree";
@@ -83,6 +83,8 @@ export interface AgentDeps {
   /** Keeps the host alive until the effect settles. */
   readonly background: (effect: Effect.Effect<void>) => void;
   readonly putioFetch?: typeof fetch;
+  /** put.io's API origin for URLs handed to the browser; the dev fake overrides it. */
+  readonly putioBase?: string;
   readonly partialEveryMs?: number;
 }
 
@@ -95,6 +97,7 @@ export const makeAgent = (deps: AgentDeps) =>
     const { store, broadcast } = deps;
     let state: AgentState = store.loadState(yield* Clock.currentTimeMillis);
     let turnFiber: Fiber.Fiber<unknown, unknown> | null = null;
+    const thumbs = new Map<number, string | null>();
     let running = false;
 
     const setState = (next: AgentState) => {
@@ -353,6 +356,33 @@ export const makeAgent = (deps: AgentDeps) =>
           setState({ ...state, username });
         }),
       signOut: Effect.sync(() => store.deleteToken()),
+      /** A file's screenshot URL, or null for none, no token or a failed read. Cached per activation. */
+      thumbnail: (id: number) =>
+        Effect.suspend(() => {
+          const token = store.token();
+          if (!token) return Effect.succeed<string | null>(null);
+          const hit = thumbs.get(id);
+          if (hit !== undefined) return Effect.succeed(hit);
+          return fileMedia(id).pipe(
+            Effect.map((f) => f.screenshot),
+            Effect.tap((url) => Effect.sync(() => thumbs.set(id, url))),
+            Effect.catch(() => Effect.succeed<string | null>(null)),
+            Effect.provide(putioLayer(token, deps.putioFetch)),
+          );
+        }),
+      /** An HLS URL for a video in the snapshot, signed with the download token; null otherwise. */
+      stream: (id: number) =>
+        Effect.suspend(() => {
+          const token = store.token();
+          const isVideo = store.snapshot().some((f) => f.id === id && f.file_type === "VIDEO");
+          if (!token || !isVideo) return Effect.succeed<string | null>(null);
+          const cached = store.secret("download_token");
+          return (cached ? Effect.succeed(cached) : downloadToken.pipe(Effect.tap((t) => Effect.sync(() => store.setSecret("download_token", t))))).pipe(
+            Effect.map((t): string | null => hlsUrl(id, t, deps.putioBase)),
+            Effect.catch(() => Effect.succeed<string | null>(null)),
+            Effect.provide(putioLayer(token, deps.putioFetch)),
+          );
+        }),
       rootFolders: Effect.suspend(() => {
         const token = store.token();
         if (!token) return Effect.succeed<Array<Folder>>([]);

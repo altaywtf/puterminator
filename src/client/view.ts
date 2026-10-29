@@ -18,7 +18,7 @@ import {
   THREAD_ID,
   targetFolder,
 } from "./main";
-import { auditDetails, fileList, libraryIndex, toolFiles, treeDrawer } from "./files";
+import { auditDetails, fileList, libraryIndex, playerView, toolFiles, treeDrawer } from "./files";
 import { renderMarkdown } from "./markdown";
 import { auditOf, callLine, describeStep, fmt, size } from "./steps";
 import { thoughtSeconds } from "./thinking";
@@ -133,7 +133,7 @@ const shell = (h: H, model: Model, children: Html[]) =>
         ["sign out"],
       ),
     ],
-    [liveStatus(h, model), ...children, ...treeDrawer(h, model)],
+    [liveStatus(h, model), ...children, ...treeDrawer(h, model), ...playerView(h, model)],
   );
 
 /** The shell's frame while /api/me resolves, so the swap to sign-in or the thread keeps its shape. */

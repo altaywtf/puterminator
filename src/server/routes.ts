@@ -22,6 +22,8 @@ export interface UserAgent {
   readonly setAuth: (token: string, username: string) => Effect.Effect<void>;
   readonly signOut: () => Effect.Effect<void>;
   readonly rootFolders: () => Effect.Effect<ReadonlyArray<Folder>>;
+  readonly thumbnail: (id: number) => Effect.Effect<string | null>;
+  readonly stream: (id: number) => Effect.Effect<string | null>;
   readonly fetch: (request: HttpServerRequest) => Effect.Effect<HttpServerResponse.HttpServerResponse, HttpServerError>;
 }
 
@@ -101,6 +103,20 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
     const agent = deps.agentFor(session.value.uid);
 
     if (path === "/api/folders") return json(yield* agent.rootFolders());
+
+    const media = path.match(/^\/api\/files\/(\d{1,15})\/(thumb|stream)$/);
+    if (media && request.method === "GET") {
+      const id = Number(media[1]);
+      if (media[2] === "thumb") {
+        const url = yield* agent.thumbnail(id);
+        const dev = deps.config.devUpstream;
+        return url && (/^https:\/\//.test(url) || (dev !== null && url.startsWith(`${dev}/`)))
+          ? HttpServerResponse.redirect(url).pipe(HttpServerResponse.setHeader("cache-control", "private, max-age=3600"))
+          : HttpServerResponse.empty({ status: 404 }).pipe(HttpServerResponse.setHeader("cache-control", "private, max-age=3600"));
+      }
+      const hls = yield* agent.stream(id);
+      return hls ? json({ hls }).pipe(HttpServerResponse.setHeader("cache-control", "no-store")) : json({ error: "no stream" }, 404);
+    }
 
     if (path === "/agent" || path.startsWith("/agent/")) {
       if (request.headers.upgrade?.toLowerCase() !== "websocket") return text("Expected a WebSocket upgrade.", 426);

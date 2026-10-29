@@ -129,9 +129,24 @@ const putio = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
     log(`access_token code=${form.get("code")} → ${ok ? 200 : 400}`);
     return ok ? json(res, 200, { access_token: TOKEN }) : json(res, 400, { error: "invalid_grant", status: "ERROR" });
   }
+  const shot = route.match(/^GET \/screenshot\/(\d+)\.svg$/);
+  if (shot) {
+    const hue = (Number(shot[1]) * 47) % 360;
+    res.writeHead(200, { "content-type": "image/svg+xml" });
+    return res.end(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 90"><defs><linearGradient id="g" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue} 70% 45%)"/><stop offset="1" stop-color="hsl(${(hue + 60) % 360} 70% 25%)"/></linearGradient></defs><rect width="160" height="90" fill="url(#g)"/><text x="80" y="52" font-family="monospace" font-size="14" fill="#fff" text-anchor="middle">#${shot[1]}</text></svg>`,
+    );
+  }
   if (!authorized(req)) return json(res, 401, { status: "ERROR", error_type: "invalid_grant", status_code: 401 });
   if (route === "GET /v2/account/info") {
-    return json(res, 200, { info: { user_id: 4242, username: "altay", mail: "dev@localhost", disk: {} }, status: "OK" });
+    const info = { user_id: 4242, username: "altay", mail: "dev@localhost", disk: {} };
+    return json(res, 200, { info: url.searchParams.get("download_token") === "1" ? { ...info, download_token: "fake-dl" } : info, status: "OK" });
+  }
+  const one = route.match(/^GET \/v2\/files\/(\d+)$/);
+  const found = one && files.find((f) => f.id === Number(one[1]));
+  if (found) {
+    const screenshot = found.file_type === "VIDEO" ? `${UPSTREAM}/screenshot/${found.id}.svg` : null;
+    return json(res, 200, { file: { ...found, screenshot }, status: "OK" });
   }
   if (route === "GET /v2/files/list") {
     const parent = Number(url.searchParams.get("parent_id"));

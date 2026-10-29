@@ -3,7 +3,7 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Audit } from "../shared/audit";
 import { FileFlag } from "../shared/contract";
 import { ancestors, has, type Index, indexOf, isFolder, isRegular, type Node, putioUrl, resolve } from "./library";
-import { Message, type Model, treeNodeId } from "./main";
+import { Message, type Model, PLAYER_ID, treeNodeId } from "./main";
 import { fmt, size } from "./steps";
 
 type H = HtmlBuilder<Message>;
@@ -78,10 +78,49 @@ const revealButton = (h: H, ix: Index, n: Node) =>
     ["tree"],
   );
 
+const isPlayable = (n: Node) => has(n, FileFlag.video) && isRegular(n);
+
+/** A 16:9 tile: the put.io screenshot for videos (and the play button), the extension otherwise. */
+const tile = (h: H, n: Node) => {
+  const box = "relative grid h-9 w-16 flex-none place-items-center overflow-hidden border border-line bg-black";
+  if (!isPlayable(n)) {
+    const ext = isFolder(n) ? "dir" : (n.name.match(/\.([a-z0-9]{1,5})$/i)?.[1] ?? "file");
+    return h.span([h.Class(`${box} text-[10px] tracking-[0.08em] text-fg-4 uppercase`), h.AriaHidden(true)], [ext]);
+  }
+  return h.button(
+    [
+      h.Type("button"),
+      h.Class(`${box} group/tile`),
+      h.AriaLabel(`play ${n.name}`),
+      h.OnClick(Message.OpenedPlayer({ id: n.id, name: n.name })),
+    ],
+    [
+      h.img([
+        h.Src(`/api/files/${n.id}/thumb`),
+        h.Alt(""),
+        h.Loading("lazy"),
+        h.Decoding("async"),
+        h.Width("64"),
+        h.Height("36"),
+        h.Draggable(false),
+        h.Class("absolute inset-0 size-full object-cover select-none"),
+      ]),
+      h.span(
+        [
+          h.Class("relative text-[11px] text-fg-strong opacity-70 transition-opacity duration-160 group-hover/tile:opacity-100 [text-shadow:0_0_4px_#000]"),
+          h.AriaHidden(true),
+        ],
+        ["▶"],
+      ),
+    ],
+  );
+};
+
 const fileRow = (h: H, ix: Index, n: Node, note: string | null = null) =>
   h.li(
-    [h.Class("group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 border-t border-line px-3 py-2 first:border-t-0 hover:bg-bg")],
+    [h.Class("group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 border-t border-line px-3 py-2 first:border-t-0 hover:bg-bg")],
     [
+      tile(h, n),
       h.div(
         [h.Class("grid min-w-0 gap-0.5")],
         [
@@ -228,6 +267,19 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, siblingMax: number): Ht
         [h.Class("flex items-center gap-3")],
         [
           h.span([h.Class("text-[11px] text-fg-2 tabular-nums")], [isRegular(n) ? bytes(n) : "shared"]),
+          ...(isPlayable(n)
+            ? [
+                h.button(
+                  [
+                    h.Type("button"),
+                    h.Class("hit text-[11px] text-fg-3 transition-colors duration-160 hover:text-fg"),
+                    h.AriaLabel(`play ${n.name}`),
+                    h.OnClick(Message.OpenedPlayer({ id: n.id, name: n.name })),
+                  ],
+                  ["play"],
+                ),
+              ]
+            : []),
           ...(folder && isRegular(n)
             ? [
                 h.button(
@@ -303,6 +355,53 @@ export const treeDrawer = (h: H, model: Model) => {
           ],
         ),
         h.div([h.Role("tree"), h.AriaLabel(`${ix.rootName} tree`), h.Class("min-h-0 flex-1 overflow-y-auto overscroll-contain py-1")], tops.flatMap((n) => treeRow(h, model, ix, n, max))),
+      ],
+    ),
+  ];
+};
+
+// ---------- player ----------
+
+/** put.io's HLS stream in an overlay; Escape or the backdrop closes it. */
+export const playerView = (h: H, model: Model) => {
+  const p = model.player;
+  if (!p) return [];
+  return [
+    h.div(
+      [
+        h.Class("fixed inset-0 z-40 grid place-items-center bg-black/80 p-4 max-[520px]:p-0"),
+        h.Role("dialog"),
+        h.AriaModal(true),
+        h.AriaLabel(`playing ${p.name}`),
+        h.OnKeyDownPreventDefault((key) => (key === "Escape" ? Option.some(Message.ClosedPlayer()) : Option.none())),
+      ],
+      [
+        h.button([h.Type("button"), h.Tabindex(-1), h.AriaLabel("close player"), h.Class("absolute inset-0 cursor-default"), h.OnClick(Message.ClosedPlayer())], []),
+        h.div(
+          [h.Class("pop relative grid w-full max-w-[960px] border border-line bg-bg")],
+          [
+            h.div(
+              [h.Class("flex items-center gap-3 border-b border-line px-4 py-2.5")],
+              [
+                h.span([h.Class("min-w-0 grow truncate text-[13px] text-fg-strong"), h.Title(p.name)], [p.name]),
+                h.a(
+                  [h.Href(putioUrl(p.id)), h.Target("_blank"), h.Rel("noopener noreferrer"), h.Class("hit text-[13px] text-fg-3 hover:text-fg")],
+                  ["put.io ↗"],
+                ),
+                h.button([h.Type("button"), h.Class("hit text-[13px] text-fg-2 hover:text-fg"), h.OnClick(Message.ClosedPlayer())], ["close"]),
+              ],
+            ),
+            h.div(
+              [h.Class("relative aspect-video bg-black")],
+              p.failed
+                ? [h.p([h.Class("absolute inset-0 m-0 grid place-items-center text-[13px] text-fg-2")], ["couldn’t load this stream. try it on put.io."])]
+                : [
+                    h.video([h.Id(PLAYER_ID), h.Controls(true), h.Playsinline(true), h.Class("absolute inset-0 size-full")], []),
+                    ...(p.src === null ? [h.span([h.Class("absolute inset-0 grid place-items-center text-[13px] text-fg-3")], ["loading…"])] : []),
+                  ],
+            ),
+          ],
+        ),
       ],
     ),
   ];

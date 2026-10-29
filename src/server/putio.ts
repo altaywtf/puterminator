@@ -1,4 +1,5 @@
 import {
+  buildFileHlsStreamUrl,
   buildPutioUrl,
   createPutioSdkEffectClient,
   isPutioAuthError,
@@ -145,6 +146,26 @@ const listPaged = (parentId: number, perPage: number): Effect.Effect<Array<Putio
  * this goes through its transport directly. A per-folder walk exhausts the request window.
  */
 export const listAll = listPaged(-1, 2000);
+
+const FileMedia = Schema.Struct({ file: Schema.Struct({ file_type: Schema.String, screenshot: Schema.NullOr(Schema.String) }) });
+
+/** A file's type and screenshot URL; put.io serves screenshots without auth. */
+export const fileMedia = (id: number) =>
+  read("/files/:id", requestJson(FileMedia, { method: "GET", path: `/v2/files/${id}` })).pipe(Effect.map(({ file }) => file));
+
+const DownloadToken = Schema.Struct({ info: Schema.Struct({ download_token: Schema.String }) });
+
+/**
+ * put.io's download token: scoped to download and stream URLs, the same token put.io's own web
+ * app puts in its player URLs. The OAuth token itself never leaves the Durable Object.
+ */
+export const downloadToken = read(
+  "/account/info",
+  requestJson(DownloadToken, { method: "GET", path: "/v2/account/info", query: { download_token: 1 } }),
+).pipe(Effect.map(({ info }) => info.download_token));
+
+export const hlsUrl = (id: number, token: string, base: string = PUTIO_API) =>
+  buildFileHlsStreamUrl(base, id, { downloadToken: token });
 
 /** Top-level folders for the composer's target picker. */
 export const rootFolders: Effect.Effect<Array<Folder>, PutioError, PutioSdkContext> = listPaged(0, 1000).pipe(

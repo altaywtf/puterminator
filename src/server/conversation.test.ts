@@ -190,3 +190,23 @@ describe("a turn", () => {
     expect(agent.greeting().map((e) => e.type)).toEqual(["state", "history"]);
   });
 });
+
+describe("previews", () => {
+  it("signs streams with the download token, never the OAuth token, and only for snapshot videos", async () => {
+    const t = await setup([
+      { kind: "sse", events: toolUseTurn({ id: "toolu_1", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
+      { kind: "sse", events: textTurn("done", { input: 1, output: 1 }) },
+    ]);
+    await Effect.runPromise(t.agent.receive(send("Audit my library")));
+    await t.settle();
+
+    const hls = await Effect.runPromise(t.agent.stream(4));
+    expect(hls).toMatch(/\/v2\/files\/4\/hls\/media\.m3u8\?.*oauth_token=dl-token/);
+    expect(hls).not.toContain("putio-token");
+    expect(await Effect.runPromise(t.agent.stream(1))).toBeNull(); // a folder
+    expect(await Effect.runPromise(t.agent.stream(999))).toBeNull(); // not in the snapshot
+    expect(await Effect.runPromise(t.agent.thumbnail(4))).toBe("https://img.put.io/s/4.jpg");
+    expect(await Effect.runPromise(t.agent.thumbnail(999))).toBeNull();
+  });
+});
+
