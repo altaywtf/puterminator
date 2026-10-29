@@ -32,8 +32,14 @@ pnpm run deploy        # typecheck, test, build, alchemy deploy --stage prod
 | Concern | Lives in |
 | --- | --- |
 | Infra: Worker, Durable Object, assets, domain, secrets | [`alchemy.run.ts`](alchemy.run.ts), props in [`src/server/worker.ts`](src/server/worker.ts) |
-| HTTP routes, OAuth, session cookie | [`src/server/worker.ts`](src/server/worker.ts) |
-| Conversation, history, credits, file snapshot | [`src/server/agent.ts`](src/server/agent.ts) (Durable Object `Puterminator`) |
+| Config read and validation (fail-closed) | [`src/server/config.ts`](src/server/config.ts) |
+| HTTP routes, OAuth | [`src/server/routes.ts`](src/server/routes.ts), mounted by [`src/server/worker.ts`](src/server/worker.ts) |
+| Session and OAuth state cookies | [`src/server/session.ts`](src/server/session.ts) |
+| Durable Object `Puterminator` (sockets, storage binding) | [`src/server/agent.ts`](src/server/agent.ts) |
+| Conversation, tools, credits | [`src/server/conversation.ts`](src/server/conversation.ts) |
+| Tool Runner in Effect | [`src/server/runner.ts`](src/server/runner.ts) |
+| v1 tables (state, token, usage, history, snapshot) | [`src/server/store.ts`](src/server/store.ts) |
+| put.io reads, 429 policy | [`src/server/putio.ts`](src/server/putio.ts) |
 | Scoring (pure) | [`src/server/audit.ts`](src/server/audit.ts) |
 | Path rebuild from the flat file list (pure) | [`src/server/tree.ts`](src/server/tree.ts) |
 | Wire contract (Effect Schema) | [`src/shared/contract.ts`](src/shared/contract.ts), [`src/shared/audit.ts`](src/shared/audit.ts) |
@@ -67,6 +73,8 @@ flowchart LR
 - Tools are `betaStandardSchemaTool` with `strict: true`. Input schemas are Effect Schemas with explicit JSON Schema: no `minimum`/`maximum` (use `Schema.Finite`, not `Schema.Int`), no optional keys, closed objects. Strict tool use on Sonnet 5.5 rejects the rest.
 - Each tool runs its Effect with the turn's captured context, so a missing layer (put.io, storage) is a compile error.
 - History stays append-only as Anthropic `BetaMessageParam` rows, so thinking signatures and the cached prefix stay valid.
+- A `stop` frame interrupts the turn fiber. A turn that ends with an unanswered `tool_use` (stopped, or put.io rejected the token) gets an `is_error` tool result appended, so the next request stays valid. A put.io 401 also drops the stored token.
+- put.io reads retry a 429 while `x-ratelimit-reset` is 10 s away or less, up to four times; a longer wait becomes a tool error with the retry time.
 
 ### Durable Object data
 
@@ -79,6 +87,7 @@ flowchart LR
 - Every `Config` read in the Worker's construction phase becomes a secret binding on deploy. Values come from the deployer's environment (`.env`), never from Cloudflare.
 - An upload replaces the whole binding set. A live secret that is not read through `Config` is deleted.
 - Required: `ANTHROPIC_API_KEY`, `PUTIO_CLIENT_ID`, `PUTIO_CLIENT_SECRET`, `SESSION_SECRET` (32+ characters). Optional: `MODEL`, `MONTHLY_TOKEN_CAP` (weighted tokens per month; one credit is 1,000).
+- A missing required key fails the Worker's Init, so a deploy without it stops. A blank or short sign-in secret leaves the Worker up with `configured: false`; every route but `/api/me` then fails closed.
 - The public URL is the Worker's URL output (the custom domain), not a variable.
 
 ### Deploy with Alchemy

@@ -1,11 +1,10 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
-import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import { HttpServerRequest } from "effect/http/HttpServerRequest";
-import * as HttpServerResponse from "effect/http/HttpServerResponse";
-import * as Redacted from "effect/Redacted";
-import { type Me, WORKER_ROUTES } from "../shared/contract";
+import { WORKER_ROUTES } from "../shared/contract";
 import Puterminator from "./agent";
+import { readConfig } from "./config";
+import { makeHandler } from "./routes";
 
 export const DOMAIN = "puterminator.uinaf.dev";
 
@@ -29,31 +28,15 @@ export default Cloudflare.Worker(
   Effect.gen(function* () {
     // Every Config read here becomes a secret binding on deploy. An upload replaces the whole
     // binding set, so a live secret not read here is deleted.
-    const putioClientId = yield* Config.String("PUTIO_CLIENT_ID");
-    const putioClientSecret = yield* Config.Redacted("PUTIO_CLIENT_SECRET");
-    const sessionSecret = yield* Config.Redacted("SESSION_SECRET");
-    yield* Config.Redacted("ANTHROPIC_API_KEY");
-    yield* Config.String("MODEL").pipe(Config.withDefault("claude-sonnet-5-5"));
-    yield* Config.Int("MONTHLY_TOKEN_CAP").pipe(Config.withDefault(1_000_000));
+    const config = yield* readConfig;
     const publicUrl = yield* Cloudflare.Worker.URL;
-    yield* Puterminator;
+    const agents = yield* Puterminator;
+    const handle = makeHandler({ config, agentFor: (uid) => agents.getByName(uid) });
 
-    // Stub: the backend stage replaces this with OAuth, sessions, /api/folders and /agent.
     return {
       fetch: Effect.gen(function* () {
         const request = yield* HttpServerRequest;
-        const path = new URL(request.url, yield* publicUrl).pathname;
-        if (path === "/api/me") {
-          const me: Me = {
-            configured:
-              putioClientId.trim().length > 0 &&
-              Redacted.value(putioClientSecret).trim().length > 0 &&
-              Redacted.value(sessionSecret).length >= 32,
-            signedIn: false,
-          };
-          return yield* HttpServerResponse.json(me);
-        }
-        return HttpServerResponse.text("Not implemented yet.", { status: 501 });
+        return yield* handle(request, yield* publicUrl);
       }),
     };
   }),
