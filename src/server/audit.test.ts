@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { audit, isMessyName, junkReason, mediaKey } from "./audit";
-import { buildTree, type WalkedFile } from "./putio";
+import { buildTree, type WalkedFile } from "./tree";
 
 let id = 1;
 const file = (path: string, over: Partial<WalkedFile> = {}): WalkedFile => {

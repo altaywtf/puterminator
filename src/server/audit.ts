@@ -1,4 +1,4 @@
-import type { WalkedFile } from "./putio";
+import type { WalkedFile } from "./tree";
 
 const RELEASE_TAG =
   /\b(2160p|1080p|720p|480p|x26[45]|h\.?26[45]|hevc|web-?dl|webrip|bluray|brrip|bdrip|hdtv|dvdrip|hdrip|aac|ac3|ddp?5\.1|10bit|yify|yts|rarbg|eztv|ettv|proper|repack)\b/i;

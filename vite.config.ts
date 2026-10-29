@@ -1,10 +1,18 @@
-import { cloudflare } from "@cloudflare/vite-plugin";
+import { foldkit } from "@foldkit/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react";
-import path from "node:path";
 import { defineConfig } from "vite";
 
+// `alchemy dev` serves the Worker on :1337; `pnpm dev:client` proxies the Worker routes to it.
+const worker = "http://localhost:1337";
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), cloudflare()],
-  resolve: { alias: { "@": path.resolve(import.meta.dirname, "src/client") } },
+  plugins: [tailwindcss(), foldkit()],
+  build: { outDir: "dist", emptyOutDir: true },
+  server: {
+    proxy: {
+      "/api": worker,
+      "/auth": worker,
+      "/agent": { target: worker, ws: true },
+    },
+  },
 });
