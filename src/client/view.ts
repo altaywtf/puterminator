@@ -45,19 +45,6 @@ const dot = (h: H, tone: "live" | "ok" | "warn" | "error" | null = null) =>
 
 const label = (h: H, text: string, extra = "") => h.span([h.Class(`u-label ${extra}`)], [text]);
 
-/** Segment ticks for what's left of the month's credits. */
-const creditTicks = (h: H, c: Credits) => {
-  const cap = Math.max(1, Math.floor(c.cap / 1000));
-  const on = Math.round((creditsLeft(c) / cap) * 10);
-  return h.span(
-    [h.Class("u-progress"), h.Title("credits left this month")],
-    [
-      ...Array.from({ length: 10 }, (_, i) => h.i([h.Class("max-[560px]:hidden"), ...(i < on ? [h.DataAttribute("on", "")] : [])], [])),
-      h.span([h.Class("tabular-nums")], [`${fmt(creditsLeft(c))}`]),
-    ],
-  );
-};
-
 // ---------- shell ----------
 
 const status = (h: H, model: Model) =>
@@ -461,46 +448,43 @@ const composer = (h: H, model: Model, placeholder: string, floating: boolean) =>
   const busy = isBusy(model);
   const connected = model.connection._tag === "Connected";
   const canSend = connected && model.draft.trim().length > 0;
+  const sep = h.span([h.Class("text-fg-4"), h.AriaHidden(true)], ["·"]);
   return h.form(
     [
       h.Class(
-        "pointer-events-auto grid w-full gap-2 rounded-xs border border-line-strong bg-sunk pt-3 pe-2 pb-2 ps-3 transition-colors duration-160 hover:border-line-hover focus-within:border-fg-2!",
+        "pointer-events-auto grid w-full gap-3 rounded-xs border border-line-strong bg-raised px-4 pt-3.5 pb-3 transition-colors duration-160 hover:border-line-hover focus-within:border-fg-3!",
       ),
       h.OnSubmit(Message.SubmittedDraft()),
     ],
     [
+      h.label([h.For(COMPOSER_ID), h.Class("sr-only")], ["message puterminator"]),
+      h.textarea([
+        h.Id(COMPOSER_ID),
+        h.Value(model.draft),
+        h.Rows(1),
+        h.Placeholder(placeholder),
+        h.Autocomplete("off"),
+        h.EnterKeyHint("send"),
+        h.Class(
+          "block max-h-[160px] min-h-[24px] w-full resize-none border-0 bg-transparent p-0 text-[16px] leading-normal text-fg-strong caret-accent outline-none [field-sizing:content] placeholder:text-fg-3 focus-visible:outline-none min-[761px]:text-[14px]",
+        ),
+        h.OnInput((value) => Message.UpdatedDraft({ value })),
+        h.OnKeyDownPreventDefault((key, mods) => (key === "Enter" && !mods.shiftKey && !mods.altKey ? Option.some(Message.SubmittedDraft()) : Option.none())),
+      ]),
       h.div(
-        [h.Class("flex items-start gap-2.5")],
+        [h.Class("flex min-w-0 items-center gap-2 text-[11px] text-fg-3")],
         [
-          h.span([h.Class("pt-0.5 text-fg-4 select-none"), h.AriaHidden(true)], [">"]),
-          h.label([h.For(COMPOSER_ID), h.Class("sr-only")], ["message puterminator"]),
-          h.textarea([
-            h.Id(COMPOSER_ID),
-            h.Value(model.draft),
-            h.Rows(1),
-            h.Placeholder(placeholder),
-            h.Autocomplete("off"),
-            h.EnterKeyHint("send"),
-            h.Class(
-              "block max-h-[160px] min-h-[24px] w-full resize-none border-0 bg-transparent py-0.5 text-[16px] leading-normal text-fg-strong caret-accent outline-none [field-sizing:content] placeholder:text-fg-4 focus-visible:outline-none min-[761px]:text-[14px]",
-            ),
-            h.OnInput((value) => Message.UpdatedDraft({ value })),
-            h.OnKeyDownPreventDefault((key, mods) => (key === "Enter" && !mods.shiftKey && !mods.altKey ? Option.some(Message.SubmittedDraft()) : Option.none())),
-          ]),
-        ],
-      ),
-      h.div(
-        [h.Class("-ms-1.5 flex min-w-0 items-center gap-1")],
-        [
-          folderMenu(h, model, !floating),
-          h.span([h.Class("pick cursor-default max-[400px]:hidden"), h.Title("model")], ["sonnet 5.5"]),
+          h.span([h.Class("-ms-1.5")], [folderMenu(h, model, !floating)]),
+          sep,
+          h.span([h.Class("max-[400px]:hidden"), h.Title("model")], ["sonnet 5.5"]),
           h.span([h.Class("grow")], []),
-          ...(model.agent ? [h.span([h.Class("pick cursor-default max-[360px]:hidden")], [creditTicks(h, model.agent.credits)])] : []),
-          h.span([h.Class("u-kbd me-1 max-[760px]:hidden"), h.AriaHidden(true)], ["↵"]),
+          ...(model.agent
+            ? [h.span([h.Class("tabular-nums max-[360px]:hidden"), h.Title("credits left this month")], [`${fmt(creditsLeft(model.agent.credits))} credits`])]
+            : []),
           busy
             ? h.button([h.Type("button"), h.Class("u-btn u-btn--sm"), h.OnClick(Message.ClickedStop())], [dot(h, "live"), "stop"])
             : h.button(
-                [h.Type("submit"), h.Disabled(!canSend), h.Class("u-btn u-btn--sm u-btn--primary disabled:opacity-40 disabled:active:scale-100")],
+                [h.Type("submit"), h.Disabled(!canSend), h.Class("u-btn u-btn--sm u-btn--primary disabled:opacity-30 disabled:active:scale-100")],
                 ["send"],
               ),
         ],
