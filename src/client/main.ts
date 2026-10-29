@@ -46,6 +46,8 @@ export const Model = Schema.Struct({
   attempts: Schema.Int,
   agent: Schema.NullOr(AgentState),
   history: Schema.Array(MessageParam),
+  /** False until the first history frame; the empty home must not flash before it. */
+  synced: Schema.Boolean,
   partial: Schema.NullOr(Schema.Array(ContentBlock)),
   error: Schema.NullOr(Schema.String),
   draft: Schema.String,
@@ -265,7 +267,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model.connection._tag === "Lost" ? { model: modifyFields(model, { connection: () => Connection.Connecting() }) } : { model },
     ReceivedState: ({ state }) => ({ model: modifyFields(model, { agent: () => state }) }),
     ReceivedHistory: ({ messages }) => ({
-      model: modifyFields(model, { history: () => messages, partial: () => null }),
+      model: modifyFields(model, { history: () => messages, partial: () => null, synced: () => true }),
       commands: [ScrollThread({ force: true })],
     }),
     ReceivedMessage: ({ message: m, at }) => ({
@@ -309,6 +311,7 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     attempts: 0,
     agent: null,
     history: [],
+    synced: false,
     partial: null,
     error: null,
     draft: "",
