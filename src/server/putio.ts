@@ -37,9 +37,18 @@ async function call<T>(schema: z.ZodType<T>, token: string | null, path: string,
   const headers = new Headers(init?.headers);
   headers.set("accept", "application/json");
   if (token) headers.set("authorization", `token ${token}`);
-  const res = await fetch(`${API}${path}`, { ...init, headers });
-  if (!res.ok) throw new PutioError(`put.io ${path} → ${res.status}`, res.status);
-  return schema.parse(await res.json());
+  // Every call here is a read, so retrying a 429 is safe. Bounded: about 15s worst case.
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${API}${path}`, { ...init, headers });
+    if (res.status === 429 && attempt < 4) {
+      const after = Number(res.headers.get("retry-after"));
+      await new Promise((r) => setTimeout(r, Number.isFinite(after) && after > 0 ? Math.min(after, 8) * 1000 : 1000 * 2 ** attempt));
+      continue;
+    }
+    if (res.status === 429) throw new PutioError("put.io is rate-limiting us. Try again in a minute.", 429);
+    if (!res.ok) throw new PutioError(`put.io ${path.split("?")[0]} → ${res.status}`, res.status);
+    return schema.parse(await res.json());
+  }
 }
 
 export function authorizeUrl(clientId: string, redirectUri: string, state: string) {
@@ -92,7 +101,7 @@ export async function walk(token: string, rootId: number, maxFolders = 2000) {
   let listed = 0;
   let rootName = "Your Files";
   while (queue.length && listed < maxFolders) {
-    const batch = queue.splice(0, 6);
+    const batch = queue.splice(0, 3);
     const pages = await Promise.all(batch.map((f) => listFolder(token, f.id)));
     listed += batch.length;
     pages.forEach((page, i) => {
