@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { audit, isMessyName, junkReason, mediaKey } from "./audit";
-import type { WalkedFile } from "./putio";
+import { buildTree, type WalkedFile } from "./putio";
 
 let id = 1;
 const file = (path: string, over: Partial<WalkedFile> = {}): WalkedFile => {
@@ -61,5 +61,25 @@ describe("audit", () => {
     const a = audit([file("/Movies/Dune (2024)/Dune (2024).mkv", { depth: 3 })], "Your Files", false);
     expect(a.score).toBe(100);
     expect(a.neverPlayed.count).toBe(1);
+  });
+});
+
+describe("buildTree", () => {
+  const f = (id: number, parent_id: number, name: string, file_type = "FILE") => ({
+    id, parent_id, name, file_type, size: 1, extension: null, crc32: null, created_at: "2026-01-01", first_accessed_at: null,
+  });
+  // put.io's parent_id=-1 listing is flat and unordered: children can come before their folders.
+  const flat = [f(3, 2, "ep1.mkv", "VIDEO"), f(2, 1, "Season 01", "FOLDER"), f(1, 0, "Show", "FOLDER"), f(4, 0, "loose.txt")];
+
+  it("rebuilds paths under Your Files", () => {
+    const { files } = buildTree(flat, 0);
+    expect(files.map((x) => x.path).sort()).toEqual(["/Show", "/Show/Season 01", "/Show/Season 01/ep1.mkv", "/loose.txt"]);
+    expect(files.find((x) => x.id === 3)!.depth).toBe(3);
+  });
+
+  it("scopes to a target folder", () => {
+    const { files, rootName } = buildTree(flat, 1);
+    expect(rootName).toBe("Show");
+    expect(files.map((x) => x.path).sort()).toEqual(["/Season 01", "/Season 01/ep1.mkv"]);
   });
 });

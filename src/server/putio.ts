@@ -37,15 +37,20 @@ async function call<T>(schema: z.ZodType<T>, token: string | null, path: string,
   const headers = new Headers(init?.headers);
   headers.set("accept", "application/json");
   if (token) headers.set("authorization", `token ${token}`);
-  // Every call here is a read, so retrying a 429 is safe. Bounded: about 15s worst case.
+  // Every call here is a read, so retrying a 429 is safe. Bounded: four short waits at most.
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`${API}${path}`, { ...init, headers });
-    if (res.status === 429 && attempt < 4) {
-      const after = Number(res.headers.get("retry-after"));
-      await new Promise((r) => setTimeout(r, Number.isFinite(after) && after > 0 ? Math.min(after, 8) * 1000 : 1000 * 2 ** attempt));
-      continue;
+    if (res.status === 429) {
+      // put.io allows a fixed number of requests per window; `x-ratelimit-reset` is when it refills (epoch seconds).
+      const reset = Number(res.headers.get("x-ratelimit-reset"));
+      const waitMs = Number.isFinite(reset) && reset > 0 ? reset * 1000 - Date.now() : 1000 * 2 ** attempt;
+      if (attempt < 4 && waitMs <= 10_000) {
+        await new Promise((r) => setTimeout(r, Math.max(waitMs, 500)));
+        continue;
+      }
+      const minutes = Math.max(1, Math.ceil(waitMs / 60_000));
+      throw new PutioError(`put.io rate limit: try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`, 429);
     }
-    if (res.status === 429) throw new PutioError("put.io is rate-limiting us. Try again in a minute.", 429);
     if (!res.ok) throw new PutioError(`put.io ${path.split("?")[0]} → ${res.status}`, res.status);
     return schema.parse(await res.json());
   }
@@ -91,28 +96,48 @@ export async function listFolder(token: string, parentId: number) {
 
 export type WalkedFile = PutioFile & { path: string; depth: number };
 
-/**
- * Breadth-first walk of the tree under `rootId`. Stops after `maxFolders`
- * listings so one huge library can't exhaust the Worker subrequest budget.
- */
-export async function walk(token: string, rootId: number, maxFolders = 2000) {
-  const out: WalkedFile[] = [];
-  const queue: { id: number; path: string; depth: number }[] = [{ id: rootId, path: "", depth: 0 }];
-  let listed = 0;
-  let rootName = "Your Files";
-  while (queue.length && listed < maxFolders) {
-    const batch = queue.splice(0, 3);
-    const pages = await Promise.all(batch.map((f) => listFolder(token, f.id)));
-    listed += batch.length;
-    pages.forEach((page, i) => {
-      const dir = batch[i]!;
-      if (dir.id === rootId && rootId !== 0 && page.parent) rootName = page.parent.name;
-      for (const f of page.files) {
-        const path = `${dir.path}/${f.name}`;
-        out.push({ ...f, path, depth: dir.depth + 1 });
-        if (f.file_type === "FOLDER") queue.push({ id: f.id, path, depth: dir.depth + 1 });
-      }
+/** Every file the user has, in pages of 2,000. put.io's `parent_id=-1` means "all files", flat. */
+export async function listAll(token: string) {
+  const q = new URLSearchParams({ parent_id: "-1", per_page: "2000", hidden: "1" });
+  const first = await call(ListPage, token, `/files/list?${q}`);
+  const files = [...first.files];
+  let cursor = first.cursor;
+  while (cursor) {
+    const page = await call(ListPage, token, "/files/list/continue", {
+      method: "POST",
+      body: new URLSearchParams({ cursor, per_page: "2000" }),
     });
+    files.push(...page.files);
+    cursor = page.cursor;
   }
-  return { files: out, rootName, truncated: queue.length > 0, foldersListed: listed };
+  return files;
+}
+
+/** Rebuild paths for everything under `rootId` (0 is Your Files) from a flat listing. */
+export function buildTree(all: PutioFile[], rootId: number) {
+  const byId = new Map(all.map((f) => [f.id, f]));
+  const memo = new Map<number, { path: string; depth: number } | null>([[rootId, { path: "", depth: 0 }]]);
+  const place = (id: number, seen = new Set<number>()): { path: string; depth: number } | null => {
+    const hit = memo.get(id);
+    if (hit !== undefined) return hit;
+    const f = byId.get(id);
+    if (!f || f.parent_id == null || seen.has(id)) return null;
+    seen.add(id);
+    const parent = place(f.parent_id, seen);
+    const here = parent && { path: `${parent.path}/${f.name}`, depth: parent.depth + 1 };
+    memo.set(id, here);
+    return here;
+  };
+  const files: WalkedFile[] = [];
+  for (const f of all) {
+    if (f.id === rootId) continue;
+    const at = place(f.id);
+    if (at) files.push({ ...f, ...at });
+  }
+  return { files, rootName: rootId === 0 ? "Your Files" : (byId.get(rootId)?.name ?? "Your Files") };
+}
+
+export async function walk(token: string, rootId: number) {
+  const { files, rootName } = buildTree(await listAll(token), rootId);
+  return { files, rootName, truncated: false };
 }

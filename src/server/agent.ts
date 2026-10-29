@@ -33,6 +33,9 @@ export const weightedTokens = (u: BetaUsage) =>
 type Row = Record<string, string | number | null>;
 
 export class Puterminator extends Agent<Env, AgentState> {
+  // The instance name is the put.io user id; the browser doesn't need it.
+  static options = { sendIdentityOnConnect: false };
+
   initialState: AgentState = {
     username: null,
     folder: { id: 0, name: "Your Files" },
