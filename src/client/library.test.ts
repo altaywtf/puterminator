@@ -50,6 +50,9 @@ describe("library index", () => {
     const special = indexOf({ rootId: 0, rootName: "x", files: [[-2, 0, "Items shared with you", 0, folder]] });
     expect(isRegular(special.nodes.get(-2)!)).toBe(false);
     expect(isRegular(ix.nodes.get(1)!)).toBe(true);
+    const mixed = indexOf({ rootId: 0, rootName: "x", files: [[-2, 0, "shared", 9e15, folder], [1, 0, "a.mkv", 5, video]] });
+    expect(mixed.top).toEqual([1, -2]);
+    expect(mixed.total).toBe(5);
   });
 
   it("lists ancestors up to, not including, the root", () => {

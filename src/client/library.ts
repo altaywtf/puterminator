@@ -32,7 +32,9 @@ export const putioUrl = (id: number) => `https://app.put.io/files/${id}`;
 /** put.io lists special folders with negative ids (shared items); they can't be targeted or opened by id. */
 export const isRegular = (n: Node) => n.id >= 0;
 
-const bySize = (nodes: Map<number, Node>) => (a: number, b: number) => (nodes.get(b)?.size ?? 0) - (nodes.get(a)?.size ?? 0);
+// Special folders (negative ids, e.g. shared items with their owners' sizes) sort last and stay out of totals.
+const bySize = (nodes: Map<number, Node>) => (a: number, b: number) =>
+  Number(a < 0) - Number(b < 0) || (nodes.get(b)?.size ?? 0) - (nodes.get(a)?.size ?? 0);
 
 const build = (lib: Library): Index => {
   const nodes = new Map<number, Node>();
@@ -73,7 +75,7 @@ const build = (lib: Library): Index => {
   };
   for (const id of top) walk(id, "", 1);
   top.sort(order);
-  const total = top.reduce((a, id) => a + (nodes.get(id)?.size ?? 0), 0);
+  const total = top.reduce((a, id) => a + (id < 0 ? 0 : (nodes.get(id)?.size ?? 0)), 0);
   return { rootId: lib.rootId, rootName: lib.rootName, nodes, top, total, byPath, byName };
 };
 

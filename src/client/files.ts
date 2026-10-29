@@ -42,6 +42,8 @@ export const toolFiles = (ix: Index, name: string, input: unknown, output: strin
   return null;
 };
 
+const bytes = (n: Node) => (n.size === 0 ? "empty" : size(n.size));
+
 const parentPath = (n: Node) => n.path.slice(0, n.path.length - n.name.length - 1) || "/";
 
 const badges = (h: H, n: Node) => [
@@ -92,7 +94,7 @@ const fileRow = (h: H, ix: Index, n: Node, note: string | null = null) =>
       ),
       h.div(
         [h.Class("flex items-center gap-3")],
-        [h.span([h.Class("text-[11px] text-fg-2 tabular-nums")], [size(n.size)]), revealButton(h, ix, n), putioLink(h, n)],
+        [h.span([h.Class("text-[11px] text-fg-2 tabular-nums")], [bytes(n)]), revealButton(h, ix, n), putioLink(h, n)],
       ),
     ],
   );
@@ -189,7 +191,7 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, siblingMax: number): Ht
   const folder = isFolder(n);
   const open = folder && model.treeExpanded.includes(n.id);
   const focused = model.treeFocus === n.id;
-  const width = siblingMax > 0 ? Math.max(2, Math.round((n.size / siblingMax) * 100)) : 0;
+  const width = siblingMax > 0 && isRegular(n) ? Math.min(100, Math.max(2, Math.round((n.size / siblingMax) * 100))) : 0;
   const counts = [
     ...(n.junk > 0 ? [`${fmt(n.junk)} junk`] : []),
     ...(n.unplayed > 0 && folder ? [`${fmt(n.unplayed)} unplayed`] : []),
@@ -225,7 +227,7 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, siblingMax: number): Ht
       h.div(
         [h.Class("flex items-center gap-3")],
         [
-          h.span([h.Class("text-[11px] text-fg-2 tabular-nums")], [size(n.size)]),
+          h.span([h.Class("text-[11px] text-fg-2 tabular-nums")], [isRegular(n) ? bytes(n) : "shared"]),
           ...(folder && isRegular(n)
             ? [
                 h.button(
@@ -263,7 +265,7 @@ export const treeDrawer = (h: H, model: Model) => {
   if (!ix) return [];
   const open = model.treeOpen;
   const tops = ix.top.map((id) => ix.nodes.get(id)).filter((n) => n !== undefined);
-  const max = tops[0]?.size ?? 0;
+  const max = tops.find(isRegular)?.size ?? 0;
   return [
     ...(open
       ? [
