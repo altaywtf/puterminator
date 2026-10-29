@@ -1,7 +1,9 @@
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import { DevUpstream } from "./dev";
 
 // Secrets arrive as untyped strings; a blank one must stop sign-in, not leak "undefined" into a put.io URL.
 const Secret = Schema.String.check(
@@ -28,6 +30,8 @@ export type AppConfig = {
   readonly anthropicApiKey: Redacted.Redacted<string>;
   readonly model: string;
   readonly monthlyTokenCap: number;
+  /** Local dev only: base URL of the fake put.io and Anthropic. */
+  readonly devUpstream: string | null;
 };
 
 /** The keys that fail validation. Names only: values never reach a log. */
@@ -61,11 +65,12 @@ export const readConfig = Effect.gen(function* () {
   const anthropicApiKey = yield* Config.Redacted("ANTHROPIC_API_KEY");
   const model = yield* Config.String("MODEL").pipe(Config.withDefault("claude-sonnet-5-5"));
   const monthlyTokenCap = yield* Config.Int("MONTHLY_TOKEN_CAP").pipe(Config.withDefault(1_000_000));
+  const devUpstream = Option.getOrNull(yield* Config.schema(DevUpstream, "DEV_FAKE_UPSTREAM").pipe(Config.option));
   const auth = yield* validateAuth({
     PUTIO_CLIENT_ID,
     PUTIO_CLIENT_SECRET: Redacted.value(PUTIO_CLIENT_SECRET),
     SESSION_SECRET: Redacted.value(SESSION_SECRET),
   });
-  const config: AppConfig = { auth, anthropicApiKey, model, monthlyTokenCap };
+  const config: AppConfig = { auth, anthropicApiKey, model, monthlyTokenCap, devUpstream };
   return config;
 });

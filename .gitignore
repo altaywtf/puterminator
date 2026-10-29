@@ -3,5 +3,4 @@ dist
 .alchemy
 .env
 .dev.vars
-.wrangler
 worker-configuration.d.ts

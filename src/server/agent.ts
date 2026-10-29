@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 import { ServerFrame, type ServerEvent } from "../shared/contract";
 import { readConfig } from "./config";
 import { makeAgent } from "./conversation";
+import { upstreamFetch } from "./dev";
 import { anthropicLayer } from "./runner";
 import { makeStore, type Sql } from "./store";
 
@@ -17,6 +18,7 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
     const state = yield* Cloudflare.DurableObjectState;
     return Effect.gen(function* () {
       const config = yield* readConfig.pipe(Effect.orDie);
+      const devFetch = config.devUpstream ? upstreamFetch(config.devUpstream) : undefined;
       const raw = state.raw;
       const sql: Sql = {
         exec: (query, ...bindings) => raw.storage.sql.exec(query, ...bindings).toArray(),
@@ -26,7 +28,8 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         store: makeStore(sql),
         model: config.model,
         monthlyTokenCap: config.monthlyTokenCap,
-        anthropic: anthropicLayer({ apiKey: config.anthropicApiKey }),
+        anthropic: anthropicLayer({ apiKey: config.anthropicApiKey, ...(devFetch ? { fetch: devFetch } : {}) }),
+        ...(devFetch ? { putioFetch: devFetch } : {}),
         broadcast: (event: ServerEvent) => {
           const frame = encodeEvent(event);
           for (const ws of raw.getWebSockets()) {

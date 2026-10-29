@@ -4,6 +4,7 @@ import { HttpServerRequest } from "effect/http/HttpServerRequest";
 import { WORKER_ROUTES } from "../shared/contract";
 import Puterminator from "./agent";
 import { readConfig } from "./config";
+import { upstreamFetch } from "./dev";
 import { makeHandler } from "./routes";
 
 export const DOMAIN = "puterminator.uinaf.dev";
@@ -31,7 +32,11 @@ export default Cloudflare.Worker(
     const config = yield* readConfig;
     const publicUrl = yield* Cloudflare.Worker.URL;
     const agents = yield* Puterminator;
-    const handle = makeHandler({ config, agentFor: (uid) => agents.getByName(uid) });
+    const handle = makeHandler({
+      config,
+      agentFor: (uid) => agents.getByName(uid),
+      ...(config.devUpstream ? { putioFetch: upstreamFetch(config.devUpstream) } : {}),
+    });
 
     return {
       fetch: Effect.gen(function* () {

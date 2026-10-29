@@ -16,7 +16,11 @@ pnpm dev               # vite build, then alchemy dev on http://localhost:1337
 pnpm dev:client        # optional: Vite with HMR, proxying the Worker routes to :1337
 ```
 
-UI work without put.io or Anthropic: run `node src/client/dev/fake-agent.mjs` in place of `pnpm dev`, then `pnpm dev:client`. `FAKE=thread|empty|signed-out|unconfigured` picks the state; the prompts `boom` and `hold` show the error row and a running step.
+Without put.io or Anthropic: `pnpm dev:fake`. It runs the same Worker and Durable Object under `alchemy dev` (stage `fake`, throwaway secrets), with both APIs served by [`dev-fake.ts`](src/server/testing/dev-fake.ts) on `:8788`.
+
+- Sign-in runs the real OAuth routes against the fake. Prompts with "audit", "junk" or "folder" call tools; anything else streams a long reply to stop.
+- `FAKE_UNCONFIGURED=1 pnpm dev:fake` shows the unconfigured state.
+- `DEV_FAKE_UPSTREAM` routes put.io and Anthropic calls to the fake. Only a loopback `http` URL decodes, and a `prod` deploy with it set stops.
 
 Register a put.io OAuth app at <https://app.put.io/oauth> with callback `<public URL>/auth/callback`.
 
@@ -47,8 +51,6 @@ pnpm run deploy        # typecheck, test, build, alchemy deploy --stage prod
 | Wire contract (Effect Schema) | [`src/shared/contract.ts`](src/shared/contract.ts), [`src/shared/audit.ts`](src/shared/audit.ts) |
 | Thread view model (`Item`, `Turn`, `toTurns`) | [`src/shared/thread.ts`](src/shared/thread.ts) |
 | UI | [`src/client`](src/client) |
-
-v1 (Agents SDK, React, wrangler) stays in [`reference/v1`](reference/v1) until the rewrite covers it.
 
 ### Request flow
 

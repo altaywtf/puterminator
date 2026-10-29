@@ -73,3 +73,65 @@ describe("config", () => {
     });
   }
 });
+
+describe("OAuth callback", () => {
+  // put.io's token and account endpoints, in their recorded shapes.
+  const putio = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    if (url.pathname === "/v2/oauth2/access_token") {
+      const form = new URLSearchParams(await request.text());
+      if (form.get("code") !== "good-code") return Response.json({ error: "invalid_grant" }, { status: 400 });
+      return Response.json({ access_token: "tok-1" });
+    }
+    if (url.pathname === "/v2/account/info" && request.headers.get("authorization")?.endsWith("tok-1")) {
+      return Response.json({ info: { user_id: 77, username: "altay", disk: {} }, status: "OK" });
+    }
+    return Response.json({ status: "ERROR" }, { status: 401 });
+  }) as typeof fetch;
+
+  const callback = async (code: string) => {
+    const config = await configFrom(valid);
+    if (!Exit.isSuccess(config)) throw new Error("config failed");
+    const calls: Array<[string, string, string]> = [];
+    const agent = (uid: string): UserAgent => ({
+      setAuth: (token, username) => Effect.sync(() => void calls.push([uid, token, username])),
+      signOut: () => Effect.void,
+      rootFolders: () => Effect.succeed([]),
+      fetch: () => Effect.die("unused"),
+    });
+    const handle = makeHandler({ config: config.value, agentFor: agent, putioFetch: putio });
+    const request = new Request(`${PUBLIC_URL}/auth/callback?code=${code}&state=st`, { headers: { cookie: "pt_oauth_state=st" } });
+    const response = HttpServerResponse.toWeb(await Effect.runPromise(handle(HttpServerRequest.fromWeb(request), PUBLIC_URL)));
+    const session = response.headers.getSetCookie().find((c) => c.startsWith("pt_session=")) ?? "";
+    const me = await Effect.runPromise(
+      handle(HttpServerRequest.fromWeb(new Request(`${PUBLIC_URL}/api/me`, { headers: { cookie: session.split(";")[0] ?? "" } })), PUBLIC_URL),
+    );
+    return { response, calls, session, me: await HttpServerResponse.toWeb(me).json() };
+  };
+
+  it("exchanges the code, stores the token in the user's object and signs a session", async () => {
+    const { response, calls, session, me } = await callback("good-code");
+    expect([response.status, response.headers.get("location")]).toEqual([302, "/"]);
+    expect(calls).toEqual([["putio-77", "tok-1", "altay"]]);
+    expect(session).toMatch(/HttpOnly/);
+    expect(me).toEqual({ configured: true, signedIn: true });
+  });
+
+  it("answers 502 and stores nothing when put.io rejects the code", async () => {
+    const { response, calls, me } = await callback("reused-code");
+    expect(response.status).toBe(502);
+    expect(calls).toEqual([]);
+    expect(me).toEqual({ configured: true, signedIn: false });
+  });
+});
+
+describe("DEV_FAKE_UPSTREAM", () => {
+  it("accepts only a loopback http URL, and sends sign-in there", async () => {
+    for (const bad of ["https://localhost:8788", "http://api.put.io", "http://10.0.0.1:8788", "nope"]) {
+      expect(Exit.isFailure(await configFrom({ ...valid, DEV_FAKE_UPSTREAM: bad })), bad).toBe(true);
+    }
+    const to = new URL((await call({ ...valid, DEV_FAKE_UPSTREAM: "http://localhost:8788" }, "/auth/login")).headers.get("location") ?? "");
+    expect(to.origin + to.pathname).toBe("http://localhost:8788/v2/oauth2/authenticate");
+  });
+});

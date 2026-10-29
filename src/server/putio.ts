@@ -15,6 +15,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import type { Folder } from "../shared/contract";
+import { PUTIO_API } from "./dev";
 import type { PutioFile } from "./tree";
 
 const sdk = createPutioSdkEffectClient();
@@ -81,8 +82,8 @@ export const read = <A, R>(
 };
 
 /** put.io's own authorize endpoint, as v1 used it; it hands over to the put.io login page. */
-export const authorizeUrl = (clientId: string, redirectUri: string, state: string) =>
-  buildPutioUrl("https://api.put.io", "/v2/oauth2/authenticate", {
+export const authorizeUrl = (clientId: string, redirectUri: string, state: string, base: string = PUTIO_API) =>
+  buildPutioUrl(base, "/v2/oauth2/authenticate", {
     client_id: clientId,
     response_type: "code",
     redirect_uri: redirectUri,

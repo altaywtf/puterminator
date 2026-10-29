@@ -56,7 +56,7 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
 
     if (path === "/auth/login") {
       const state = crypto.randomUUID();
-      return HttpServerResponse.redirect(authorizeUrl(auth.putioClientId, callback, state)).pipe(
+      return HttpServerResponse.redirect(authorizeUrl(auth.putioClientId, callback, state, deps.config.devUpstream ?? undefined)).pipe(
         HttpServerResponse.setCookieUnsafe(STATE_COOKIE, state, cookieOptions(STATE_MAX_AGE_SEC)),
       );
     }
