@@ -135,3 +135,15 @@
     transition: none !important;
   }
 }
+
+/* The slime oozes down once when a frame mounts. */
+.art .slime {
+  transform-box: fill-box;
+  transform-origin: top;
+  animation: ooze 700ms var(--ease-snappy) 120ms both;
+}
+@keyframes ooze {
+  from {
+    transform: scaleY(0);
+  }
+}

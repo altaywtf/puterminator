@@ -5,6 +5,7 @@ import type { Audit } from "../shared/audit";
 import { creditsLeft, type Folder, type LastAudit, ROOT_FOLDER } from "../shared/contract";
 import { type Item, type Turn, toTurns } from "../shared/thread";
 import { COMPOSER_ID, isBusy, Message, type Model, Session, THREAD_ID, targetFolder } from "./main";
+import { art, type Mood, moodOf } from "./art";
 import { renderMarkdown } from "./markdown";
 import { auditOf, callLine, describeStep, fmt, size } from "./steps";
 import { thoughtSeconds } from "./thinking";
@@ -69,7 +70,7 @@ const signInView = (h: H, configured: boolean) =>
           h.div(
             [h.Class("u-panel u-ticks grid gap-6 p-8!")],
             [
-              mark(h, 64),
+              art(h, configured ? "asleep" : "unplugged", 72),
               h.div(
                 [h.Class("grid gap-2")],
                 [
@@ -146,7 +147,7 @@ const toolView = (h: H, item: ToolItem, model: Model) => {
         ]);
   const score =
     item.name === "scan_library" && item.state === "done"
-      ? Option.match(auditOf(item.output), { onNone: () => [], onSome: (a) => [scoreCard(h, a)] })
+      ? Option.match(auditOf(item.output), { onNone: () => [], onSome: (a) => [scoreCard(h, a, item.key)] })
       : [];
   return h.keyed("div")(item.key, [h.Class("grid min-w-0 gap-3")], [
     h.div([h.Class("grid min-w-0 gap-1")], [head, ...(open || item.state === "running" ? [body] : [])]),
@@ -156,19 +157,17 @@ const toolView = (h: H, item: ToolItem, model: Model) => {
 
 // ---------- score card ----------
 
-/** One dry line under the number; the number stays the value. */
-export const mood = (a: Audit) =>
-  a.score >= 90 && a.junk.count === 0 && a.duplicates.groups === 0
-    ? "no junk. no doubles. rare."
-    : a.score >= 90
-      ? "nothing to terminate."
-      : a.score >= 75
-        ? "mostly tidy. a little dust."
-        : a.score >= 50
-          ? "lived in."
-          : a.score >= 25
-            ? "needs a mop."
-            : "slime all the way down.";
+const MOOD_LINE: Record<Mood, string> = {
+  jar: "no junk. no doubles. rare.",
+  shades: "nothing to terminate.",
+  dust: "mostly tidy. a little dust.",
+  mop: "lived in.",
+  wading: "needs a mop.",
+  flood: "slime all the way down.",
+  idle: "",
+  asleep: "",
+  unplugged: "",
+};
 
 const bar = (h: H, label: string, value: number, note: string) => {
   const v = Math.min(100, Math.max(0, value));
@@ -182,7 +181,8 @@ const bar = (h: H, label: string, value: number, note: string) => {
   );
 };
 
-const scoreCard = (h: H, a: Audit) => {
+const scoreCard = (h: H, a: Audit, uid: string) => {
+  const mood = moodOf(a);
   const facts = [
     `${fmt(a.totals.items)} items`,
     size(a.totals.bytes),
@@ -197,6 +197,10 @@ const scoreCard = (h: H, a: Audit) => {
         [h.Class("grid grid-cols-[minmax(0,auto)_1fr] items-end gap-x-10 gap-y-5 max-[520px]:grid-cols-1")],
         [
           h.div(
+            [h.Class("grid grid-cols-[auto_auto] items-end gap-x-5")],
+            [
+              art(h, mood, 64, uid),
+              h.div(
             [h.Class("grid gap-2")],
             [
               h.span([h.Class("u-label")], ["library score"]),
@@ -207,7 +211,9 @@ const scoreCard = (h: H, a: Audit) => {
                   h.span([h.Class("text-[13px] text-fg-3")], ["/100"]),
                 ],
               ),
-              h.span([h.Class("text-[13px] text-fg-2")], [mood(a)]),
+              h.span([h.Class("text-[13px] text-fg-2")], [MOOD_LINE[mood]]),
+            ],
+          ),
             ],
           ),
           h.div(
@@ -445,7 +451,7 @@ const threadPage = (h: H, model: Model) => {
           h.div(
             [h.Class(`${COLUMN} enter gap-6 pt-[12vh] pb-10`)],
             [
-              mark(h, 64),
+              art(h, "idle", 80),
               h.div(
                 [h.Class("grid gap-2")],
                 [
