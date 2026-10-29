@@ -4,7 +4,7 @@ import type { Audit } from "../shared/audit";
 import { type Credits, creditsLeft, type Folder, type LastAudit, ROOT_FOLDER } from "../shared/contract";
 import { type Item, type Turn, toTurns } from "../shared/thread";
 import { art, type Mood, moodOf } from "./art";
-import logoUrl from "./logo.svg";
+import logoUrl from "./logo.svg?inline";
 import { COMPOSER_ID, isBusy, Message, type Model, Session, THREAD_ID, targetFolder } from "./main";
 import { renderMarkdown } from "./markdown";
 import { auditOf, callLine, describeStep, fmt, size } from "./steps";
@@ -448,7 +448,7 @@ const composer = (h: H, model: Model, placeholder: string, floating: boolean) =>
   const busy = isBusy(model);
   const connected = model.connection._tag === "Connected";
   const canSend = connected && model.draft.trim().length > 0;
-  const sep = h.span([h.Class("text-fg-4"), h.AriaHidden(true)], ["·"]);
+  const sep = h.span([h.Class("text-fg-4 max-[400px]:hidden"), h.AriaHidden(true)], ["·"]);
   return h.form(
     [
       h.Class(
