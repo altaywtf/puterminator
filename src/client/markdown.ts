@@ -27,7 +27,7 @@ function render(node: Nodes): Child {
         [ih.code([], [node.value])],
       );
     case "paragraph":
-      return ih.p([ih.Class("m-0 max-w-[64ch] text-pretty")], children(node));
+      return ih.p([ih.Class("m-0 max-w-[64ch] text-pretty text-fg")], children(node));
     case "strong":
       return ih.strong([ih.Class("font-bold text-fg-strong")], children(node));
     case "emphasis":
@@ -64,8 +64,8 @@ function render(node: Nodes): Child {
         ),
       );
       return node.ordered
-        ? ih.ol([ih.Class("m-0 grid max-w-[64ch] list-decimal gap-1 ps-6 marker:text-fg-3")], items)
-        : ih.ul([ih.Class("m-0 grid max-w-[64ch] gap-1 ps-4 [list-style-type:'-_'] marker:text-fg-4")], items);
+        ? ih.ol([ih.Class("m-0 grid max-w-[64ch] text-fg list-decimal gap-1 ps-6 marker:text-fg-3")], items)
+        : ih.ul([ih.Class("m-0 grid max-w-[64ch] gap-1 ps-4 text-fg [list-style-type:'-_'] marker:text-fg-4")], items);
     }
     case "blockquote":
       return ih.blockquote([ih.Class("m-0 grid gap-2 border-s border-line-strong ps-3 text-fg-2")], children(node));
@@ -110,7 +110,7 @@ export const renderMarkdown = (text: string, streaming: boolean): Html => {
   const last = root.children.at(-1);
   if (streaming) {
     if (last?.type === "paragraph")
-      nodes[nodes.length - 1] = ih.p([ih.Class("m-0 max-w-[64ch] text-pretty")], [...children(last), caret()]);
+      nodes[nodes.length - 1] = ih.p([ih.Class("m-0 max-w-[64ch] text-pretty text-fg")], [...children(last), caret()]);
     else nodes.push(caret());
   }
   return ih.div([ih.Class("grid min-w-0 gap-2.5")], nodes);
