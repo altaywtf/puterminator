@@ -291,7 +291,7 @@ export const FetchStream = Command.define("FetchStream", {
     ),
 });
 
-// One player at a time; hls.js only loads for browsers without native HLS (everything but Safari).
+// One player at a time; hls.js loads on the first play.
 let hls: { destroy: () => void } | null = null;
 
 const detach = () => {
@@ -309,15 +309,11 @@ export const AttachPlayer = Command.define("AttachPlayer", {
           const video = document.getElementById(PLAYER_ID);
           if (!(video instanceof HTMLVideoElement)) return;
           detach();
-          if (video.canPlayType("application/vnd.apple.mpegurl")) {
-            await new Promise<void>((resolve, reject) => {
-              video.addEventListener("loadedmetadata", () => resolve(), { once: true });
-              video.addEventListener("error", () => reject(new Error("media error")), { once: true });
-              video.src = src;
-            });
-          } else {
-            const { default: Hls } = await import("hls.js/light");
-            if (!Hls.isSupported()) throw new Error("no MSE");
+          // hls.js wherever MSE exists: Chrome's native HLS rejects put.io's playlists (MEDIA_ERR_SRC_NOT_SUPPORTED).
+          // Native HLS only where MSE is missing, which is iOS Safari.
+          const mse = "MediaSource" in window || "ManagedMediaSource" in window;
+          const { default: Hls } = mse ? await import("hls.js/light") : { default: null };
+          if (Hls?.isSupported()) {
             const player = new Hls();
             hls = player;
             // Wait for the playlist, so a dead stream shows the failure state instead of a black box.
@@ -327,6 +323,14 @@ export const AttachPlayer = Command.define("AttachPlayer", {
               player.loadSource(src);
               player.attachMedia(video);
             });
+          } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+            await new Promise<void>((resolve, reject) => {
+              video.addEventListener("loadedmetadata", () => resolve(), { once: true });
+              video.addEventListener("error", () => reject(new Error("media error")), { once: true });
+              video.src = src;
+            });
+          } else {
+            throw new Error("no HLS support");
           }
           void video.play().catch(() => undefined);
         }),
