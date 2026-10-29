@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FileFlag, type Library } from "../shared/contract";
-import { ancestors, indexOf, resolve } from "./library";
+import { ancestors, indexOf, isRegular, resolve } from "./library";
 
 const { folder, video, played, junk } = FileFlag;
 const lib: Library = {
@@ -44,6 +44,12 @@ describe("library index", () => {
     expect(resolve(ix, "Pilot.mkv")?.id).toBe(6);
     expect(resolve(ix, "Heat.mkv")).toBeNull();
     expect(resolve(ix, "nope.mkv")).toBeNull();
+  });
+
+  it("marks put.io's negative-id special folders as not regular", () => {
+    const special = indexOf({ rootId: 0, rootName: "x", files: [[-2, 0, "Items shared with you", 0, folder]] });
+    expect(isRegular(special.nodes.get(-2)!)).toBe(false);
+    expect(isRegular(ix.nodes.get(1)!)).toBe(true);
   });
 
   it("lists ancestors up to, not including, the root", () => {

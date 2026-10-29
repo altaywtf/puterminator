@@ -29,6 +29,8 @@ export type Index = {
 export const has = (n: Node, flag: number) => (n.flags & flag) !== 0;
 export const isFolder = (n: Node) => has(n, FileFlag.folder);
 export const putioUrl = (id: number) => `https://app.put.io/files/${id}`;
+/** put.io lists special folders with negative ids (shared items); they can't be targeted or opened by id. */
+export const isRegular = (n: Node) => n.id >= 0;
 
 const bySize = (nodes: Map<number, Node>) => (a: number, b: number) => (nodes.get(b)?.size ?? 0) - (nodes.get(a)?.size ?? 0);
 

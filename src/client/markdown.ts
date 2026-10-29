@@ -27,7 +27,8 @@ function render(node: Nodes): Child {
     case "inlineCode":
     {
       const chip = "rounded-xs bg-raised px-1 text-[13px] text-fg-strong box-decoration-clone";
-      const hit = files ? resolve(files, node.value) : null;
+      const found = files ? resolve(files, node.value) : null;
+      const hit = found && found.id >= 0 ? found : null;
       return hit
         ? ih.a(
             [

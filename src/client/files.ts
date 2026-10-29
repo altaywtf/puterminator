@@ -2,7 +2,7 @@ import * as Option from "effect/Option";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Audit } from "../shared/audit";
 import { FileFlag } from "../shared/contract";
-import { ancestors, has, type Index, indexOf, isFolder, type Node, putioUrl, resolve } from "./library";
+import { ancestors, has, type Index, indexOf, isFolder, isRegular, type Node, putioUrl, resolve } from "./library";
 import { Message, type Model, treeNodeId } from "./main";
 import { fmt, size } from "./steps";
 
@@ -50,8 +50,10 @@ const badges = (h: H, n: Node) => [
   ...(has(n, FileFlag.messy) ? [h.span([h.Class("u-tag h-[18px]! max-[520px]:hidden")], ["release name"])] : []),
 ];
 
-const putioLink = (h: H, n: Node) =>
-  h.a(
+const putioLink = (h: H, n: Node): Html =>
+  !isRegular(n)
+    ? h.span([], [])
+    : h.a(
     [
       h.Href(putioUrl(n.id)),
       h.Target("_blank"),
@@ -224,7 +226,7 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, siblingMax: number): Ht
         [h.Class("flex items-center gap-3")],
         [
           h.span([h.Class("text-[11px] text-fg-2 tabular-nums")], [size(n.size)]),
-          ...(folder
+          ...(folder && isRegular(n)
             ? [
                 h.button(
                   [
