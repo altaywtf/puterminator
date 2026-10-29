@@ -21,7 +21,7 @@ describe("describeStep", () => {
 
   it("shows a tool error and a non-JSON result as the failure line", () => {
     expect(describeStep("list_folder", { path: "movies" }, '{"error":"No scan yet."}')).toEqual({
-      title: "couldn't run list_folder",
+      title: "couldn’t run list_folder",
       detail: null,
       lines: ["No scan yet."],
     });

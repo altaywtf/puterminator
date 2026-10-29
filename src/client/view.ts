@@ -36,7 +36,7 @@ const mark = (h: H, px: number) =>
     h.Width(`${px}`),
     h.Height(`${px}`),
     h.Draggable(false),
-    h.Class("block flex-none"),
+    h.Class("block flex-none select-none"),
     h.Style({ width: `${px}px`, height: `${px}px` }),
   ]);
 
@@ -71,7 +71,7 @@ const shell = (h: H, model: Model, children: Html[]) =>
               status(h, model),
               h.span([h.Class("truncate text-[13px] text-fg-3 max-[560px]:hidden")], [model.agent?.username ?? ""]),
               h.button(
-                [h.Type("button"), h.Class("text-[13px] text-fg-2 transition-colors duration-160 hover:text-fg"), h.OnClick(Message.ClickedSignOut())],
+                [h.Type("button"), h.Class("hit text-[13px] text-fg-2 transition-colors duration-160 hover:text-fg"), h.OnClick(Message.ClickedSignOut())],
                 ["sign out"],
               ),
             ],
@@ -108,7 +108,7 @@ const signInView = (h: H, configured: boolean) =>
                     [h.Class("grid justify-items-start gap-3")],
                     [
                       h.span([h.Class("u-btn opacity-40"), h.AriaDisabled(true)], ["continue with put.io"]),
-                      h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-2")], [dot(h, "warn"), "sign-in isn't wired up yet."]),
+                      h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-2")], [dot(h, "warn"), "sign-in isn’t wired up yet."]),
                     ],
                   ),
             ],
@@ -132,7 +132,7 @@ const mono = (h: H, text: string, extra = "") =>
 
 const toggle = (h: H, key: string, open: boolean, bodyId: string, children: Html[]) =>
   h.button(
-    [h.Type("button"), h.Class("step-head"), h.AriaExpanded(open), h.AriaControls(bodyId), h.OnClick(Message.ToggledStep({ key }))],
+    [h.Type("button"), h.Class("step-head hit"), h.AriaExpanded(open), h.AriaControls(bodyId), h.OnClick(Message.ToggledStep({ key }))],
     [slot(h, chev(h)), ...children],
   );
 
@@ -145,7 +145,7 @@ const liveRow = (h: H, text: string, detail: string | null = null) =>
 const thinkingRow = (h: H, item: ThinkingItem, model: Model) => {
   const bodyId = `step-${item.key}`;
   const open = model.expanded.includes(item.key);
-  if (item.streaming) return h.keyed("div")(item.key, [], [liveRow(h, "thinking")]);
+  if (item.streaming) return h.keyed("div")(item.key, [h.Class("enter-soft")], [liveRow(h, "thinking")]);
   const seconds = thoughtSeconds(model.clock, item.key);
   return h.keyed("div")(item.key, [h.Class("grid")], [
     toggle(h, item.key, open, bodyId, [h.span([h.Class("name")], [seconds === null ? "thought for a few seconds" : `thought for ${seconds}s`])]),
@@ -164,9 +164,9 @@ const toolRow = (h: H, item: ToolItem, model: Model) => {
       : toggle(h, item.key, open, bodyId, [
           ...(item.state === "error" ? [dot(h, "error")] : []),
           h.span([h.Class(`name min-w-0 truncate ${item.state === "error" ? "text-danger" : ""}`)], [d.title]),
-          ...detailSpan(h, item.state === "error" && item.output === null ? "didn't finish" : d.detail),
+          ...detailSpan(h, item.state === "error" && item.output === null ? "didn’t finish" : d.detail),
         ]);
-  return h.keyed("div")(item.key, [h.Class("grid min-w-0")], [head, ...(open || item.state === "running" ? [body] : [])]);
+  return h.keyed("div")(item.key, [h.Class(`grid min-w-0 ${item.state === "running" ? "enter-soft" : ""}`)], [head, ...(open || item.state === "running" ? [body] : [])]);
 };
 
 const runLog = (h: H, key: string, rows: Html[]) =>
@@ -207,7 +207,7 @@ const subScore = (h: H, name: string, value: number, note: string, worst: boolea
     ],
   );
 
-const scoreCard = (h: H, a: Audit, uid: string) => {
+const scoreCard = (h: H, a: Audit, uid: string, live: boolean) => {
   const mood = moodOf(a);
   const subs: Array<[string, number, string]> = [
     ["naming", a.scores.naming, `${fmt(a.naming.messy)} release names`],
@@ -219,7 +219,7 @@ const scoreCard = (h: H, a: Audit, uid: string) => {
   const worstName = worst < 100 ? subs.find((s) => s[1] === worst)?.[0] : undefined;
   const facts = [`${fmt(a.totals.items)} items`, size(a.totals.bytes), `${fmt(a.neverPlayed.count)} never played`];
   return h.div(
-    [h.Class("enter u-ticks my-2 grid border border-line bg-bg"), h.DataAttribute("testid", "score-card")],
+    [h.Class(`${live ? "enter live" : ""} u-ticks my-2 grid border border-line bg-bg`), h.DataAttribute("testid", "score-card")],
     [
       h.div(
         [h.Class("flex items-center gap-5 border-b border-line p-5")],
@@ -263,7 +263,7 @@ const scoreCard = (h: H, a: Audit, uid: string) => {
 const lazyMarkdown = createKeyedLazy();
 
 /** Text stays prose; consecutive steps share one run log; a scan's score card closes its log. */
-const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null): Html[] => {
+const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live: boolean): Html[] => {
   const out: Html[] = [];
   let rows: Html[] = [];
   let logKey = "";
@@ -289,7 +289,7 @@ const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null): Htm
         const audit = item.name === "scan_library" && item.state === "done" ? auditOf(item.output) : Option.none();
         if (Option.isSome(audit)) {
           flush();
-          out.push(h.keyed("div")(`card.${item.key}`, [], [scoreCard(h, audit.value, item.key)]));
+          out.push(h.keyed("div")(`card.${item.key}`, [], [scoreCard(h, audit.value, item.key, live)]));
         }
         break;
       }
@@ -310,14 +310,14 @@ const agentView = (h: H, turn: Turn, model: Model, caretKey: string | null, live
         [h.Class("flex items-center gap-2.5")],
         [mark(h, 20), label(h, "puterminator", "text-fg-2!"), ...(live ? [h.span([h.Class("text-[11px] text-fg-4")], ["· working"])] : [])],
       ),
-      h.div([h.Class("grid min-w-0 gap-3 ps-[30px] max-[480px]:ps-0")], agentBody(h, turn, model, caretKey)),
+      h.div([h.Class("grid min-w-0 gap-3 ps-[30px] max-[480px]:ps-0")], agentBody(h, turn, model, caretKey, live)),
     ],
   );
 
-const userView = (h: H, turn: Turn) =>
+const userView = (h: H, turn: Turn, live: boolean) =>
   h.keyed("div")(
     turn.key,
-    [h.Class("grid justify-items-end gap-1.5 border-t border-line pt-6 first:border-t-0 first:pt-0"), h.DataAttribute("role", "user")],
+    [h.Class(`grid justify-items-end gap-1.5 border-t border-line pt-6 first:border-t-0 first:pt-0 ${live ? "enter-soft" : ""}`), h.DataAttribute("role", "user")],
     [
       label(h, "you"),
       h.div(
@@ -399,7 +399,7 @@ const folderMenu = (h: H, model: Model, below: boolean) => {
       h.button(
         [
           h.Type("button"),
-          h.Class("pick max-w-[220px] min-w-0"),
+          h.Class("pick hit max-w-[220px] min-w-0"),
           h.AriaHasPopup("menu"),
           h.AriaExpanded(model.menuOpen),
           h.AriaLabel(`target folder: ${target.name}`),
@@ -419,7 +419,7 @@ const folderMenu = (h: H, model: Model, below: boolean) => {
                 h.Role("menu"),
                 h.AriaLabel("target folder"),
                 h.Class(
-                  `enter absolute start-0 z-20 grid max-h-72 w-max max-w-[min(300px,calc(100vw-48px))] min-w-52 overflow-y-auto border border-line bg-raised py-1 ${below ? "top-full mt-1" : "bottom-full mb-1"}`,
+                  `pop absolute start-0 z-20 grid max-h-72 w-max max-w-[min(300px,calc(100vw-48px))] min-w-52 overflow-y-auto border border-line bg-raised py-1 ${below ? "top-full mt-1 origin-top-left" : "bottom-full mb-1 origin-bottom-left"}`,
                 ),
               ],
               options.map((f) =>
@@ -515,7 +515,7 @@ const emptyThread = (h: H, model: Model) => {
                   h.p([h.Class("m-0 max-w-[46ch] text-fg-2")], ["i read your files, score the library and answer questions. i change nothing."]),
                 ],
               ),
-              h.span([h.Class("u-ticks grid size-[136px] place-items-center border border-line bg-black max-[520px]:hidden")], [
+              h.span([h.Class("u-ticks pointer-events-none grid size-[136px] place-items-center border border-line bg-black select-none max-[520px]:hidden")], [
                 art(h, "idle", 96),
               ]),
             ],
@@ -552,7 +552,7 @@ const threadPage = (h: H, model: Model) => {
         h.div(
           [h.Class(`${COLUMN} gap-7 pt-10 pb-[220px]`)],
           [
-            ...turns.map((t) => (t.role === "user" ? userView(h, t) : agentView(h, t, model, caretKey, busy && t === last))),
+            ...turns.map((t) => (t.role === "user" ? userView(h, t, busy && (t === last || t === turns.at(-2))) : agentView(h, t, model, caretKey, busy && t === last))),
             ...(pending ? [agentView(h, { key: "pending", role: "assistant", items: [] }, model, null, true)] : []),
             ...statusRows(h, model),
             ...(!busy && model.error === null && last?.role === "assistant" && next.length > 0
@@ -563,7 +563,7 @@ const threadPage = (h: H, model: Model) => {
       ],
     ),
     h.div(
-      [h.Class("pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-b from-transparent to-bg to-35% pt-10 pb-4 max-[760px]:pb-3")],
+      [h.Class("pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-b from-transparent to-bg to-35% pt-10 pb-[max(16px,env(safe-area-inset-bottom))]")],
       [h.div([h.Class(COLUMN)], [composer(h, model, "reply…", true)])],
     ),
   ]);

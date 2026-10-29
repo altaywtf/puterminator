@@ -39,7 +39,7 @@ export type StepText = { title: string; detail: string | null; lines: string[] }
 export function describeStep(name: string, inputValue: unknown, output: string | null): StepText {
   const input = record(inputValue);
   const out = parse(output);
-  if (out && typeof out.error === "string") return { title: `couldn't run ${name}`, detail: null, lines: [out.error] };
+  if (out && typeof out.error === "string") return { title: `couldn’t run ${name}`, detail: null, lines: [out.error] };
   if (name === "scan_library") {
     return Option.match(auditOf(output), {
       onNone: () => ({ title: "read the library", detail: null, lines: [] }),

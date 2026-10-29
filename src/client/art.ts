@@ -65,7 +65,7 @@ export const art = <M>(h: HtmlBuilder<M>, mood: Mood, px: number, uid: string = 
     [
       h.ViewBox("0 0 48 48"),
       h.AriaHidden(true),
-      h.Class("art flex-none text-fg"),
+      h.Class("art pointer-events-none flex-none text-fg select-none"),
       h.Width(`${px}`),
       h.Height(`${px}`),
       h.Fill("none"),

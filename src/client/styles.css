@@ -90,6 +90,18 @@
     white-space: nowrap;
     transition: color var(--duration-fast) var(--ease-snappy);
   }
+  .step-head .name {
+    transition: color var(--duration-fast) ease-out;
+  }
+  /* Small controls reach ~40px tall without growing their box. */
+  .hit {
+    position: relative;
+  }
+  .hit::before {
+    content: "";
+    position: absolute;
+    inset: -8px -4px;
+  }
   @media (hover: hover) and (pointer: fine) {
     button.step-head:hover .name {
       color: var(--fg);
@@ -104,9 +116,14 @@
   animation: rise var(--duration-base) var(--ease-snappy) both;
 }
 
-@utility grow-bar {
-  transform-origin: left;
-  animation: grow 600ms var(--ease-snappy) both;
+/* A live step or a message the user just sent: small and quick, history never replays it. */
+@utility enter-soft {
+  animation: rise-soft 180ms var(--ease-snappy) both;
+}
+
+/* Menus scale from their trigger (origin set where they render). */
+@utility pop {
+  animation: pop 160ms var(--ease-snappy) both;
 }
 
 @keyframes rise {
@@ -115,9 +132,21 @@
     transform: translateY(10px);
   }
 }
+@keyframes rise-soft {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
 @keyframes grow {
   from {
-    transform: scaleX(0);
+    transform: scaleX(0.04);
   }
 }
 
@@ -130,14 +159,19 @@
   }
 }
 
-/* The slime oozes down once when a frame mounts. */
-.art .slime {
+/* Only a score card that arrives live animates: ticks fill in turn, then the slime oozes once.
+   Cards replayed from history render settled. */
+.live .grow-bar {
+  transform-origin: left;
+  animation: grow 360ms var(--ease-snappy) both;
+}
+.live .art .slime {
   transform-box: fill-box;
   transform-origin: top;
-  animation: ooze 700ms var(--ease-snappy) 120ms both;
+  animation: ooze 480ms var(--ease-snappy) 200ms both;
 }
 @keyframes ooze {
   from {
-    transform: scaleY(0);
+    transform: scaleY(0.05);
   }
 }
