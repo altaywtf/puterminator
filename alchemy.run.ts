@@ -1,5 +1,6 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Alchemy from "alchemy";
+import { inMemoryState } from "alchemy/State";
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -11,11 +12,12 @@ const adoptLiveWorker = Effect.gen(function* () {
   return (yield* Alchemy.Stage) === "prod";
 });
 
-// Local state under .alchemy/ (gitignored; it holds secret values in plaintext).
+// State lives in memory: every run starts empty and re-adopts the live script by its ownership
+// tags, so CI and a laptop deploy the same way with no state to host, lock, leak or lose.
 // Cloudflare.state() would deploy a state-store Worker on the account, even under `alchemy dev`.
 export default Alchemy.Stack(
   "Puterminator",
-  { providers: Cloudflare.providers(), state: Alchemy.localState() },
+  { providers: Cloudflare.providers(), state: inMemoryState() },
   Effect.gen(function* () {
     const devUpstream = yield* Config.option(Config.String("DEV_FAKE_UPSTREAM")).pipe(Effect.orDie);
     if ((yield* Alchemy.Stage) === "prod" && Option.isSome(devUpstream)) {

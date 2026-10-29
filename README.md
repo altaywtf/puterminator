@@ -26,10 +26,12 @@ Register a put.io OAuth app at <https://app.put.io/oauth> with callback `<public
 
 ## Check and deploy
 
+A push to `main` deploys: [`ci.yml`](.github/workflows/ci.yml) runs typecheck, tests and build, then deploys stage `prod` from the `production` environment and smokes the live site. Pull requests run only the checks.
+
 ```bash
 pnpm typecheck && pnpm test && pnpm build
 op run --env-file .env.op -- pnpm run plan     # build, alchemy plan --stage prod
-op run --env-file .env.op -- pnpm run deploy   # typecheck, test, build, alchemy deploy --stage prod
+op run --env-file .env.op -- pnpm run deploy   # manual deploy: typecheck, test, build, alchemy deploy --stage prod
 ```
 
 `alchemy dev` does not typecheck; `pnpm typecheck` is the gate.
@@ -91,6 +93,11 @@ flowchart LR
 
 - Every `Config` read in the Worker's construction phase becomes a secret binding on deploy. Values come from the deployer's environment, never from Cloudflare.
 - Prod values live in 1Password item `uinaf/puterminator`; [`.env.op`](.env.op) maps them, and `op run` injects them without writing a file. A new `session-secret` signs every user out. `.env` stays local; `pnpm dev` reads it.
+- CI reads copies from the GitHub `production` environment (deployable from `main` only). After changing a value in 1Password, copy it over, then push or re-run CI:
+
+  ```bash
+  op read op://uinaf/puterminator/<field> | tr -d '\n' | gh secret set <NAME> --env production
+  ```
 - An upload replaces the whole binding set. A live secret that is not read through `Config` is deleted.
 - Required: `ANTHROPIC_API_KEY`, `PUTIO_CLIENT_ID`, `PUTIO_CLIENT_SECRET`, `SESSION_SECRET` (32+ characters). Optional: `MODEL`, `MONTHLY_TOKEN_CAP` (weighted tokens per month; one credit is 1,000).
 - A missing required key fails the Worker's Init, so a deploy without it stops. A blank or short sign-in secret leaves the Worker up with `configured: false`; every route but `/api/me` then fails closed.
@@ -98,16 +105,16 @@ flowchart LR
 
 ### Deploy with Alchemy
 
-- State is local (`.alchemy/`, gitignored). It holds secret values in plaintext. Lost state recovers: owned resources re-import on the next deploy.
+- State is in memory. Every deploy, from CI or a laptop, starts empty and re-adopts the live script by its tags; nothing is hosted, locked or written to disk.
 - Stage `prod` deploys script `puterminator` on `puterminator.uinaf.dev` (zone `uinaf.dev`), with `workers.dev` off.
 - The first `prod` deploy adopts the wrangler-deployed Worker. Only `prod` may adopt; other stages fail with `OwnedBySomeoneElse`.
 - Adoption is one-way. Alchemy uploads Durable Objects through Cloudflare's declarative exports, so wrangler's `migrations` deploys stop working for this script.
-- Auth: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in the shell, from the `uinaf-cloudflare-workers-deploy` payload in `uinaf/vault` (`sops exec-env`). Alchemy reads them before the stack runs, so they never become Worker secrets.
+- Auth: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, from the `uinaf-cloudflare-workers-deploy` payload in `uinaf/vault` (`sops exec-env`) locally, or the `production` environment in CI. Alchemy reads them before the stack runs, so they never become Worker secrets.
 - Token: Workers Scripts Write and Account Settings Read on the account, Workers Routes Write and Zone Read on `uinaf.dev`.
 
 #### Adoption and rollback
 
-- `alchemy plan` shows only a Worker `update`; Durable Object class changes are decided during the upload. The deploy log's `durable object reconciliation` line must show empty `deletedClasses` and `newSqliteClasses`.
+- With empty state, `alchemy plan` shows the Worker as `create`; the deploy adopts it. Durable Object class changes are decided during the upload from the live script's tags, not from state. The deploy log's `durable object reconciliation` line must show empty `deletedClasses` and `newSqliteClasses`.
 - Rehearsed on 2026-10-29 with a throwaway v1 Worker: adoption kept the `Puterminator` namespace and its SQLite rows, v1 session cookies stayed valid, and live turns worked.
 - `wrangler rollback` to a v1 version fails after adoption (`provisioned_class_missing_from_config`). Rollback is `pnpm run deploy` from an earlier commit of this stack.
 
