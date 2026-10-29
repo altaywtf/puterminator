@@ -11,8 +11,8 @@
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
-    "plan": "vite build && DO_NOT_TRACK=1 alchemy plan --stage prod --env-file .env.prod",
-    "deploy": "pnpm typecheck && pnpm test && vite build && DO_NOT_TRACK=1 alchemy deploy --stage prod --env-file .env.prod"
+    "plan": "vite build && DO_NOT_TRACK=1 alchemy plan --stage prod",
+    "deploy": "pnpm typecheck && pnpm test && vite build && DO_NOT_TRACK=1 alchemy deploy --stage prod"
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.84",

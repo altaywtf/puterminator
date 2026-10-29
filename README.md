@@ -28,8 +28,8 @@ Register a put.io OAuth app at <https://app.put.io/oauth> with callback `<public
 
 ```bash
 pnpm typecheck && pnpm test && pnpm build
-pnpm run plan          # build, alchemy plan --stage prod --env-file .env.prod
-pnpm run deploy        # typecheck, test, build, alchemy deploy --stage prod --env-file .env.prod
+op run --env-file .env.op -- pnpm run plan     # build, alchemy plan --stage prod
+op run --env-file .env.op -- pnpm run deploy   # typecheck, test, build, alchemy deploy --stage prod
 ```
 
 `alchemy dev` does not typecheck; `pnpm typecheck` is the gate.
@@ -89,8 +89,8 @@ flowchart LR
 
 ### Secrets
 
-- Every `Config` read in the Worker's construction phase becomes a secret binding on deploy. Values come from `.env.prod` (gitignored), never from Cloudflare.
-- `.env.prod` holds the live values: the put.io OAuth app registered for `https://puterminator.uinaf.dev/auth/callback`, and the live `SESSION_SECRET` (a new one signs every user out). `.env` stays local; `pnpm dev` reads it.
+- Every `Config` read in the Worker's construction phase becomes a secret binding on deploy. Values come from the deployer's environment, never from Cloudflare.
+- Prod values live in 1Password item `uinaf/puterminator`; [`.env.op`](.env.op) maps them, and `op run` injects them without writing a file. A new `session-secret` signs every user out. `.env` stays local; `pnpm dev` reads it.
 - An upload replaces the whole binding set. A live secret that is not read through `Config` is deleted.
 - Required: `ANTHROPIC_API_KEY`, `PUTIO_CLIENT_ID`, `PUTIO_CLIENT_SECRET`, `SESSION_SECRET` (32+ characters). Optional: `MODEL`, `MONTHLY_TOKEN_CAP` (weighted tokens per month; one credit is 1,000).
 - A missing required key fails the Worker's Init, so a deploy without it stops. A blank or short sign-in secret leaves the Worker up with `configured: false`; every route but `/api/me` then fails closed.

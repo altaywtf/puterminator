@@ -6,3 +6,4 @@ dist
 !.env.example
 .dev.vars
 worker-configuration.d.ts
+!.env.op
