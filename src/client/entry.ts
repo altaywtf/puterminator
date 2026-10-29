@@ -1,4 +1,15 @@
 import { Runtime } from "foldkit";
-import { init, Model, update, view } from "./main";
+import { init, Model, managedResources, subscriptions, update } from "./main";
+import { view } from "./view";
 
-Runtime.run(Runtime.makeApplication({ Model, init, update, view, container: document.getElementById("root") }));
+Runtime.run(
+  Runtime.makeApplication({
+    Model,
+    init,
+    update,
+    view,
+    subscriptions,
+    managedResources,
+    container: document.getElementById("root"),
+  }),
+);

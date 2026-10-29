@@ -16,6 +16,8 @@ pnpm dev               # vite build, then alchemy dev on http://localhost:1337
 pnpm dev:client        # optional: Vite with HMR, proxying the Worker routes to :1337
 ```
 
+UI work without put.io or Anthropic: run `node src/client/dev/fake-agent.mjs` in place of `pnpm dev`, then `pnpm dev:client`. `FAKE=thread|empty|signed-out|unconfigured` picks the state; the prompts `boom` and `hold` show the error row and a running step.
+
 Register a put.io OAuth app at <https://app.put.io/oauth> with callback `<public URL>/auth/callback`.
 
 ## Check and deploy
