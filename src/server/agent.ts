@@ -294,7 +294,7 @@ export class Puterminator extends Agent<Env, AgentState> {
         inputSchema: z.object({
           query: z.string(),
           category: z.enum(["any", "junk", "never_played", "messy_names", "large", "folders"]),
-          limit: z.number().int().describe("1 to 100"),
+          limit: z.number().describe("1 to 100"),
         }),
         strict: true,
         run: async ({ query, category, limit }) => {
@@ -310,7 +310,7 @@ export class Puterminator extends Agent<Env, AgentState> {
           return JSON.stringify({
             total: rows.length,
             bytes: gb(rows.reduce((a, f) => a + (f.file_type === "FOLDER" ? 0 : f.size), 0)),
-            items: rows.slice(0, Math.min(100, Math.max(1, limit))).map((f) => ({
+            items: rows.slice(0, Math.min(100, Math.max(1, Math.floor(limit)))).map((f) => ({
               path: f.path,
               type: f.file_type,
               size: gb(f.size),
