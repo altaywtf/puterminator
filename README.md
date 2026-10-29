@@ -28,7 +28,8 @@ Register a put.io OAuth app at <https://app.put.io/oauth> with callback `<public
 
 ```bash
 pnpm typecheck && pnpm test && pnpm build
-pnpm run deploy        # typecheck, test, build, alchemy deploy --stage prod
+pnpm run plan          # build, alchemy plan --stage prod --env-file .env.prod
+pnpm run deploy        # typecheck, test, build, alchemy deploy --stage prod --env-file .env.prod
 ```
 
 `alchemy dev` does not typecheck; `pnpm typecheck` is the gate.
@@ -88,7 +89,8 @@ flowchart LR
 
 ### Secrets
 
-- Every `Config` read in the Worker's construction phase becomes a secret binding on deploy. Values come from the deployer's environment (`.env`), never from Cloudflare.
+- Every `Config` read in the Worker's construction phase becomes a secret binding on deploy. Values come from `.env.prod` (gitignored), never from Cloudflare.
+- `.env.prod` holds the live values: the put.io OAuth app registered for `https://puterminator.uinaf.dev/auth/callback`, and the live `SESSION_SECRET` (a new one signs every user out). `.env` stays local; `pnpm dev` reads it.
 - An upload replaces the whole binding set. A live secret that is not read through `Config` is deleted.
 - Required: `ANTHROPIC_API_KEY`, `PUTIO_CLIENT_ID`, `PUTIO_CLIENT_SECRET`, `SESSION_SECRET` (32+ characters). Optional: `MODEL`, `MONTHLY_TOKEN_CAP` (weighted tokens per month; one credit is 1,000).
 - A missing required key fails the Worker's Init, so a deploy without it stops. A blank or short sign-in secret leaves the Worker up with `configured: false`; every route but `/api/me` then fails closed.
@@ -98,7 +100,25 @@ flowchart LR
 
 - State is local (`.alchemy/`, gitignored). It holds secret values in plaintext. Lost state recovers: owned resources re-import on the next deploy.
 - Stage `prod` deploys script `puterminator` on `puterminator.uinaf.dev` (zone `uinaf.dev`), with `workers.dev` off.
-- The first `prod` deploy adopts the wrangler-deployed Worker. Only `prod` may adopt; other stages fail with `OwnedBySomeoneElse`. Run `alchemy plan --stage prod` first and check: Worker update, no Durable Object delete.
+- The first `prod` deploy adopts the wrangler-deployed Worker. Only `prod` may adopt; other stages fail with `OwnedBySomeoneElse`.
 - Adoption is one-way. Alchemy uploads Durable Objects through Cloudflare's declarative exports, so wrangler's `migrations` deploys stop working for this script.
+- Auth: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in `.env.prod` or the shell. Both live in 1Password `op://uinaf/uinaf-cloudflare/ACCOUNT_ID` and `ACCOUNT_API_TOKEN`. Alchemy reads them before the stack runs, so they never become Worker secrets.
 - Token: Workers Scripts Write and Account Settings Read on the account, Workers Routes Write and Zone Read on `uinaf.dev`.
+
+#### First deploy: rehearse, then adopt
+
+`alchemy plan` shows only a Worker `update`. Durable Object class creates and deletes are decided during the upload, so the plan cannot prove the `Puterminator` namespace survives. Rehearse on a throwaway script first:
+
+1. On a scratch branch from `main`, set `name` in `wrangler.jsonc` to `puterminator-adopt-test`, drop `routes`, and point `PUBLIC_URL` at its `workers.dev` URL. `wrangler deploy` and `wrangler secret put` its secrets, then sign in on its `workers.dev` URL and send one message, so one Durable Object holds a row.
+2. On a scratch branch from this stack, set `name` to `puterminator-adopt-test`, drop `domain`, set `workersDev: true` in [`worker.ts`](src/server/worker.ts), and let stage `adopt-test` adopt in [`alchemy.run.ts`](alchemy.run.ts). Run `alchemy deploy --stage adopt-test --env-file .env.prod`.
+3. Pass: the `durable object reconciliation` log line shows empty `deletedClasses` and `newSqliteClasses`, and the earlier message still shows in the thread.
+4. Rollback check: `wrangler deployments list --name puterminator-adopt-test`, then `wrangler rollback <v1 version id> --name puterminator-adopt-test`. Record whether it works.
+5. Delete the throwaway script and its `adopt-test` state.
+
+Before the prod deploy, record the live v1 version id with `wrangler deployments list --name puterminator`.
+
+#### Rollback
+
+- If step 4 worked: `wrangler rollback <v1 version id> --name puterminator`.
+- If it failed: v1 cannot come back after adoption. Rollback is `pnpm run deploy` from an earlier commit of this stack.
 - Pins: one `effect` for the whole graph via overrides in [`pnpm-workspace.yaml`](pnpm-workspace.yaml). Upgrade effect, foldkit, alchemy and `@putdotio/sdk` together.

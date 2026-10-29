@@ -2,5 +2,7 @@ node_modules
 dist
 .alchemy
 .env
+.env.*
+!.env.example
 .dev.vars
 worker-configuration.d.ts
