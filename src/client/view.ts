@@ -4,6 +4,7 @@ import type { Audit } from "../shared/audit";
 import { type Credits, creditsLeft, type Folder, type LastAudit, ROOT_FOLDER } from "../shared/contract";
 import { type Item, type Turn, toTurns } from "../shared/thread";
 import { art, type Mood, moodOf } from "./art";
+import logoUrl from "./logo.svg";
 import { COMPOSER_ID, isBusy, Message, type Model, Session, THREAD_ID, targetFolder } from "./main";
 import { renderMarkdown } from "./markdown";
 import { auditOf, callLine, describeStep, fmt, size } from "./steps";
@@ -27,10 +28,10 @@ const COLUMN = "mx-auto grid w-full max-w-[calc(40rem+40px)] px-5 max-[480px]:px
 
 // ---------- atoms ----------
 
-/** puterminator's own mark: public/logo.svg, colored, no frame. */
+/** puterminator's own mark: colored, no frame. */
 const mark = (h: H, px: number) =>
   h.img([
-    h.Src("/logo.svg"),
+    h.Src(logoUrl),
     h.Alt(""),
     h.Width(`${px}`),
     h.Height(`${px}`),
