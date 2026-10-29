@@ -17,7 +17,7 @@ export type PutioFile = z.infer<typeof PutioFile>;
 
 const ListPage = z.object({
   files: z.array(PutioFile),
-  parent: PutioFile.optional(),
+  parent: PutioFile.nullish(),
   cursor: z.string().nullable(),
 });
 
