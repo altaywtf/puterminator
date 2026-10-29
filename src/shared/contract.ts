@@ -73,6 +73,17 @@ export const MessageParam = Schema.Struct({
 });
 export type MessageParam = typeof MessageParam.Type;
 
+/** Bits in a `LibraryFile`'s flags. */
+export const FileFlag = { folder: 1, video: 2, played: 4, junk: 8, messy: 16 } as const;
+
+/** `[id, parentId, name, bytes, flags]`: one snapshot row, compact because a library can hold tens of thousands. */
+export const LibraryFile = Schema.Tuple([Schema.Finite, Schema.Finite, Schema.String, Schema.Finite, Schema.Finite]);
+export type LibraryFile = typeof LibraryFile.Type;
+
+/** The last scan's tree under `rootId`, for file links and the tree view. Paths rebuild from parent ids. */
+export const Library = Schema.Struct({ rootId: Schema.Finite, rootName: Schema.String, files: Schema.Array(LibraryFile) });
+export type Library = typeof Library.Type;
+
 /** Agent → browser. `state` replaces the Agents SDK `cf_agent_state` frame. */
 export const ServerEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("state"), state: AgentState }),
@@ -80,6 +91,7 @@ export const ServerEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("message"), message: MessageParam }),
   Schema.Struct({ type: Schema.Literal("partial"), content: Schema.NullOr(Schema.Array(ContentBlock)) }),
   Schema.Struct({ type: Schema.Literal("error"), message: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("library"), library: Library }),
 ]);
 export type ServerEvent = typeof ServerEvent.Type;
 

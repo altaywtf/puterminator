@@ -18,6 +18,7 @@ import {
   THREAD_ID,
   targetFolder,
 } from "./main";
+import { auditDetails, fileList, libraryIndex, toolFiles, treeDrawer } from "./files";
 import { renderMarkdown } from "./markdown";
 import { auditOf, callLine, describeStep, fmt, size } from "./steps";
 import { thoughtSeconds } from "./thinking";
@@ -108,6 +109,19 @@ const shell = (h: H, model: Model, children: Html[]) =>
     [
       h.span([h.Class("u-tag max-[420px]:hidden")], ["read-only"]),
       h.span([h.Class("grow")], []),
+      ...(model.library
+        ? [
+            h.button(
+              [
+                h.Type("button"),
+                h.Class(`hit text-[13px] transition-colors duration-160 hover:text-fg ${model.treeOpen ? "text-fg-strong" : "text-fg-2"}`),
+                h.AriaExpanded(model.treeOpen),
+                h.OnClick(Message.ToggledTree()),
+              ],
+              ["library"],
+            ),
+          ]
+        : []),
       status(h, model),
       h.span([h.Class("truncate text-[13px] text-fg-3 max-[560px]:hidden")], [model.agent?.username ?? ""]),
       h.button(
@@ -119,7 +133,7 @@ const shell = (h: H, model: Model, children: Html[]) =>
         ["sign out"],
       ),
     ],
-    [liveStatus(h, model), ...children],
+    [liveStatus(h, model), ...children, ...treeDrawer(h, model)],
   );
 
 /** The shell's frame while /api/me resolves, so the swap to sign-in or the thread keeps its shape. */
@@ -263,7 +277,7 @@ const subScore = (h: H, name: string, value: number, note: string, worst: boolea
     ],
   );
 
-const scoreCard = (h: H, a: Audit, uid: string, live: boolean) => {
+const scoreCard = (h: H, model: Model, a: Audit, uid: string, live: boolean) => {
   const mood = moodOf(a);
   const subs: Array<[string, number, string]> = [
     ["naming", a.scores.naming, `${fmt(a.naming.messy)} release names`],
@@ -310,6 +324,7 @@ const scoreCard = (h: H, a: Audit, uid: string, live: boolean) => {
             : []),
         ],
       ),
+      ...auditDetails(h, model, libraryIndex(model), uid, a),
     ],
   );
 };
@@ -332,7 +347,7 @@ const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live
       case "text":
         flush();
         out.push(
-          h.keyed("div")(item.key, [h.Class("min-w-0")], [lazyMarkdown(item.key, renderMarkdown, [item.text, item.key === caretKey]) ?? h.span([], [])]),
+          h.keyed("div")(item.key, [h.Class("min-w-0")], [lazyMarkdown(item.key, renderMarkdown, [item.text, item.key === caretKey, model.library]) ?? h.span([], [])]),
         );
         break;
       case "thinking":
@@ -342,10 +357,16 @@ const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live
       case "tool": {
         if (rows.length === 0) logKey = item.key;
         rows.push(toolRow(h, item, model));
+        const ix = libraryIndex(model);
+        const listed = ix && item.state === "done" ? toolFiles(ix, item.name, item.input, item.output) : null;
+        if (ix && listed && listed.nodes.length > 0) {
+          flush();
+          out.push(fileList(h, model, ix, item.key, listed.nodes, listed.total));
+        }
         const audit = item.name === "scan_library" && item.state === "done" ? auditOf(item.output) : Option.none();
         if (Option.isSome(audit)) {
           flush();
-          out.push(h.keyed("div")(`card.${item.key}`, [], [scoreCard(h, audit.value, item.key, live)]));
+          out.push(h.keyed("div")(`card.${item.key}`, [], [scoreCard(h, model, audit.value, item.key, live)]));
         }
         break;
       }

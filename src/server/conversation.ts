@@ -6,15 +6,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import {
-  type AgentState,
-  ClientFrame,
-  ContentBlock,
-  type Credits,
-  type Folder,
-  MessageParam,
-  type ServerEvent,
-} from "../shared/contract";
+import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, type Library } from "../shared/contract";
 import { audit, isMessyName, junkReason } from "./audit";
 import { listAll, putioLayer, rootFolders } from "./putio";
 import { type AnthropicClient, effectTool, runTurn, type TurnError, weightedTokens } from "./runner";
@@ -40,7 +32,7 @@ How to work:
 How to write:
 - Hard limit: 3 lines and 40 words per reply. Longer only when the user asks for detail or a plan.
 - Line one answers. The other lines are proof: at most 3 items, by size.
-- Name files by their file name only, not the full path, unless two share a name or the user asks where.
+- Name files by their file name only, not the full path, unless two share a name or the user asks where. Wrap every file and folder name in backticks; the app turns them into links.
 - No bold, no labels like "junk:", no headings, no sections, no caveats, no "+N more", no follow-up questions.
 - After a scan: one line. The score card already shows the numbers; name only the biggest problem.
 - All lowercase, like the app: "no." not "No.". File names and abbreviations (GB, HDR) keep their case.
@@ -52,8 +44,8 @@ How to write:
 Examples of the right length:
 user: find junk files
 you: 351 junk files, 16 MB. mostly cover images and __MACOSX debris.
-- Screenshot 10 - Bonus.jpg (2 MB)
-- behance-1.png (1 MB)
+- \`Screenshot 10 - Bonus.jpg\` (2 MB)
+- \`behance-1.png\` (1 MB)
 
 user: is my library a mess?
 you: no. 92/100. the only real dent is junk, and it's 16 MB.`;
@@ -139,6 +131,28 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const noSnapshot = JSON.stringify({ error: "No snapshot yet. Run scan_library first." });
 
+    /** The snapshot as the browser's file index; null before the first scan. */
+    const library = (): Library | null => {
+      const files = store.snapshot();
+      const top = files.find((f) => f.depth === 1);
+      if (!top || top.parent_id == null) return null;
+      return {
+        rootId: top.parent_id,
+        rootName: state.lastAudit?.rootName ?? state.folder.name,
+        files: files.map((f) => [
+          f.id,
+          f.parent_id ?? top.parent_id ?? 0,
+          f.name,
+          f.size,
+          (f.file_type === "FOLDER" ? FileFlag.folder : 0) |
+            (f.file_type === "VIDEO" ? FileFlag.video : 0) |
+            (f.first_accessed_at ? FileFlag.played : 0) |
+            (junkReason(f) ? FileFlag.junk : 0) |
+            (f.file_type === "VIDEO" && isMessyName(f.name) ? FileFlag.messy : 0),
+        ]),
+      };
+    };
+
     // Inputs have no optional or default fields and no numeric bounds, so they stay valid under strict tool use.
     const tools = [
       effectTool({
@@ -154,6 +168,8 @@ export const makeAgent = (deps: AgentDeps) =>
             store.saveSnapshot(tree.files);
             const a = audit(tree.files, id === 0 ? name : tree.rootName, false, new Date(yield* Clock.currentTimeMillis));
             setState({ ...state, lastAudit: { at: a.at, rootName: a.rootName, score: a.score, items: a.totals.items } });
+            const lib = library();
+            if (lib) broadcast({ type: "library", library: lib });
             return JSON.stringify(a);
           }),
       }),
@@ -310,10 +326,14 @@ export const makeAgent = (deps: AgentDeps) =>
     return {
       state: () => state,
       /** First frames for a new socket. The instance name never goes out. */
-      greeting: (): Array<ServerEvent> => [
-        { type: "state", state },
-        { type: "history", messages: store.history() },
-      ],
+      greeting: (): Array<ServerEvent> => {
+        const lib = library();
+        return [
+          { type: "state", state },
+          { type: "history", messages: store.history() },
+          ...(lib ? [{ type: "library" as const, library: lib }] : []),
+        ];
+      },
       /** One browser frame. Frames that fail to decode are dropped. */
       receive: (raw: string) =>
         Effect.gen(function* () {

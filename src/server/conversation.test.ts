@@ -90,6 +90,13 @@ describe("a turn", () => {
     expect(t.agent.state().busy).toBe(false);
     expect(t.agent.state().lastAudit?.items).toBe(4);
     expect(t.store.snapshot()).toHaveLength(4);
+    // The browser's file index goes out after the scan and with every greeting.
+    const lib = t.events.find((e) => e.type === "library");
+    expect(lib?.type === "library" && lib.library.files.length).toBe(4);
+    expect(lib?.type === "library" && lib.library.rootId).toBe(0);
+    const flags = new Map(lib?.type === "library" ? lib.library.files.map((f) => [f[0], f[4]]) : []);
+    expect([flags.get(1), flags.get(2), flags.get(3)]).toEqual([1, 2 | 16, 8]);
+    expect(t.agent.greeting().map((e) => e.type)).toEqual(["state", "history", "library"]);
     expect(t.putio.log[0]?.url.searchParams.get("parent_id")).toBe("-1");
 
     // Every appended message went out in order; partials streamed and were cleared.

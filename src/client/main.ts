@@ -10,6 +10,7 @@ import {
   ContentBlock,
   Folder,
   Folders,
+  Library,
   Me,
   MessageParam,
   ROOT_FOLDER,
@@ -66,6 +67,11 @@ export const Model = Schema.Struct({
   menuOpen: Schema.Boolean,
   expanded: Schema.Array(Schema.String),
   clock: ThinkingClock,
+  /** The last scan, as the server sent it; indexed lazily in library.ts. */
+  library: Schema.NullOr(Library),
+  treeOpen: Schema.Boolean,
+  treeExpanded: Schema.Array(Schema.Finite),
+  treeFocus: Schema.NullOr(Schema.Finite),
 });
 export type Model = typeof Model.Type;
 
@@ -93,6 +99,12 @@ export const Message = defineMessageUnion({
   ReceivedMessage: { message: MessageParam, at: Schema.Finite },
   ReceivedPartial: { content: Schema.NullOr(Schema.Array(ContentBlock)), at: Schema.Finite },
   ReceivedError: { message: Schema.String },
+  ReceivedLibrary: { library: Library },
+  ToggledTree: {},
+  ClosedTree: {},
+  ToggledTreeNode: { id: Schema.Finite },
+  /** Opens the tree with every ancestor expanded and scrolls the file into view. */
+  RevealedFile: { id: Schema.Finite, ancestors: Schema.Array(Schema.Finite) },
   UpdatedDraft: { value: Schema.String },
   SubmittedDraft: {},
   ClickedStarter: { text: Schema.String },
@@ -255,6 +267,24 @@ export const FocusFolderItem = Command.define("FocusFolderItem", {
   execute: focusAfterCommit(`[role="menuitemradio"][tabindex="0"]`, () => true),
 });
 
+export const treeNodeId = (id: number) => `tree-${id}`;
+
+export const ScrollTreeNode = Command.define("ScrollTreeNode", {
+  args: { id: Schema.Finite },
+  messages: [Message.CompletedEffect],
+  execute: ({ id }) =>
+    Render.afterCommit.pipe(
+      Effect.flatMap(() =>
+        Effect.sync(() => {
+          const el = document.getElementById(treeNodeId(id));
+          el?.scrollIntoView({ block: "center" });
+          el?.focus({ preventScroll: true });
+        }),
+      ),
+      Effect.as(Message.CompletedEffect()),
+    ),
+});
+
 export const FocusFolderTrigger = Command.define("FocusFolderTrigger", {
   messages: [Message.CompletedEffect],
   execute: focusAfterCommit(`#${FOLDER_TRIGGER_ID}`, () => true),
@@ -389,6 +419,23 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model: modifyFields(model, { picked: () => folder, menuOpen: () => false }),
       commands: [FocusComposer({ when: "always" })],
     }),
+    ReceivedLibrary: ({ library }) => ({ model: modifyFields(model, { library: () => library }) }),
+    ToggledTree: () => ({ model: modifyFields(model, { treeOpen: (open) => !open }) }),
+    ClosedTree: () => ({ model: modifyFields(model, { treeOpen: () => false }) }),
+    ToggledTreeNode: ({ id }) => ({
+      model: modifyFields(model, {
+        treeExpanded: (ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]),
+        treeFocus: () => id,
+      }),
+    }),
+    RevealedFile: ({ id, ancestors }) => ({
+      model: modifyFields(model, {
+        treeOpen: () => true,
+        treeExpanded: (ids) => [...new Set([...ids, ...ancestors])],
+        treeFocus: () => id,
+      }),
+      commands: [ScrollTreeNode({ id })],
+    }),
     ClickedSignOut: () => ({ model, commands: [SignOut()] }),
     CompletedEffect: () => ({ model }),
   });
@@ -414,6 +461,10 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     menuOpen: false,
     expanded: [],
     clock: emptyClock,
+    library: null,
+    treeOpen: false,
+    treeExpanded: [],
+    treeFocus: null,
   },
   commands: [FetchMe()],
 });
@@ -430,6 +481,7 @@ const toMessage = (event: ServerEvent, at: number): Message =>
       message: ({ message }) => Message.ReceivedMessage({ message, at }),
       partial: ({ content }) => Message.ReceivedPartial({ content, at }),
       error: ({ message }) => Message.ReceivedError({ message }),
+      library: ({ library }) => Message.ReceivedLibrary({ library }),
     }),
   );
 

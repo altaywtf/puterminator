@@ -1,5 +1,6 @@
 import type { Html } from "foldkit/html";
 import { describe, expect, it } from "vitest";
+import { FileFlag } from "../shared/contract";
 import { renderMarkdown } from "./markdown";
 
 type Node = { sel?: string; text?: string; data?: { props?: Record<string, unknown>; attrs?: Record<string, unknown> }; children?: Node[] };
@@ -35,5 +36,12 @@ describe("renderMarkdown", () => {
     const last = html.children!.at(-1)!;
     expect(last.sel?.startsWith("p")).toBe(true);
     expect(last.children!.at(-1)!.sel).toContain("span");
+  });
+
+  it("links inline code that names one scanned file, and leaves the rest as code", () => {
+    const lib = { rootId: 0, rootName: "Your Files", files: [[1, 0, "Movies", 9, FileFlag.folder], [2, 1, "Heat.mkv", 9, FileFlag.video]] as const };
+    const html = renderMarkdown("keep `Heat.mkv`, not `Alien.mkv`", false, { ...lib, files: lib.files.map((f) => [...f]) as never });
+    expect(hrefs(html)).toEqual(["https://app.put.io/files/2"]);
+    expect(text(html)).toContain("Alien.mkv");
   });
 });

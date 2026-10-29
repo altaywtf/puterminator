@@ -3,6 +3,8 @@ import type { Nodes, Root } from "mdast";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
+import type { Library } from "../shared/contract";
+import { type Index, indexOf, putioUrl, resolve } from "./library";
 
 // Model text is untrusted. Every mdast node becomes an element or a text node; raw HTML stays
 // literal text and only http(s)/mailto links become anchors. No innerHTML anywhere.
@@ -12,6 +14,9 @@ const SAFE_URL = /^(https?:|mailto:)/i;
 
 type Child = Html | string;
 
+// Set for the duration of one synchronous render; inline code that names a scanned file becomes a put.io link.
+let files: Index | null = null;
+
 const children = (node: { children: ReadonlyArray<Nodes> }): Child[] => node.children.map(render);
 
 function render(node: Nodes): Child {
@@ -20,7 +25,22 @@ function render(node: Nodes): Child {
     case "html":
       return node.value;
     case "inlineCode":
-      return ih.code([ih.Class("rounded-xs bg-raised px-1 text-[13px] text-fg-strong box-decoration-clone")], [node.value]);
+    {
+      const chip = "rounded-xs bg-raised px-1 text-[13px] text-fg-strong box-decoration-clone";
+      const hit = files ? resolve(files, node.value) : null;
+      return hit
+        ? ih.a(
+            [
+              ih.Href(putioUrl(hit.id)),
+              ih.Target("_blank"),
+              ih.Rel("noopener noreferrer"),
+              ih.Title(`${hit.path} · open on put.io`),
+              ih.Class(`${chip} no-underline decoration-fg-4 underline-offset-3 transition-colors duration-160 hover:text-accent hover:underline`),
+            ],
+            [ih.code([], [node.value]), ih.span([ih.Class("ms-1 text-[11px] text-fg-3"), ih.AriaHidden(true)], ["↗"])],
+          )
+        : ih.code([ih.Class(chip)], [node.value]);
+    }
     case "code":
       return ih.pre(
         [ih.Class("m-0 overflow-x-auto border border-line bg-sunk p-3 text-[13px] leading-normal")],
@@ -105,7 +125,8 @@ function render(node: Nodes): Child {
 const caret = () => ih.span([ih.Class("u-caret ms-0.5"), ih.AriaHidden(true)], []);
 
 /** `streaming` puts a blinking caret after the last word while the text still grows. */
-export const renderMarkdown = (text: string, streaming: boolean): Html => {
+export const renderMarkdown = (text: string, streaming: boolean, library: Library | null = null): Html => {
+  files = library ? indexOf(library) : null;
   const root: Root = processor.parse(text);
   const nodes = children(root);
   const last = root.children.at(-1);
