@@ -1,4 +1,3 @@
-import { CDN } from "@uinaf/design/cdn";
 import * as Option from "effect/Option";
 import { createKeyedLazy, type Document, type Html, type HtmlBuilder } from "foldkit/html";
 import type { Audit } from "../shared/audit";
@@ -28,15 +27,15 @@ const COLUMN = "mx-auto grid w-full max-w-[calc(40rem+40px)] px-5 max-[480px]:px
 
 // ---------- atoms ----------
 
+/** puterminator's own mark: public/logo.svg, colored, no frame. */
 const mark = (h: H, px: number) =>
   h.img([
-    h.Src(CDN.images.computer240),
+    h.Src("/logo.svg"),
     h.Alt(""),
     h.Width(`${px}`),
     h.Height(`${px}`),
-    h.Decoding("async"),
     h.Draggable(false),
-    h.Class("mark"),
+    h.Class("block flex-none"),
     h.Style({ width: `${px}px`, height: `${px}px` }),
   ]);
 
@@ -78,7 +77,7 @@ const shell = (h: H, model: Model, children: Html[]) =>
           h.div(
             [h.Class(`${COLUMN} u-topbar-row flex! gap-4`)],
             [
-              h.span([h.Class("u-topbar-mark")], [mark(h, 20), h.span([], ["puterminator"])]),
+              h.span([h.Class("u-topbar-mark")], [mark(h, 24), h.span([h.Class("text-fg-strong")], ["puterminator"])]),
               h.span([h.Class("u-tag max-[420px]:hidden")], ["read-only"]),
               h.span([h.Class("grow")], []),
               status(h, model),

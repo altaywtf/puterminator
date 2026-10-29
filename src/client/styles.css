@@ -90,12 +90,6 @@
     white-space: nowrap;
     transition: color var(--duration-fast) var(--ease-snappy);
   }
-  .mark {
-    display: block;
-    flex: none;
-    border: 1px solid var(--border);
-    background: #000;
-  }
   @media (hover: hover) and (pointer: fine) {
     button.step-head:hover .name {
       color: var(--fg);
