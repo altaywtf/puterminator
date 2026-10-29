@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Puterminator — agent prototype</title>
+<title>puterminator — agent prototype</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -538,11 +538,11 @@ function threadHtml(A, mode) {
     : `<div class="a">${t.parts.map((p, pi) => partHtml(p, A, `${ti}.${pi}`, mode)).join('')}${A.S.busy && ti === A.S.turns.length - 1 && !t.parts.some(p => p.status === 'running' || (p.type === 'text' && p.shown < p.text.length) || (p.type === 'progress' && p.status === 'running')) ? '<div class="step-head"><span class="spin"></span><span class="shimmer">Working</span></div>' : ''}</div>`).join('');
 }
 const composerHtml = (placeholder, model = true) => `<form class="composer" data-composer>
-  <label class="vh" for="q">Message Puterminator</label>
+  <label class="vh" for="q">Message puterminator</label>
   <textarea id="q" rows="1" placeholder="${placeholder}" autocomplete="off"></textarea>
   <div class="composer-row">${model ? `<button type="button" class="pick" aria-label="Model: Sonnet 5.5">Sonnet 5.5 ${ic('chev', 'down')}</button><button type="button" class="pick" aria-label="Target folder: ${ROOT}">${ic('folder')}${ROOT}</button>` : ''}
     <span class="grow"></span><span class="pick num" data-credits style="pointer-events:none"></span><button class="send" type="submit" aria-label="Send">${ic('arrowUp')}</button></div></form>`;
-const sideHtml = (A, active) => `<aside class="side" aria-label="Navigation"><div class="ws"><span class="logo" aria-hidden="true">P</span>Puterminator</div>
+const sideHtml = (A, active) => `<aside class="side" aria-label="Navigation"><div class="ws"><span class="logo" aria-hidden="true">P</span>puterminator</div>
   <button class="nav" data-new aria-current="${active === 'new' ? 'page' : 'false'}">${ic('plus')}New chat</button>
   <button class="nav">${ic('history')}History</button><button class="nav">${ic('folder')}Library</button>
   <div class="side-label">Today</div><button class="nav trunc" aria-current="${active === 'chat' ? 'page' : 'false'}" data-title>${esc(A.S.title)}</button>
@@ -555,7 +555,7 @@ const STARTERS = [
   ['clock', 'What did I never open?', 'Videos you never played, biggest first'],
 ];
 const heroHtml = () => `<div class="hero"><h1>What should I do with your put.io?</h1><p class="sub">I read your files, propose a plan, and change nothing until you say so.</p><div class="memory">${ic('history')}<span>Last time, Oct 29: organized 2,112 files in ${ROOT}. Checkpoint #1 is still there if you want it back.</span></div>
-  <div class="composer-slot">${composerHtml('Ask Puterminator…')}</div>
+  <div class="composer-slot">${composerHtml('Ask puterminator…')}</div>
   <div class="cards">${STARTERS.map(([i, t, d]) => `<button class="card-s" data-say="${t}">${ic(i)}<span class="t">${t}</span><span class="d">${d}</span></button>`).join('')}</div></div>`;
 
 // generic wiring for a variant root
@@ -589,7 +589,7 @@ function stickToBottom(sc, wasNear) { if (wasNear) sc.scrollTop = sc.scrollHeigh
 // ======================= 1. THREAD (Linear Ask) =======================
 function Thread() {
   const el = document.createElement('div');
-  el.innerHTML = `<div class="shell"><main class="main"><div class="mainbar"><span class="logo" aria-hidden="true">P</span><span class="title">Puterminator</span><span style="color:var(--fg-4)">/</span><span style="color:var(--fg-3)">${ROOT}</span><span class="grow"></span></div>
+  el.innerHTML = `<div class="shell"><main class="main"><div class="mainbar"><span class="logo" aria-hidden="true">P</span><span class="title">puterminator</span><span style="color:var(--fg-4)">/</span><span style="color:var(--fg-3)">${ROOT}</span><span class="grow"></span></div>
     <div class="scroll"><div data-body></div></div><div class="composer-wrap" data-cw hidden>${composerHtml('Reply…')}</div></main></div>`;
   let A;
   const body = el.querySelector('[data-body]'), sc = el.querySelector('.scroll'), cw = el.querySelector('[data-cw]');
@@ -607,8 +607,8 @@ function Thread() {
 // ======================= 2. WORKSPACE (Cursor / v0 split) =======================
 function Workspace() {
   const el = document.createElement('div');
-  el.innerHTML = `<div class="shell"><main class="main"><div class="mainbar"><span class="logo" aria-hidden="true">P</span><span class="title">Puterminator</span><span style="color:var(--fg-4)">/</span><span style="color:var(--fg-3)">${ROOT}</span><span class="grow"></span></div>
-    <div class="split"><div class="chatcol"><div class="scroll"><div data-body></div></div><div class="composer-wrap">${composerHtml('Ask Puterminator…')}</div></div>
+  el.innerHTML = `<div class="shell"><main class="main"><div class="mainbar"><span class="logo" aria-hidden="true">P</span><span class="title">puterminator</span><span style="color:var(--fg-4)">/</span><span style="color:var(--fg-3)">${ROOT}</span><span class="grow"></span></div>
+    <div class="split"><div class="chatcol"><div class="scroll"><div data-body></div></div><div class="composer-wrap">${composerHtml('Ask puterminator…')}</div></div>
     <section class="pane" aria-label="Workspace"><div class="tabs" role="tablist" data-tabs></div><div class="pane-body" data-pane-body></div></section></div></main></div>`;
   let A, tab = 'library';
   const body = el.querySelector('[data-body]'), sc = el.querySelector('.scroll'), tabs = el.querySelector('[data-tabs]'), pb = el.querySelector('[data-pane-body]');
@@ -637,7 +637,7 @@ function Workspace() {
 // ======================= 3. AUTOPILOT (Cursor setup checklist) =======================
 function Autopilot() {
   const el = document.createElement('div');
-  el.innerHTML = `<div class="shell"><main class="main"><div class="mainbar"><span class="logo" aria-hidden="true">P</span><span class="title">Puterminator</span><span style="color:var(--fg-4)">/</span><span style="color:var(--fg-3)">${ROOT}</span><span class="grow"></span></div>
+  el.innerHTML = `<div class="shell"><main class="main"><div class="mainbar"><span class="logo" aria-hidden="true">P</span><span class="title">puterminator</span><span style="color:var(--fg-4)">/</span><span style="color:var(--fg-3)">${ROOT}</span><span class="grow"></span></div>
     <div class="scroll"><div data-body></div></div><div class="composer-wrap" data-cw hidden>${composerHtml('Steer the run…', false)}</div></main></div>`;
   let A;
   const body = el.querySelector('[data-body]'), sc = el.querySelector('.scroll'), cw = el.querySelector('[data-cw]');

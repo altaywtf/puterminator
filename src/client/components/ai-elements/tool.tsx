@@ -6,7 +6,6 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import { ChevronRightIcon, WrenchIcon, XCircleIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 
@@ -19,19 +18,17 @@ export const Tool = ({ className, ...props }: ToolProps) => (
   <Collapsible className={cn("group not-prose grid gap-1", className)} {...props} />
 );
 
-export type ToolPart = ToolUIPart | DynamicToolUIPart;
+export type ToolState = "running" | "done" | "error";
 
 export type ToolHeaderProps = {
   title: string;
   detail?: string;
-  state: ToolPart["state"];
+  state: ToolState;
   className?: string;
 };
 
-const running = (state: ToolPart["state"]) => state === "input-streaming" || state === "input-available";
-
 export const ToolHeader = ({ className, title, detail, state }: ToolHeaderProps) =>
-  running(state) ? (
+  state === "running" ? (
     <div className={cn("flex h-6 items-center gap-2 text-muted-foreground", className)}>
       <span className="size-3 flex-none animate-spin rounded-full border-[1.5px] border-border-strong border-t-subtle-foreground" />
       <span className="shimmer">{title}</span>
@@ -44,7 +41,7 @@ export const ToolHeader = ({ className, title, detail, state }: ToolHeaderProps)
         className,
       )}
     >
-      {state === "output-error" ? (
+      {state === "error" ? (
         <XCircleIcon className="size-3.5 flex-none text-destructive" />
       ) : (
         <WrenchIcon className="size-3.5 flex-none" />
@@ -69,18 +66,18 @@ export const ToolContent = ({ className, ...props }: ToolContentProps) => (
 
 export type ToolInputProps = ComponentProps<"div"> & {
   name: string;
-  input: ToolPart["input"];
+  input: unknown;
 };
 
 export const ToolInput = ({ className, name, input, ...props }: ToolInputProps) => (
   <div className={cn("truncate text-subtle-foreground", className)} {...props}>
-    {name}({input && Object.keys(input).length ? JSON.stringify(input) : ""})
+    {name}({input && typeof input === "object" && Object.keys(input).length ? JSON.stringify(input) : ""})
   </div>
 );
 
 export type ToolOutputProps = ComponentProps<"div"> & {
   lines?: string[];
-  errorText: ToolPart["errorText"];
+  errorText?: string;
 };
 
 export const ToolOutput = ({ className, lines, errorText, ...props }: ToolOutputProps) => (

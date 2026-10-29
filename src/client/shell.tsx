@@ -15,7 +15,7 @@ export function Shell({ crumb, actions, children }: { crumb?: string; actions?: 
       <main className="relative m-0 flex min-h-0 min-w-0 flex-col overflow-hidden bg-background shadow-card md:m-2 md:rounded-xl">
         <header className="flex h-11 flex-none items-center gap-2 border-b pr-3 pl-4">
           <Logo />
-          <span className="font-medium">Puterminator</span>
+          <span className="font-medium">puterminator</span>
           {crumb && (
             <>
               <span className="text-faint-foreground">/</span>

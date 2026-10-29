@@ -1,8 +1,5 @@
-import { useAgentChat } from "@cloudflare/ai-chat/react";
-import { useAgent } from "agents/react";
-import type { UIMessage } from "ai";
 import { ArrowUpIcon, ChevronRightIcon, FolderIcon, HistoryIcon, SquareIcon, XCircleIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import {
@@ -15,96 +12,87 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
-import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, type ToolPart } from "@/components/ai-elements/tool";
+import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { type AgentState, type Audit, creditsLeft } from "../shared/types";
+import { type Audit, creditsLeft } from "../shared/types";
 import { fmt, ScoreCard, size } from "./score-card";
 import { Shell } from "./shell";
+import { type Folder, type Item, useThread } from "./use-thread";
 
-type Folder = { id: number; name: string };
 const ROOT: Folder = { id: 0, name: "Your Files" };
 
 const STARTERS = ["Audit my library", "What did I never play?", "Find junk files", "Which duplicates do I have?"];
 
 // ---------- tool steps ----------
 
-type Out = Record<string, unknown> | undefined;
+type Out = Record<string, unknown> | null;
 const num = (v: unknown) => (typeof v === "number" ? v : 0);
+const parse = (s: string | null): Out => {
+  if (!s) return null;
+  try {
+    return JSON.parse(s) as Record<string, unknown>;
+  } catch {
+    return { error: s };
+  }
+};
 
-function describe(name: string, part: ToolPart): { title: string; detail?: string; lines?: string[] } {
-  const out = part.state === "output-available" ? (part.output as Out) : undefined;
-  const input = (part.input ?? {}) as Record<string, unknown>;
-  if (out && typeof out.error === "string") return { title: "Couldn't run " + name, lines: [out.error] };
+function describe(name: string, input: Record<string, unknown>, out: Out): { title: string; detail?: string; lines?: string[] } {
+  if (out && typeof out.error === "string") return { title: `Couldn't run ${name}`, lines: [out.error] };
   if (name === "scan_library") {
-    const a = out as Audit | undefined;
+    const a = out as Audit | null;
     return {
       title: "Read the library",
       detail: a ? `${fmt(a.totals.items)} items · ${size(a.totals.bytes)}` : undefined,
-      lines: a && [
-        `release names   ${fmt(a.naming.messy)} videos`,
-        `wrapper folders   ${fmt(a.structure.wrapperFolders)}`,
-        `junk   ${fmt(a.junk.count)} files · ${size(a.junk.bytes)}`,
-        `duplicates   ${fmt(a.duplicates.groups)} groups`,
-      ],
+      lines: a
+        ? [
+            `release names   ${fmt(a.naming.messy)} videos`,
+            `wrapper folders   ${fmt(a.structure.wrapperFolders)}`,
+            `junk   ${fmt(a.junk.count)} files · ${size(a.junk.bytes)}`,
+            `duplicates   ${fmt(a.duplicates.groups)} groups`,
+          ]
+        : undefined,
     };
   }
-  if (name === "list_folder") {
-    return {
-      title: `Open ${String(input.path || "/")}`,
-      detail: out ? `${fmt(num(out.count))} items` : undefined,
-    };
-  }
+  if (name === "list_folder") return { title: `Open ${String(input.path || "/")}`, detail: out ? `${fmt(num(out.count))} items` : undefined };
   if (name === "search_files") {
     const what = [input.category && input.category !== "any" ? String(input.category).replace("_", " ") : null, input.query ? `"${input.query}"` : null]
       .filter(Boolean)
       .join(" ");
     const items = (out?.items as { path: string }[] | undefined) ?? [];
-    return {
-      title: `Search ${what || "files"}`,
-      detail: out ? `${fmt(num(out.total))} matches` : undefined,
-      lines: items.slice(0, 6).map((i) => i.path),
-    };
+    return { title: `Search ${what || "files"}`, detail: out ? `${fmt(num(out.total))} matches` : undefined, lines: items.slice(0, 6).map((i) => i.path) };
   }
   return { title: name };
 }
 
-function Step({ part }: { part: ToolPart }) {
-  const name = part.type === "dynamic-tool" ? part.toolName : part.type.slice(5);
-  const d = describe(name, part);
+function Step({ item }: { item: Extract<Item, { kind: "tool" }> }) {
+  const out = parse(item.output);
+  const input = (item.input ?? {}) as Record<string, unknown>;
+  const d = describe(item.name, input, out);
   return (
     <>
       <Tool>
-        <ToolHeader detail={d.detail} state={part.state} title={d.title} />
+        <ToolHeader detail={d.detail} state={item.state} title={d.title} />
         <ToolContent>
-          <ToolInput input={part.input} name={name} />
-          <ToolOutput errorText={part.errorText} lines={d.lines} />
+          <ToolInput input={item.input} name={item.name} />
+          <ToolOutput lines={d.lines} />
         </ToolContent>
       </Tool>
-      {name === "scan_library" && part.state === "output-available" && !(part.output as Out)?.error && (
-        <ScoreCard audit={part.output as Audit} />
-      )}
+      {item.name === "scan_library" && item.state === "done" && out && !out.error && <ScoreCard audit={out as unknown as Audit} />}
     </>
   );
 }
 
-// ---------- messages ----------
-
-function AssistantParts({ message, streaming }: { message: UIMessage; streaming: boolean }) {
-  return message.parts.map((part, i) => {
-    const key = `${message.id}-${i}`;
-    if (part.type === "text") return <MessageResponse key={key}>{part.text}</MessageResponse>;
-    if (part.type === "reasoning") {
-      if (!part.text.trim()) return null;
-      return (
-        <Reasoning isStreaming={streaming && i === message.parts.length - 1} key={key}>
-          <ReasoningTrigger />
-          <ReasoningContent>{part.text}</ReasoningContent>
-        </Reasoning>
-      );
-    }
-    if (part.type.startsWith("tool-") || part.type === "dynamic-tool") return <Step key={key} part={part as ToolPart} />;
-    return null;
-  });
+function AssistantItem({ item }: { item: Item }) {
+  if (item.kind === "text") return <MessageResponse>{item.text}</MessageResponse>;
+  if (item.kind === "thinking")
+    return (
+      <Reasoning isStreaming={item.streaming}>
+        <ReasoningTrigger />
+        <ReasoningContent>{item.text}</ReasoningContent>
+      </Reasoning>
+    );
+  if (item.kind === "tool") return <Step item={item} />;
+  return null;
 }
 
 function Chips({ items, onPick }: { items: string[]; onPick: (s: string) => void }) {
@@ -189,21 +177,10 @@ function Composer(props: {
 // ---------- thread ----------
 
 export function Thread() {
-  const [state, setState] = useState<AgentState | null>(null);
+  const { state, turns, busy, error, send: post, stop } = useThread();
   const [folders, setFolders] = useState<Folder[]>([]);
-  const [folder, setFolder] = useState<Folder>(ROOT);
-  const folderRef = useRef(folder);
-  folderRef.current = folder;
-
-  const agent = useAgent<AgentState>({
-    agent: "puterminator",
-    basePath: "agent",
-    onStateUpdate: (s) => {
-      setState(s);
-      setFolder((f) => (f.id === ROOT.id && s.folder.id !== ROOT.id ? s.folder : f));
-    },
-  });
-  const { messages, sendMessage, status, stop, error } = useAgentChat({ agent, body: () => ({ folder: folderRef.current }) });
+  const [folder, setFolder] = useState<Folder | null>(null);
+  const target = folder ?? state?.folder ?? ROOT;
 
   useEffect(() => {
     fetch("/api/folders")
@@ -212,8 +189,7 @@ export function Thread() {
       .catch(() => setFolders([]));
   }, []);
 
-  const busy = status === "submitted" || status === "streaming";
-  const send = (text: string) => sendMessage({ role: "user", parts: [{ type: "text", text }] });
+  const send = (text: string) => post(text, target);
   const signOut = async () => {
     await fetch("/auth/logout", { method: "POST" });
     location.reload();
@@ -223,7 +199,7 @@ export function Thread() {
     <Composer
       busy={busy}
       credits={state ? creditsLeft(state.credits) : 0}
-      folder={folder}
+      folder={target}
       folders={folders}
       onFolder={setFolder}
       onSend={send}
@@ -242,6 +218,8 @@ export function Thread() {
       </span>
     </div>
   );
+  const asked = new Set(turns.flatMap((t) => t.items.flatMap((i) => (i.kind === "user" ? [i.text] : []))));
+  const waiting = busy && turns.at(-1)?.role === "user";
 
   return (
     <Shell
@@ -251,38 +229,40 @@ export function Thread() {
           <ChevronRightIcon className="size-3.5 rotate-90" />
         </button>
       }
-      crumb={folder.name}
+      crumb={target.name}
     >
-      {messages.length === 0 ? (
+      {turns.length === 0 ? (
         <div className="mx-auto grid w-full max-w-[680px] gap-[18px] px-5 pt-[14vh] pb-10">
           <h1 className="text-balance text-center font-medium text-xl tracking-tight">What should I do with your put.io?</h1>
           <p className="-mt-2.5 text-center text-muted-foreground">
             I read your files, score the library and answer questions. This version changes nothing.
           </p>
           {memory}
-          {composer("Ask Puterminator…")}
+          {composer("Ask puterminator…")}
           <Chips items={STARTERS} onPick={send} />
         </div>
       ) : (
         <>
           <Conversation className="flex-1">
             <ConversationContent className="mx-auto grid w-full max-w-[680px] gap-[18px] px-5 pt-7 pb-[200px]">
-              {messages.map((m, i) =>
-                m.role === "user" ? (
-                  <Message from="user" key={m.id}>
+              {turns.map((t) =>
+                t.role === "user" ? (
+                  <Message from="user" key={t.key}>
                     <MessageContent className="max-w-[80%] whitespace-pre-wrap rounded-xl px-3 py-2 text-[13px]">
-                      {m.parts.map((p) => (p.type === "text" ? p.text : "")).join("")}
+                      {t.items[0]?.kind === "user" ? t.items[0].text : ""}
                     </MessageContent>
                   </Message>
                 ) : (
-                  <Message from="assistant" key={m.id}>
+                  <Message from="assistant" key={t.key}>
                     <MessageContent className="w-full gap-2.5 text-[13px]">
-                      <AssistantParts message={m} streaming={busy && i === messages.length - 1} />
+                      {t.items.map((i) => (
+                        <AssistantItem item={i} key={i.key} />
+                      ))}
                     </MessageContent>
                   </Message>
                 ),
               )}
-              {status === "submitted" && (
+              {waiting && (
                 <div className="flex h-6 items-center gap-2 text-muted-foreground">
                   <span className="size-3 animate-spin rounded-full border-[1.5px] border-border-strong border-t-subtle-foreground" />
                   <span className="shimmer">Working</span>
@@ -291,11 +271,11 @@ export function Thread() {
               {error && (
                 <div className="flex items-center gap-2 text-destructive">
                   <XCircleIcon className="size-3.5" />
-                  <span>Something broke on my side. Try again in a moment.</span>
+                  <span>{error}</span>
                 </div>
               )}
-              {!busy && !error && messages.at(-1)?.role === "assistant" && (
-                <Chips items={STARTERS.filter((s) => !messages.some((m) => m.parts.some((p) => p.type === "text" && p.text === s)))} onPick={send} />
+              {!busy && !error && turns.at(-1)?.role === "assistant" && (
+                <Chips items={STARTERS.filter((s) => !asked.has(s))} onPick={send} />
               )}
             </ConversationContent>
             <ConversationScrollButton className="bottom-36" />
