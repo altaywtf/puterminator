@@ -39,12 +39,12 @@ export type StepText = { title: string; detail: string | null; lines: string[] }
 export function describeStep(name: string, inputValue: unknown, output: string | null): StepText {
   const input = record(inputValue);
   const out = parse(output);
-  if (out && typeof out.error === "string") return { title: `Couldn't run ${name}`, detail: null, lines: [out.error] };
+  if (out && typeof out.error === "string") return { title: `couldn't run ${name}`, detail: null, lines: [out.error] };
   if (name === "scan_library") {
     return Option.match(auditOf(output), {
-      onNone: () => ({ title: "Read the library", detail: null, lines: [] }),
+      onNone: () => ({ title: "read the library", detail: null, lines: [] }),
       onSome: (a) => ({
-        title: "Read the library",
+        title: "read the library",
         detail: `${fmt(a.totals.items)} items · ${size(a.totals.bytes)}`,
         lines: [
           `release names   ${fmt(a.naming.messy)} videos`,
@@ -57,7 +57,7 @@ export function describeStep(name: string, inputValue: unknown, output: string |
   }
   if (name === "list_folder") {
     const path = typeof input.path === "string" && input.path ? input.path : "/";
-    return { title: `Open ${path}`, detail: out ? `${fmt(num(out.count))} items` : null, lines: [] };
+    return { title: `open ${path}`, detail: out ? `${fmt(num(out.count))} items` : null, lines: [] };
   }
   if (name === "search_files") {
     const category = typeof input.category === "string" && input.category !== "any" ? input.category.replace("_", " ") : null;
@@ -65,7 +65,7 @@ export function describeStep(name: string, inputValue: unknown, output: string |
     const what = [category, query].filter((s) => s !== null).join(" ");
     const items = Array.isArray(out?.items) ? out.items : [];
     return {
-      title: `Search ${what || "files"}`,
+      title: `search ${what || "files"}`,
       detail: out ? `${fmt(num(out.total))} matches` : null,
       lines: items.slice(0, 6).flatMap((i) => {
         const path = record(i).path;

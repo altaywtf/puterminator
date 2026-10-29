@@ -6,7 +6,7 @@ import { auditOf, callLine, describeStep } from "./steps";
 describe("describeStep", () => {
   it("summarises a scan from the audit result", () => {
     expect(describeStep("scan_library", {}, JSON.stringify(audit))).toEqual({
-      title: "Read the library",
+      title: "read the library",
       detail: "3,688 items · 1.7 TB",
       lines: ["release names   1,442 videos", "wrapper folders   318", "junk   351 files · 2.1 GB", "duplicates   12 groups"],
     });
@@ -14,14 +14,14 @@ describe("describeStep", () => {
 
   it("names the search and lists up to six paths", () => {
     const d = describeStep("search_files", { category: "junk", query: "rarbg" }, JSON.stringify(search));
-    expect(d.title).toBe('Search junk "rarbg"');
+    expect(d.title).toBe('search junk "rarbg"');
     expect(d.detail).toBe("351 matches");
     expect(d.lines).toHaveLength(6);
   });
 
   it("shows a tool error and a non-JSON result as the failure line", () => {
     expect(describeStep("list_folder", { path: "movies" }, '{"error":"No scan yet."}')).toEqual({
-      title: "Couldn't run list_folder",
+      title: "couldn't run list_folder",
       detail: null,
       lines: ["No scan yet."],
     });
@@ -29,7 +29,7 @@ describe("describeStep", () => {
   });
 
   it("has no detail while the tool runs", () => {
-    expect(describeStep("list_folder", { path: "" }, null)).toEqual({ title: "Open /", detail: null, lines: [] });
+    expect(describeStep("list_folder", { path: "" }, null)).toEqual({ title: "open /", detail: null, lines: [] });
   });
 });
 

@@ -126,7 +126,7 @@ describe("a turn", () => {
     expect(history[2]?.content).toEqual([
       { type: "tool_result", tool_use_id: "toolu_9", content: "Stopped before this tool finished.", is_error: true },
     ]);
-    expect(t.events.filter((e) => e.type === "error")).toEqual([{ type: "error", message: "put.io signed you out. Sign in again." }]);
+    expect(t.events.filter((e) => e.type === "error")).toEqual([{ type: "error", message: "put.io signed you out. sign in again." }]);
     expect(t.store.token()).toBeNull();
     expect(t.agent.state().busy).toBe(false);
   });

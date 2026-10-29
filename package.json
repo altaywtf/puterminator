@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.15.0",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite build && DO_NOT_TRACK=1 alchemy dev --stage dev",
     "dev:fake": "vite build && node src/server/testing/dev-fake.ts",
@@ -19,6 +21,7 @@
     "@anthropic-ai/sdk": "1.3.0",
     "@effect/platform-browser": "4.0.7",
     "@putdotio/sdk": "13.3.1",
+    "@uinaf/design": "1.17.8",
     "alchemy": "2.0.0-beta.84",
     "effect": "4.0.7",
     "foldkit": "0.169.0",

@@ -20,16 +20,16 @@ function render(node: Nodes): Child {
     case "html":
       return node.value;
     case "inlineCode":
-      return ih.code([ih.Class("rounded bg-hover px-1 font-mono text-[12px]")], [node.value]);
+      return ih.code([ih.Class("rounded-xs bg-raised px-1 text-[13px] text-fg-strong [overflow-wrap:anywhere] box-decoration-clone")], [node.value]);
     case "code":
       return ih.pre(
-        [ih.Class("m-0 overflow-x-auto rounded-lg bg-subtle p-3 font-mono text-[12px] leading-normal")],
+        [ih.Class("m-0 overflow-x-auto border border-line bg-sunk p-3 text-[13px] leading-normal")],
         [ih.code([], [node.value])],
       );
     case "paragraph":
-      return ih.p([ih.Class("m-0 max-w-[62ch] text-pretty")], children(node));
+      return ih.p([ih.Class("m-0 max-w-[64ch] text-pretty")], children(node));
     case "strong":
-      return ih.strong([ih.Class("font-semibold")], children(node));
+      return ih.strong([ih.Class("font-bold text-fg-strong")], children(node));
     case "emphasis":
       return ih.em([], children(node));
     case "delete":
@@ -43,7 +43,7 @@ function render(node: Nodes): Child {
               ih.Href(node.url),
               ih.Target("_blank"),
               ih.Rel("noopener noreferrer nofollow"),
-              ih.Class("underline decoration-line-strong underline-offset-2 hover:decoration-fg"),
+              ih.Class("underline decoration-fg-4 underline-offset-3 transition-colors duration-160 hover:text-accent"),
             ],
             children(node),
           )
@@ -51,7 +51,7 @@ function render(node: Nodes): Child {
     case "image":
       return node.alt ?? "";
     case "heading":
-      return ih.p([ih.Class("m-0 font-semibold")], children(node));
+      return ih.p([ih.Class("m-0 text-fg-strong")], children(node));
     case "list": {
       const items = node.children.map((item) =>
         ih.li(
@@ -64,11 +64,11 @@ function render(node: Nodes): Child {
         ),
       );
       return node.ordered
-        ? ih.ol([ih.Class("m-0 grid max-w-[62ch] list-decimal gap-1 ps-5")], items)
-        : ih.ul([ih.Class("m-0 grid max-w-[62ch] list-disc gap-1 ps-5")], items);
+        ? ih.ol([ih.Class("m-0 grid max-w-[64ch] list-decimal gap-1 ps-6 marker:text-fg-3")], items)
+        : ih.ul([ih.Class("m-0 grid max-w-[64ch] gap-1 ps-4 [list-style-type:'-_'] marker:text-fg-4")], items);
     }
     case "blockquote":
-      return ih.blockquote([ih.Class("m-0 grid gap-2 border-s-2 border-line-strong ps-3 text-fg-2")], children(node));
+      return ih.blockquote([ih.Class("m-0 grid gap-2 border-s border-line-strong ps-3 text-fg-2")], children(node));
     case "thematicBreak":
       return ih.hr([ih.Class("w-full border-0 border-t border-line")]);
     case "table":
@@ -76,7 +76,7 @@ function render(node: Nodes): Child {
         [ih.Class("overflow-x-auto")],
         [
           ih.table(
-            [ih.Class("border-collapse text-[12.5px] tabular-nums")],
+            [ih.Class("border-collapse text-[13px] tabular-nums")],
             [
               ih.tbody(
                 [],
@@ -85,7 +85,7 @@ function render(node: Nodes): Child {
                     [],
                     row.children.map((cell) =>
                       (r === 0 ? ih.th : ih.td)(
-                        [ih.Class(`border-b border-line py-1 pe-4 text-start ${r === 0 ? "font-medium text-fg-2" : ""}`)],
+                        [ih.Class(`border-b border-line py-1 pe-4 text-start ${r === 0 ? "text-[11px] uppercase tracking-[0.08em] font-normal text-fg-3" : ""}`)],
                         children(cell),
                       ),
                     ),
@@ -101,7 +101,7 @@ function render(node: Nodes): Child {
   }
 }
 
-const caret = () => ih.span([ih.Class("caret"), ih.AriaHidden(true)], []);
+const caret = () => ih.span([ih.Class("u-caret ms-0.5"), ih.AriaHidden(true)], []);
 
 /** `streaming` puts a blinking caret after the last word while the text still grows. */
 export const renderMarkdown = (text: string, streaming: boolean): Html => {
@@ -110,7 +110,7 @@ export const renderMarkdown = (text: string, streaming: boolean): Html => {
   const last = root.children.at(-1);
   if (streaming) {
     if (last?.type === "paragraph")
-      nodes[nodes.length - 1] = ih.p([ih.Class("m-0 max-w-[62ch] text-pretty")], [...children(last), caret()]);
+      nodes[nodes.length - 1] = ih.p([ih.Class("m-0 max-w-[64ch] text-pretty")], [...children(last), caret()]);
     else nodes.push(caret());
   }
   return ih.div([ih.Class("grid min-w-0 gap-2.5")], nodes);

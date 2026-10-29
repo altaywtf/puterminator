@@ -185,6 +185,9 @@ importers:
       '@putdotio/sdk':
         specifier: 13.3.1
         version: 13.3.1
+      '@uinaf/design':
+        specifier: 1.17.8
+        version: 1.17.8
       alchemy:
         specifier: 2.0.0-beta.84
         version: 2.0.0-beta.84(@effect/platform-node@4.0.7(effect@4.0.7)(redis@6.3.0(@opentelemetry/api@1.10.0)))(effect@4.0.7)(vite@8.3.5(@types/node@26.6.5)(jiti@2.7.0)(yaml@2.9.1))(ws@8.22.0)
@@ -1121,6 +1124,11 @@ packages:
     engines: {node: '>=16.20.0'}
     cpu: [x64]
     os: [win32]
+
+  '@uinaf/design@1.17.8':
+    resolution: {integrity: sha512-IC7Qc4RYnVdlr49PS+ISjKVLpf4n7gM+3oMjEDJiS/PrHaNY50sNNcFGl6jnVcOmFJMr/3byRNuaU62Xoe9ZOA==}
+    engines: {node: '>=24.18.0'}
+    hasBin: true
 
   '@vitest/mocker@5.0.5':
     resolution: {integrity: sha512-xLL3lkDegJZw+MGoGaCCsFayDZthGgpAtr3Vziyfc4p7xH89K7KRPcRBBh/kEYm0Aqkt5DtTmkYpBtRV/FrHZg==}
@@ -2497,6 +2505,10 @@ snapshots:
 
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
+
+  '@uinaf/design@1.17.8':
+    dependencies:
+      postcss: 8.5.32
 
   '@vitest/mocker@5.0.5(vite@8.3.5(@types/node@26.6.5)(jiti@2.7.0)(yaml@2.9.1))':
     dependencies:

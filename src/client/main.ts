@@ -170,7 +170,7 @@ export const SendFrame = Command.define("SendFrame", {
     AgentSocket.get.pipe(
       Effect.flatMap((socket) => Effect.try(() => socket.send(encodeClientFrame(event)))),
       Effect.as(Message.SentFrame()),
-      Effect.orElseSucceed(() => Message.FailedFrame({ error: "Not connected. Try again in a moment." })),
+      Effect.orElseSucceed(() => Message.FailedFrame({ error: "not connected. try again in a moment." })),
     ),
 });
 
