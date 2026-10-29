@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Puterminator — agent prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f5f5f5; --panel: #ffffff; --raised: #ffffff; --subtle: #f7f7f7; --hover: #f0f0f0;
+  --line: rgb(0 0 0 / 0.07); --line-strong: rgb(0 0 0 / 0.12);
+  --fg: #171717; --fg-2: #525252; --fg-3: #8a8a8a; --fg-4: #b4b4b4;
+  --primary: #171717; --primary-fg: #ffffff;
+  --accent: #5e6ad2; --ok: #1f9d55; --warn: #b7791f; --danger: #d14343;
+  --ok-soft: rgb(31 157 85 / 0.1); --warn-soft: rgb(183 121 31 / 0.12); --danger-soft: rgb(209 67 67 / 0.1);
+  --shadow: 0 0 0 1px rgb(0 0 0 / 0.06), 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 12px -4px rgb(0 0 0 / 0.06);
+  --shadow-lg: 0 0 0 1px rgb(0 0 0 / 0.06), 0 2px 4px rgb(0 0 0 / 0.04), 0 12px 32px -8px rgb(0 0 0 / 0.12);
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e0e0f; --panel: #151516; --raised: #1c1c1e; --subtle: #19191b; --hover: #222224;
+    --line: #26262a; --line-strong: #323236;
+    --fg: #ededed; --fg-2: #a1a1a1; --fg-3: #737373; --fg-4: #4a4a4a;
+    --primary: #ededed; --primary-fg: #111111;
+    --accent: #8b93e8; --ok: #3fb950; --warn: #d29922; --danger: #f06a6a;
+    --ok-soft: rgb(63 185 80 / 0.12); --warn-soft: rgb(210 153 34 / 0.14); --danger-soft: rgb(240 106 106 / 0.12);
+    --shadow: 0 0 0 1px #26262a; --shadow-lg: 0 0 0 1px #2c2c30, 0 16px 40px -12px rgb(0 0 0 / 0.6);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body { font: 13px/1.55 var(--font); color: var(--fg); background: var(--bg); letter-spacing: -0.003em;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-synthesis: none; font-feature-settings: "cv11", "ss01"; }
+button, input, textarea { font: inherit; color: inherit; letter-spacing: inherit; touch-action: manipulation; }
+button { cursor: pointer; background: none; border: 0; padding: 0; }
+:focus-visible { outline: 2px solid var(--fg-3); outline-offset: 2px; border-radius: 6px; }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); font-size: 12px; letter-spacing: 0; }
+.trunc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+svg.i { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* shell: Linear-style gray chrome with inset panel */
+.shell { display: grid; grid-template-columns: minmax(0, 1fr); height: 100dvh; }
+.side { display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; min-width: 0; }
+.ws { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; font-weight: 500; }
+.logo { width: 20px; height: 20px; border-radius: 6px; background: var(--fg); color: var(--bg); display: grid; place-items: center; font-size: 11px; font-weight: 600; }
+.nav { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; color: var(--fg-2); width: 100%; text-align: start;
+  transition: background-color 120ms ease-out, color 120ms ease-out; }
+.nav[aria-current="page"] { background: var(--hover); color: var(--fg); }
+@media (hover: hover) and (pointer: fine) { .nav:hover { background: var(--hover); color: var(--fg); } }
+.side-label { padding: 14px 8px 4px; font-size: 12px; color: var(--fg-3); }
+.side-foot { margin-top: auto; display: grid; gap: 6px; padding: 8px; }
+.meter { height: 4px; border-radius: 99px; background: var(--line-strong); overflow: hidden; }
+.meter > i { display: block; height: 100%; background: var(--fg-2); border-radius: 99px; transform-origin: left; transition: transform 300ms var(--ease); }
+.main { margin: 8px; background: var(--panel); border-radius: 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; position: relative; }
+.mainbar { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); flex: none; }
+.mainbar .title { font-weight: 500; }
+.ghost-ic { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: var(--fg-3); position: relative; }
+.ghost-ic::before { content: ""; position: absolute; inset: -6px; }
+@media (hover: hover) and (pointer: fine) { .ghost-ic:hover { background: var(--hover); color: var(--fg); } }
+@media (max-width: 760px) { .shell { grid-template-columns: 1fr; } .side { display: none; } .main { margin: 0; border-radius: 0; } }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 8px; font-weight: 500; white-space: nowrap;
+  transition: background-color 120ms ease-out, box-shadow 120ms ease-out, transform 120ms ease-out, color 120ms ease-out; }
+.btn:active { transform: scale(0.96); }
+.btn-primary { background: var(--primary); color: var(--primary-fg); }
+.btn-secondary { background: var(--raised); box-shadow: var(--shadow); color: var(--fg); }
+.btn-quiet { color: var(--fg-2); padding: 0 8px; }
+@media (hover: hover) and (pointer: fine) {
+  .btn-primary:hover { background: color-mix(in oklch, var(--primary) 85%, var(--panel)); }
+  .btn-secondary:hover { background: var(--hover); }
+  .btn-quiet:hover { background: var(--hover); color: var(--fg); }
+}
+.btn[disabled] { opacity: 1; background: var(--hover); color: var(--fg-4); box-shadow: none; cursor: default; transform: none; }
+.tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 6px; font-size: 12px; font-weight: 500; background: var(--hover); color: var(--fg-2); white-space: nowrap; }
+.tag-warn { background: var(--warn-soft); color: var(--warn); } .tag-danger { background: var(--danger-soft); color: var(--danger); } .tag-ok { background: var(--ok-soft); color: var(--ok); }
+
+/* thread */
+.scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: 180px; }
+.thread { max-width: 680px; margin: 0 auto; padding: 28px 20px 200px; display: grid; gap: 18px; }
+.u { justify-self: end; max-width: 80%; padding: 8px 12px; border-radius: 12px; background: var(--hover); white-space: pre-wrap; }
+.a { display: grid; gap: 10px; min-width: 0; }
+.a p { margin: 0; max-width: 62ch; text-wrap: pretty; }
+.a strong { font-weight: 600; }
+.caret::after { content: ""; display: inline-block; width: 6px; height: 13px; margin-inline-start: 2px; vertical-align: -2px; background: var(--fg-3); border-radius: 1px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.step { display: grid; gap: 4px; }
+.step-head { display: flex; align-items: center; gap: 8px; color: var(--fg-3); height: 24px; width: fit-content; max-width: 100%; border-radius: 6px; }
+.step-head .name { color: var(--fg-2); }
+.step-head .chev { transition: transform 150ms ease-out; }
+.step-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
+@media (hover: hover) and (pointer: fine) { button.step-head:hover .name { color: var(--fg); } }
+.step-body { margin-inline-start: 6px; padding: 2px 0 2px 14px; border-inline-start: 1px solid var(--line-strong); color: var(--fg-3); display: grid; gap: 2px; }
+.step-body .mono { color: var(--fg-2); }
+.spin { width: 12px; height: 12px; border-radius: 99px; border: 1.5px solid var(--line-strong); border-top-color: var(--fg-2); animation: spin 700ms linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.shimmer { background: linear-gradient(90deg, var(--fg-3) 0%, var(--fg) 50%, var(--fg-3) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shim 1.4s linear infinite; }
+@keyframes shim { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+.block { border-radius: 10px; background: var(--raised); box-shadow: var(--shadow); overflow: hidden; }
+.enter { animation: rise 260ms var(--ease) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(4px); } }
+.block-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.block-head .t { font-weight: 500; }
+.block-foot { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 12px; border-top: 1px solid var(--line); background: var(--subtle); }
+.rowx { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--line); }
+.rowx:first-child { border-top: 0; }
+.grow { flex: 1; }
+
+/* score */
+.score { display: grid; grid-template-columns: auto 1fr; gap: 20px; padding: 16px; align-items: center; }
+.ring { width: 64px; height: 64px; position: relative; }
+.ring svg { width: 64px; height: 64px; transform: rotate(-90deg); }
+.ring b { position: absolute; inset: 0; display: grid; place-items: center; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+.bars { display: grid; gap: 8px; }
+.barrow { display: grid; grid-template-columns: 90px 1fr 28px; gap: 10px; align-items: center; color: var(--fg-2); }
+.track { height: 4px; border-radius: 99px; background: var(--hover); overflow: hidden; }
+.track > i { display: block; height: 100%; border-radius: 99px; background: var(--fg-2); transform-origin: left; animation: grow 700ms var(--ease) both; }
+@keyframes grow { from { transform: scaleX(0); } }
+
+/* question options */
+.opts { display: grid; gap: 6px; }
+.opt { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 10px; align-items: start; text-align: start; padding: 10px 12px; border-radius: 10px;
+  background: var(--raised); box-shadow: var(--shadow); transition: box-shadow 120ms ease-out, background-color 120ms ease-out, transform 120ms ease-out; width: 100%; }
+.opt:active { transform: scale(0.99); }
+@media (hover: hover) and (pointer: fine) { .opt:hover:not([disabled]) { background: var(--subtle); } }
+.opt .radio { width: 16px; height: 16px; border-radius: 99px; box-shadow: inset 0 0 0 1.5px var(--line-strong); margin-top: 1px; }
+.opt[aria-checked="true"] { box-shadow: 0 0 0 1.5px var(--fg); }
+.opt[aria-checked="true"] .radio { box-shadow: inset 0 0 0 5px var(--fg); }
+.opt[disabled]:not([aria-checked="true"]) { opacity: 0.45; cursor: default; }
+.opt .ex { margin-top: 4px; color: var(--fg-3); }
+
+/* plan groups */
+.grp { border-top: 1px solid var(--line); }
+.grp:first-child { border-top: 0; }
+.grp-h { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; text-align: start; padding: 10px 12px; }
+@media (hover: hover) and (pointer: fine) { .grp-h:hover { background: var(--subtle); } }
+.grp-h .chev { transition: transform 150ms ease-out; color: var(--fg-3); }
+.grp-h[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.grp-b { padding: 0 12px 10px 38px; display: grid; gap: 6px; }
+.diff { display: grid; gap: 1px; min-width: 0; }
+.diff .old { color: var(--fg-3); text-decoration: line-through; text-decoration-color: var(--fg-4); }
+.diff .new { color: var(--fg); }
+.toggle { width: 28px; height: 16px; border-radius: 99px; background: var(--line-strong); position: relative; transition: background-color 150ms ease-out; flex: none; }
+.toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 99px; background: #fff; transition: transform 150ms var(--ease); box-shadow: 0 1px 2px rgb(0 0 0 / 0.2); }
+.toggle[aria-checked="true"] { background: var(--fg); }
+.toggle[aria-checked="true"]::after { transform: translateX(12px); background: var(--panel); }
+.toggle-hit { position: relative; display: inline-flex; align-items: center; }
+.toggle-hit::before { content: ""; position: absolute; inset: -12px -8px; }
+
+.progress { height: 4px; border-radius: 99px; background: var(--hover); overflow: hidden; }
+.progress > i { display: block; height: 100%; background: var(--fg); transform-origin: left; transition: transform 120ms linear; }
+.loglines { font-family: var(--mono); font-size: 11.5px; color: var(--fg-3); display: grid; gap: 1px; height: 76px; overflow: hidden; align-content: end; }
+
+/* composer: floating card, Linear/Cursor style */
+.composer-wrap { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 20px 16px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--panel) 40%); }
+.composer { pointer-events: auto; max-width: 680px; margin: 0 auto; border-radius: 12px; background: var(--raised); box-shadow: var(--shadow-lg); padding: 10px 10px 8px 14px; display: grid; gap: 6px; }
+.composer textarea { border: 0; outline: 0; resize: none; background: transparent; width: 100%; min-height: 22px; max-height: 140px; padding: 2px 0; font-size: 16px; line-height: 1.5; }
+@media (min-width: 761px) { .composer textarea { font-size: 13.5px; } }
+.composer textarea::placeholder { color: var(--fg-3); }
+.composer-row { display: flex; align-items: center; gap: 4px; }
+.pick .i.down { transform: rotate(90deg); width: 12px; height: 12px; }
+.pick { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border-radius: 6px; color: var(--fg-2); font-size: 12.5px; }
+@media (hover: hover) and (pointer: fine) { .pick:hover { background: var(--hover); color: var(--fg); } }
+.send { width: 28px; height: 28px; border-radius: 99px; background: var(--fg); color: var(--panel); display: grid; place-items: center; transition: transform 120ms ease-out, background-color 120ms ease-out; position: relative; }
+.send::before { content: ""; position: absolute; inset: -8px; }
+.send:active { transform: scale(0.94); }
+.send[disabled] { background: var(--line-strong); color: var(--fg-3); cursor: default; }
+.send svg.i { width: 14px; height: 14px; stroke-width: 2; }
+
+/* empty state */
+.hero { max-width: 680px; margin: 0 auto; padding: 14vh 20px 40px; display: grid; gap: 18px; }
+.hero h1 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -0.02em; text-align: center; text-wrap: balance; }
+.memory { display: flex; gap: 8px; align-items: center; justify-content: center; color: var(--fg-3); font-size: 12.5px; }
+.hero .sub { margin: -10px 0 0; text-align: center; color: var(--fg-3); }
+.hero .composer-slot .composer { box-shadow: var(--shadow-lg); }
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (min-width: 900px) { .cards { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.card-s { display: grid; gap: 4px; align-content: start; text-align: start; padding: 12px; border-radius: 10px; background: var(--raised); box-shadow: var(--shadow); min-height: 92px;
+  transition: background-color 120ms ease-out, transform 120ms ease-out; }
+.card-s:active { transform: scale(0.98); }
+@media (hover: hover) and (pointer: fine) { .card-s:hover { background: var(--subtle); } }
+.card-s .t { font-weight: 500; margin-top: 6px; } .card-s .d { color: var(--fg-3); font-size: 12.5px; line-height: 1.45; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { height: 28px; padding: 0 10px; border-radius: 8px; box-shadow: var(--shadow); background: var(--raised); color: var(--fg-2); font-size: 12.5px; transition: background-color 120ms ease-out, transform 120ms ease-out; }
+.chip:active { transform: scale(0.96); }
+@media (hover: hover) and (pointer: fine) { .chip:hover { background: var(--subtle); color: var(--fg); } }
+
+/* split layout */
+.split { display: grid; grid-template-columns: minmax(340px, 420px) minmax(0, 1fr); flex: 1; min-height: 0; }
+.split > .chatcol { display: flex; flex-direction: column; min-height: 0; border-inline-end: 1px solid var(--line); position: relative; }
+.split .thread { padding: 20px 16px 200px; max-width: none; }
+.split .composer-wrap { padding: 0 12px 12px; }
+.pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); }
+.tabs { display: flex; gap: 2px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.tab { height: 26px; padding: 0 10px; border-radius: 6px; color: var(--fg-3); font-weight: 500; }
+.tab[aria-selected="true"] { background: var(--hover); color: var(--fg); }
+@media (hover: hover) and (pointer: fine) { .tab:hover { color: var(--fg); } }
+.pane-body { flex: 1; overflow: auto; padding: 20px; }
+.pane-empty { height: 100%; display: grid; place-content: center; text-align: center; gap: 6px; color: var(--fg-3); }
+.pane-empty .logo { margin: 0 auto 6px; width: 28px; height: 28px; border-radius: 8px; opacity: 0.3; }
+.lib { display: grid; gap: 2px; }
+.lib-row { display: grid; grid-template-columns: minmax(0, 1fr) 80px 90px; gap: 12px; align-items: center; height: 32px; padding: 0 8px; border-radius: 6px; color: var(--fg-2); }
+.lib-row.h { color: var(--fg-3); font-size: 12px; height: 24px; }
+@media (hover: hover) and (pointer: fine) { .lib-row:not(.h):hover { background: var(--subtle); } }
+.pointer { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; box-shadow: var(--shadow); background: var(--raised); color: var(--fg-2); width: fit-content; }
+@media (max-width: 900px) { .split { grid-template-columns: 1fr; } .pane { display: none; } }
+
+/* autopilot */
+.run { max-width: 720px; margin: 0 auto; padding: 28px 20px 200px; display: grid; gap: 16px; }
+.run-head { display: grid; gap: 4px; }
+.run-head h2 { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: -0.01em; }
+.checklist { display: grid; }
+.ck { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.ck:first-child { border-top: 0; }
+.ck-ic { width: 18px; height: 18px; border-radius: 99px; display: grid; place-items: center; margin-top: 0; }
+.ck-ic.done { background: var(--ok); color: #fff; }
+.ck-ic.done svg.i { width: 11px; height: 11px; stroke-width: 2.4; }
+.ck-ic.wait { box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+.ck-ic.need { background: var(--warn); color: #fff; font-size: 11px; font-weight: 600; }
+.ck-t { font-weight: 500; display: flex; gap: 8px; align-items: center; min-height: 18px; }
+.ck-d { color: var(--fg-3); margin-top: 2px; }
+.ck-body { margin-top: 10px; display: grid; gap: 8px; }
+.ck.active { background: var(--subtle); margin: 0 -12px; padding: 10px 12px; border-radius: 10px; border-top-color: transparent; }
+.ck.active + .ck { border-top-color: transparent; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* picker — verbatim from ui:prototype PICKER.md */
+.proto-picker { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2147483647; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; background: rgba(10, 10, 10, 0.82); -webkit-backdrop-filter: blur(12px) saturate(1.4); backdrop-filter: blur(12px) saturate(1.4); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset, 0 8px 24px rgba(0, 0, 0, 0.24), 0 2px 6px rgba(0, 0, 0, 0.12); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; line-height: 1; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; }
+.proto-picker-highlight { position: absolute; top: 4px; left: 0; height: 28px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); will-change: transform; }
+.proto-picker[data-ready] .proto-picker-highlight { transition: transform 250ms cubic-bezier(0.23, 1, 0.32, 1), width 250ms cubic-bezier(0.23, 1, 0.32, 1); }
+@media (prefers-reduced-motion: reduce) { .proto-picker[data-ready] .proto-picker-highlight { transition: none; } }
+.proto-picker-item { position: relative; display: flex; align-items: center; height: 28px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: rgba(255, 255, 255, 0.55); font: inherit; cursor: pointer; transition: color 150ms ease-out; }
+.proto-picker-item:hover { color: rgba(255, 255, 255, 0.85); }
+.proto-picker-item:active { transform: scale(0.97); }
+.proto-picker-item:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.4); outline-offset: 2px; }
+.proto-picker-item[data-active] { color: #fff; }
+.proto-picker-divider { width: 1px; height: 16px; margin: 0 4px; background: rgba(255, 255, 255, 0.12); }
+.proto-picker-replay { padding: 0 10px; font-size: 14px; }
+.proto-picker[data-position="top"] { bottom: auto; top: 24px; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<nav class="proto-picker" data-position="top" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item" data-active aria-current="true">Thread</button>
+  <button class="proto-picker-item">Workspace</button>
+  <button class="proto-picker-item">Autopilot</button>
+  <span class="proto-picker-divider" aria-hidden="true"></span>
+  <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
+</nav>
+<script>
+const DATA = /*DATA*/;
+const UNOPENED = /*UNOPENED*/;
+// ---------- helpers ----------
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = n => n.toLocaleString('en-US');
+const gb = b => b >= 2 ** 40 ? (b / 2 ** 40).toFixed(1) + ' TB' : b >= 2 ** 30 ? (b / 2 ** 30).toFixed(1) + ' GB' : Math.max(1, Math.round(b / 2 ** 20)) + ' MB';
+const base = p => p.slice(p.lastIndexOf('/') + 1);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const I = {
+  check: '<path d="M3.5 8.5l3 3 6-7"/>', chev: '<path d="M6 4l4 4-4 4"/>', arrowUp: '<path d="M8 13V3M4 7l4-4 4 4"/>', stop: '<rect x="4.5" y="4.5" width="7" height="7" rx="1.5" fill="currentColor" stroke="none"/>',
+  search: '<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/>', folder: '<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"/>',
+  sparkle: '<path d="M8 2.5l1.3 3.2 3.2 1.3-3.2 1.3L8 11.5 6.7 8.3 3.5 7l3.2-1.3z"/>', trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/>', clock: '<circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/>',
+  chart: '<path d="M3 13V8M8 13V3M13 13V6"/>', history: '<path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9M2.5 3v2.5H5"/><path d="M8 5.5V8l1.8 1"/>', plus: '<path d="M8 3v10M3 8h10"/>', undo: '<path d="M5 6H10a3 3 0 0 1 0 6H7"/><path d="M7 3.5L4.5 6 7 8.5"/>',
+  brain: '<path d="M6 3a2 2 0 0 0-2 2 2 2 0 0 0-1 3.5A2 2 0 0 0 5 12a2 2 0 0 0 3 .5V3.5A2 2 0 0 0 6 3zM10 3a2 2 0 0 1 2 2 2 2 0 0 1 1 3.5A2 2 0 0 1 11 12a2 2 0 0 1-3 .5"/>', tool: '<path d="M10 3a3 3 0 0 0-2.8 4L3 11.2 4.8 13 9 8.8A3 3 0 0 0 13 6l-1.8 1.8-1.5-.5-.5-1.5L11 4a3 3 0 0 0-1-1z"/>',
+};
+const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 16 16" aria-hidden="true">${I[n]}</svg>`;
+
+// ---------- real data → facts ----------
+const MOVES = DATA.moves, TRASH = DATA.deletes, DUPES = DATA.dupes;
+const area = p => p.split('/')[1];
+const GROUPS = [
+  { key: 'dupes', title: 'Duplicates', need: true, items: DUPES.map(([p, why, s]) => ({ a: base(p), b: `smaller copy (${gb(s)}) goes to trash, bigger one stays`, size: s })), note: 'Same movie or episode twice. I keep the bigger file.' },
+  { key: 'series', title: 'Series → Show / Season NN', items: MOVES.filter(m => area(m[0]) === 'series').map(([a, b, t, s]) => ({ a: base(a), b: b.split('/').slice(2).join(' / '), size: s })) },
+  { key: 'movies', title: 'Movies → one folder each', items: MOVES.filter(m => area(m[0]) === 'movies').map(([a, b, t, s]) => ({ a: base(a), b: b.split('/').slice(2).join(' / '), size: s })) },
+  { key: 'docs', title: 'Documentaries flattened', items: MOVES.filter(m => area(m[0]) === 'documentaries').map(([a, b, t, s]) => ({ a: base(a), b: b.split('/').slice(2).join(' / '), size: s })) },
+  { key: 'light', title: 'Courses, comedians, audiobooks', items: MOVES.filter(m => ['courses', 'comedians', 'audiobooks', 'youtube', 'music'].includes(area(m[0]))).map(([a, b, t, s]) => ({ a: base(a), b: base(b), size: s })) },
+  { key: 'junk', title: 'Junk to trash', danger: true, items: TRASH.map(([p, why, s]) => ({ a: base(p), b: why, size: s })) },
+];
+const TOTAL_ITEMS = 3688, TOTAL_BYTES = 1715.4 * 2 ** 30;
+const STYLE_EX = {
+  plex: 'The Office (US) / Season 02 / The Office (US) - S02E01 - The Dundies.mkv',
+  clean: 'The Office (US) / The Office S02E01 The Dundies.mkv',
+  slug: 'the-office-us / the-office-us-s02e01.mkv',
+  keep: 'The.Office.S02E01.720p.HDTV.x264.mkv (only junk and folders change)',
+};
+const slugify = s => s.normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/\.(\w+)$/, '|$1').toLowerCase().replace(/[^a-z0-9|]+/g, '-').replace(/^-|-$/g, '').replace('|', '.');
+const styled = (b, style) => style === 'slug' ? b.split(' / ').map(slugify).join(' / ') : style === 'clean' ? b.replace(/ \/ Season \d\d \//, ' /').replace(/ - (S\d\dE\d\d) - /, ' $1 ').replace(/ - (S\d\dE\d\d)\./, ' $1.') : b;
+
+// ---------- agent engine (scripted; the real one is Claude + tools) ----------
+function createAgent(onChange) {
+  const S = { turns: [], busy: false, waiting: null, plan: null, style: null, credits: 412, checkpoint: null, pane: null, title: 'New chat', stopped: false };
+  const emit = () => onChange(S);
+  const turn = () => S.turns[S.turns.length - 1];
+  const part = p => { turn().parts.push(p); emit(); return p; };
+  const charge = n => { S.credits = Math.max(0, S.credits - n); };
+  async function say(text) {
+    const p = part({ type: 'text', text, shown: 0 });
+    const words = text.split(/(\s+)/);
+    for (let i = 0; i <= words.length; i += 3) { if (S.stopped) break; p.shown = words.slice(0, i).join('').length; emit(); await sleep(28); }
+    p.shown = text.length; emit();
+  }
+  async function step(name, label, run) {
+    const p = part({ type: 'step', name, label, status: 'running', lines: [], t0: Date.now() });
+    await run(p, () => emit());
+    p.status = 'done'; p.ms = Date.now() - p.t0; emit(); return p;
+  }
+  async function think(text, ms = 900) { const p = part({ type: 'think', text, status: 'running' }); await sleep(ms); p.status = 'done'; p.ms = ms; emit(); }
+  const ask = (q) => new Promise(res => { const p = part({ type: 'question', ...q, answer: null }); S.waiting = { p, res }; S.busy = false; emit(); });
+  async function scan() {
+    await step('list_files', 'Read the library', async (p, up) => {
+      const folders = ['audiobooks', 'comedians', 'courses', 'documentaries', 'movies', 'music', 'series', 'youtube'];
+      for (let i = 0; i < folders.length; i++) { p.detail = `${fmt(Math.round(TOTAL_ITEMS * (i + 1) / folders.length))} items`; p.lines.push(`list  /${ROOT}/${folders[i]}`); up(); await sleep(170); }
+      p.detail = `${fmt(TOTAL_ITEMS)} items · ${gb(TOTAL_BYTES)}`;
+    });
+    await step('classify_names', 'Check every name', async (p, up) => {
+      for (const l of ['release tags   1,442 files', 'torrent wrappers   318 folders', 'tracker junk   351 files', 'duplicates   12 pairs']) { p.lines.push(l); up(); await sleep(220); }
+      p.detail = '1,442 release names · 351 junk files · 12 duplicates';
+    });
+  }
+  async function score() {
+    S.pane = 'score';
+    part({ type: 'score', value: 38, rows: [['Naming', 22], ['Structure', 41], ['Junk', 61], ['Duplicates', 70]] });
+  }
+  async function buildPlan(style, only) {
+    S.style = style;
+    await step('build_plan', 'Plan the changes', async (p, up) => {
+      for (const g of GROUPS) { if (only && !only.includes(g.key)) continue; p.lines.push(`${g.key.padEnd(8)} ${fmt(g.items.length)} changes`); up(); await sleep(160); }
+      const n = GROUPS.filter(g => !only || only.includes(g.key)).reduce((a, g) => a + g.items.length, 0);
+      p.detail = `${fmt(n)} changes`;
+    });
+    S.plan = { style, groups: GROUPS.filter(g => !only || only.includes(g.key)).map(g => ({ ...g, on: true, open: !!g.need })), status: 'draft' };
+    S.pane = 'plan';
+    part({ type: 'plan' });
+  }
+  const planCount = () => S.plan ? S.plan.groups.filter(g => g.on).reduce((a, g) => a + g.items.length, 0) : 0;
+  const trashCount = () => S.plan ? S.plan.groups.filter(g => g.on && (g.key === 'junk' || g.key === 'dupes' || g.key === 'unopened')).reduce((a, g) => a + g.items.length, 0) : 0;
+  async function confirmApply() {
+    await say(`${planCount() - trashCount() > 0 ? `That's ${fmt(planCount() - trashCount())} renames and moves` : 'No renames'}${trashCount() ? `, plus ${fmt(trashCount())} files to put.io trash` : ''}. I save a checkpoint first, so you can undo all of it.`);
+    const a = await ask({ kind: 'approve', q: `Apply ${fmt(planCount())} changes?`, options: [{ id: 'yes', label: `Apply ${fmt(planCount())} changes` }, { id: 'no', label: 'Not now' }] });
+    if (a === 'yes') return apply(); else { S.busy = true; await say('Okay. The plan stays here. Change anything above, or say "apply" when you’re ready.'); S.busy = false; emit(); }
+  }
+  async function apply() {
+    S.busy = true; S.plan.status = 'applying';
+    const total = planCount(), ops = S.plan.groups.filter(g => g.on).flatMap(g => g.items.map(it => ({ ...it, trash: !!(g.danger || g.need) }))).sort((x, y) => x.trash - y.trash);
+    const p = part({ type: 'progress', done: 0, total, lines: [], status: 'running' });
+    S.pane = 'history';
+    for (let i = 0; i < total; i += Math.ceil(total / 50)) {
+      if (S.stopped) break;
+      p.done = Math.min(total, i + Math.ceil(total / 50)); const o = ops[p.done - 1];
+      if (o) { p.lines.push(`${String(p.done).padStart(5)}  ${o.trash ? 'trash   ' + o.a : 'rename  ' + styled(o.b, S.style).split(' / ').pop()}`); if (p.lines.length > 5) p.lines.shift(); }
+      emit(); await sleep(45);
+    }
+    p.status = S.stopped ? 'stopped' : 'done'; S.stopped = false; S.plan.status = 'applied';
+    S.checkpoint = { n: p.done, at: new Date() }; charge(18); emit();
+    await say(`Done. ${fmt(p.done)} changes applied, checkpoint saved. Your library now scores 91.`);
+    part({ type: 'done', n: p.done, undone: false });
+    S.busy = false; emit();
+  }
+  async function undo() {
+    if (!S.checkpoint) return say('Nothing to undo yet.');
+    const d = S.turns.flatMap(t => t.parts || []).find(x => x.type === 'done' && !x.undone);
+    await step('restore_checkpoint', 'Restore checkpoint', async (p, up) => { for (let i = 1; i <= 5; i++) { p.detail = `${fmt(Math.round(S.checkpoint.n * i / 5))} of ${fmt(S.checkpoint.n)}`; up(); await sleep(200); } });
+    if (d) d.undone = true; S.plan && (S.plan.status = 'draft'); S.checkpoint = null;
+    await say('Everything is back the way it was, trash included.');
+  }
+  async function route(text) {
+    const t = text.toLowerCase();
+    if (S.waiting) {
+      const { p, res } = S.waiting; const pick = p.options.find(o => t.includes(o.id) || t.includes(o.label.toLowerCase().split(' ')[0]) || (o.id === 'yes' && /\b(yes|apply|go|do it|ok)\b/.test(t)) || (o.id === 'no' && /\b(no|later|wait|not)\b/.test(t)));
+      if (pick) { S.waiting = null; p.answer = pick.id; S.busy = true; emit(); return res(pick.id); }
+    }
+    S.busy = true; emit();
+    if (/undo|revert|roll ?back/.test(t)) return undo();
+    if (/apply|go ahead|do it/.test(t) && S.plan && S.plan.status === 'draft') return apply();
+    if (/never|unopen|opened|old|space|watch/.test(t)) return unopened();
+    if (/junk|garbage|clean ?up junk|trash/.test(t) && !/organi[sz]e/.test(t)) return junk();
+    if (/audit|score|how bad|health/.test(t)) return audit();
+    if (/organi[sz]e|rename|clean|fix|plex|jellyfin|sort/.test(t)) return organize();
+    if (/keep both|keep dup/.test(t) && S.plan) { const g = S.plan.groups.find(g => g.key === 'dupes'); if (g) g.on = false; await say('Both copies stay. I took the 12 duplicates out of the plan.'); return; }
+    if (/title/.test(t) && S.plan) { await say('Episode titles off. Episodes are now just “Show - S01E01”; Plex fetches titles itself.'); S.style = S.style; return; }
+    await say('I can audit your library, organize it, clean out junk, or find what you never opened. What should I do?');
+    part({ type: 'suggest', items: ['Audit my library', 'Organize everything', 'Clean junk only', 'What did I never open?'] });
+  }
+  async function audit() {
+    S.title = 'Library audit'; await think('Read the whole tree first, then score naming, structure, junk and duplicates.');
+    await scan(); await score();
+    await say('**38 out of 100.** Almost every file still has its release name, episodes sit inside per-episode torrent folders, and 62 copies of RARBG_DO_NOT_MIRROR.exe are along for the ride.');
+    part({ type: 'suggest', items: ['Organize everything', 'Clean junk only', 'What did I never open?'] });
+  }
+  async function organize() {
+    S.title = 'Organize __o-o__';
+    if (!S.turns.some(t => t.parts?.some(p => p.type === 'score'))) { await think('Read the tree, ask how files should be named, then plan.'); await scan(); await score(); }
+    await say('Before I plan anything: how should files be named?');
+    const style = await ask({ kind: 'choice', q: 'Naming style', options: [
+      { id: 'plex', label: 'Plex / Jellyfin', desc: 'Show / Season / Episode. Media servers match it.', ex: STYLE_EX.plex, rec: true },
+      { id: 'clean', label: 'Clean names', desc: 'Readable, no release tags, flatter folders.', ex: STYLE_EX.clean },
+      { id: 'slug', label: 'Slugs', desc: 'lowercase-with-dashes. Good for scripts.', ex: STYLE_EX.slug },
+      { id: 'keep', label: 'Keep release names', desc: 'Only remove junk and empty wrapper folders.', ex: STYLE_EX.keep } ] });
+    S.busy = true; emit();
+    await buildPlan(style, style === 'keep' ? ['dupes', 'junk'] : null);
+    await say('12 duplicates need a look; I’d keep the bigger copy of each. Everything else is mechanical.');
+    return confirmApply();
+  }
+  async function junk() {
+    S.title = 'Clean junk'; await think('Look for tracker filler, sample clips and duplicate copies. No renames.', 700);
+    await scan(); await buildPlan('keep', ['dupes', 'junk']);
+    await say('Mostly RARBG_DO_NOT_MIRROR.exe, .nfo files and YTS logos. 4.7 MB of junk and 12 duplicate videos worth 9.2 GB.');
+    return confirmApply();
+  }
+  async function unopened() {
+    S.title = 'Never opened';
+    await think('Videos with no first_accessed_at were never played. put.io has no last-opened date, so “stale” isn’t knowable.', 900);
+    await step('find_unopened', 'Find videos never played', async (p, up) => { for (const l of ['filter  file_type = VIDEO', 'filter  first_accessed_at = null', 'sort    size desc']) { p.lines.push(l); up(); await sleep(250); }
+      p.detail = `${fmt(UNOPENED.length)} videos · ${gb(UNOPENED.reduce((a, r) => a + r[1], 0))}`; });
+    S.pane = 'unopened';
+    part({ type: 'unopened' });
+    const old = UNOPENED.filter(r => r[2] && r[2] < '2023');
+    await say(`You never played **${fmt(UNOPENED.length)} videos (${gb(UNOPENED.reduce((a, r) => a + r[1], 0))})**. ${fmt(old.length)} of them have sat there since before 2023.`);
+    const a = await ask({ kind: 'choice', q: 'What should I do with them?', options: [
+      { id: 'old', label: `Trash the ${fmt(old.length)} added before 2023`, desc: gb(old.reduce((a, r) => a + r[1], 0)) + ' back. Recoverable from trash.' },
+      { id: 'all', label: `Trash all ${fmt(UNOPENED.length)}`, desc: gb(UNOPENED.reduce((a, r) => a + r[1], 0)) + ' back.' },
+      { id: 'none', label: 'Just keep the list', desc: 'Nothing changes.' } ] });
+    S.busy = true; emit();
+    if (a === 'none') { await say('Kept. Ask again any time; the list updates as you watch.'); S.busy = false; emit(); return; }
+    const rows = a === 'old' ? old : UNOPENED;
+    S.plan = { style: 'keep', groups: [{ key: 'unopened', title: 'Never opened → trash', danger: true, on: true, open: true, items: rows.map(r => ({ a: base(r[0]), b: r[0].split('/').slice(1, -1).join(' / '), size: r[1] })) }], status: 'draft' };
+    S.pane = 'plan'; part({ type: 'plan' });
+    return confirmApply();
+  }
+  return {
+    S,
+    async send(text) {
+      if (!text.trim() || (S.busy && !S.waiting)) return;
+      S.turns.push({ role: 'user', text }); S.turns.push({ role: 'agent', parts: [] }); charge(2); emit();
+      await route(text); S.busy = false; emit();
+    },
+    choose(id) { if (!S.waiting) return; const o = S.waiting.p.options.find(o => o.id === id); if (!o) return;
+      S.turns.push({ role: 'user', text: o.label }); S.turns.push({ role: 'agent', parts: [] }); const { p, res } = S.waiting; S.waiting = null; p.answer = id; S.busy = true; emit(); res(id); },
+    stop() { S.stopped = true; },
+    toggleGroup(k) { const g = S.plan?.groups.find(g => g.key === k); if (g && S.plan.status === 'draft') { g.on = !g.on; emit(); } },
+    openGroup(k) { const g = S.plan?.groups.find(g => g.key === k); if (g) { g.open = !g.open; g.lim = 6; emit(); } },
+    more(k) { const g = S.plan?.groups.find(g => g.key === k); if (g) { g.lim = (g.lim || 6) + 30; emit(); } },
+    undo: () => { S.turns.push({ role: 'user', text: 'Undo' }); S.turns.push({ role: 'agent', parts: [] }); S.busy = true; emit(); undo().then(() => { S.busy = false; emit(); }); },
+    planCount, trashCount,
+  };
+}
+const ROOT = '__o-o__';
+
+// ---------- shared renderers ----------
+const expanded = new Set();
+function stepHtml(p, id) {
+  const open = expanded.has(id);
+  const head = p.status === 'running'
+    ? `<div class="step-head"><span class="spin" aria-hidden="true"></span><span class="shimmer">${esc(p.label)}</span>${p.detail ? `<span class="num">· ${esc(p.detail)}</span>` : ''}</div>`
+    : `<button class="step-head" data-exp="${id}" aria-expanded="${open}">${ic(p.type === 'think' ? 'brain' : 'tool')}<span class="name">${p.type === 'think' ? `Thought for ${Math.max(1, Math.round(p.ms / 1000))}s` : esc(p.label)}</span>${p.detail ? `<span class="num trunc">· ${esc(p.detail)}</span>` : ''}${ic('chev', 'chev')}</button>`;
+  const body = p.type === 'think' ? `<div>${esc(p.text)}</div>` : `<div class="mono">${esc(p.name)}()</div>${p.lines.map(l => `<div class="mono trunc">${esc(l)}</div>`).join('')}`;
+  return `<div class="step">${head}${open || (p.status === 'running' && p.type !== 'think') ? `<div class="step-body">${body}</div>` : ''}</div>`;
+}
+const md = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+function scoreHtml(p) {
+  const c = 2 * Math.PI * 28, v = p.value;
+  return `<div class="block"><div class="score"><div class="ring" role="img" aria-label="Library score ${v} out of 100"><svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="28" stroke="var(--hover)" stroke-width="5" fill="none"/><circle cx="32" cy="32" r="28" stroke="var(--fg)" stroke-width="5" fill="none" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - v / 100)}" style="transition: stroke-dashoffset 800ms var(--ease)"/></svg><b class="num">${v}</b></div>
+    <div class="bars">${p.rows.map(([k, n]) => `<div class="barrow"><span>${k}</span><div class="track"><i style="width:${n}%"></i></div><span class="num" style="text-align:end">${n}</span></div>`).join('')}</div></div></div>`;
+}
+function questionHtml(p, A) {
+  if (p.kind === 'approve') {
+    if (p.answer) return '';
+    return `<div class="block"><div class="block-foot" style="border-top:0"><span class="grow" style="color:var(--fg-2)">Ready when you are. <span style="color:var(--fg-3)">Checkpoint first, undo any time.</span></span>
+      <button class="btn btn-quiet" data-choose="no">Not now</button><button class="btn btn-primary" data-choose="yes" ${A.planCount() ? '' : 'disabled'}>Apply ${fmt(A.planCount())} changes</button></div></div>`;
+  }
+  return `<div class="opts" role="radiogroup" aria-label="${esc(p.q)}">${p.options.map(o => `<button class="opt" role="radio" aria-checked="${p.answer === o.id}" data-choose="${o.id}" ${p.answer ? 'disabled' : ''}>
+      <span class="radio" aria-hidden="true"></span><span style="min-width:0"><span style="display:flex;gap:8px;align-items:center"><span style="font-weight:500">${esc(o.label)}</span>${o.rec ? '<span class="tag">Recommended</span>' : ''}</span>
+      <span style="color:var(--fg-2);display:block">${esc(o.desc)}</span>${o.ex ? `<span class="ex mono trunc" style="display:block" title="${esc(o.ex)}">${esc(o.ex)}</span>` : ''}</span></button>`).join('')}</div>`;
+}
+function planHtml(A, compact) {
+  const P = A.S.plan; if (!P) return '';
+  const locked = P.status !== 'draft';
+  return `<div class="block"><div class="block-head">${ic('sparkle')}<span class="t">Plan</span><span class="tag num">${fmt(A.planCount())} changes</span>${P.status === 'applied' ? '<span class="tag tag-ok">Applied</span>' : ''}<span class="grow"></span>
+    <span style="color:var(--fg-3)">${{ plex: 'Plex / Jellyfin', clean: 'Clean names', slug: 'Slugs', keep: 'Names unchanged' }[P.style]}</span></div>
+    ${P.groups.map(g => { const lim = g.lim || 6; return `<div class="grp">
+      <div class="grp-h" style="padding-inline-end:12px">
+        <button data-open="${g.key}" aria-expanded="${!!g.open}" style="display:contents">${ic('chev', 'chev')}<span style="display:flex;gap:8px;align-items:center;min-width:0"><span class="trunc" style="font-weight:500;${g.on ? '' : 'color:var(--fg-3);text-decoration:line-through'}">${esc(g.title)}</span>
+          ${g.need ? '<span class="tag tag-warn">Needs you</span>' : g.danger ? '<span class="tag tag-danger">Trash</span>' : ''}</span></button>
+        <span style="display:flex;gap:12px;align-items:center"><span class="num" style="color:var(--fg-3)">${fmt(g.items.length)}</span>
+          <span class="toggle-hit"><button class="toggle" role="switch" aria-checked="${g.on}" aria-label="Include ${esc(g.title)}" data-tog="${g.key}" ${locked ? 'disabled' : ''}></button></span></span>
+      </div>
+      ${g.open ? `<div class="grp-b">${g.note ? `<div style="color:var(--fg-3)">${esc(g.note)}</div>` : ''}${g.items.slice(0, lim).map(it => `<div class="diff"><span class="old trunc" title="${esc(it.a)}">${esc(it.a)}</span><span class="new trunc" title="${esc(it.b)}">${esc(g.danger || g.need ? it.b : styled(it.b, P.style))}</span></div>`).join('')}
+        ${g.items.length > lim ? `<button class="btn btn-quiet" data-more="${g.key}" style="justify-self:start;margin-inline-start:-8px">Show ${fmt(Math.min(30, g.items.length - lim))} more</button>` : ''}</div>` : ''}
+    </div>`; }).join('')}</div>`;
+}
+function progressHtml(p, A) {
+  return `<div class="block"><div style="padding:12px;display:grid;gap:10px"><div style="display:flex;gap:8px;align-items:center">${p.status === 'running' ? '<span class="spin" aria-hidden="true"></span>' : ic('check')}
+    <span style="font-weight:500">${p.status === 'running' ? 'Applying' : p.status === 'stopped' ? 'Stopped' : 'Applied'}</span><span class="num" style="color:var(--fg-3)">${fmt(p.done)} of ${fmt(p.total)}</span><span class="grow"></span>
+    ${p.status === 'running' ? '<button class="btn btn-quiet" data-stop>Stop</button>' : ''}</div>
+    <div class="progress"><i style="transform:scaleX(${p.done / p.total})"></i></div><div class="loglines" aria-live="polite">${p.lines.map(l => `<div class="trunc">${esc(l)}</div>`).join('')}</div></div></div>`;
+}
+const doneHtml = p => `<div class="block"><div class="block-foot" style="border-top:0">${ic('history')}<span class="grow">${p.undone ? `Checkpoint restored · ${fmt(p.n)} changes reverted` : `Checkpoint #1 · ${fmt(p.n)} changes`}</span>${p.undone ? '' : `<button class="btn btn-secondary" data-undo>${ic('undo')}Undo all</button>`}</div></div>`;
+function unopenedHtml(lim = 8) {
+  return `<div class="block"><div class="block-head">${ic('clock')}<span class="t">Never played</span><span class="tag num">${fmt(UNOPENED.length)}</span></div>
+    ${UNOPENED.slice(0, lim).map(([p, s, ca]) => `<div class="rowx"><span class="trunc" title="${esc(p)}">${esc(base(p))}</span><span class="num" style="color:var(--fg-3)">${gb(s)} · ${ca ? ca.slice(0, 4) : '—'}</span></div>`).join('')}</div>`;
+}
+const suggestHtml = p => `<div class="chips">${p.items.map(s => `<button class="chip" data-say="${esc(s)}">${esc(s)}</button>`).join('')}</div>`;
+const seen = new Set();
+function partHtml(p, A, id, mode) {
+  const h = partInner(p, A, id, mode);
+  if (!h || p.type === 'text' || p.type === 'step' || p.type === 'think') return h;
+  const key = id + ':' + p.type, first = !seen.has(key); seen.add(key);
+  return first ? `<div class="enter">${h}</div>` : `<div>${h}</div>`;
+}
+function partInner(p, A, id, mode) {
+  if (p.type === 'text') return `<p class="${p.shown < p.text.length ? 'caret' : ''}">${md(p.text.slice(0, p.shown))}</p>`;
+  if (p.type === 'step' || p.type === 'think') return stepHtml(p, id);
+  if (mode === 'split' && ['score', 'plan', 'unopened'].includes(p.type)) return `<button class="pointer" data-pane="${p.type}">${ic(p.type === 'score' ? 'chart' : p.type === 'plan' ? 'sparkle' : 'clock')}${p.type === 'score' ? 'Score: 38' : p.type === 'plan' ? `Plan · ${fmt(A.planCount())} changes` : `${fmt(UNOPENED.length)} unplayed videos`}${ic('chev')}</button>`;
+  if (p.type === 'score') return scoreHtml(p);
+  if (p.type === 'question') return questionHtml(p, A);
+  if (p.type === 'plan') return A.S.turns.flatMap(t => t.parts || []).filter(x => x.type === 'plan').pop() === p ? planHtml(A) : '';
+  if (p.type === 'progress') return progressHtml(p, A);
+  if (p.type === 'done') return doneHtml(p);
+  if (p.type === 'unopened') return unopenedHtml();
+  if (p.type === 'suggest') return A.S.busy ? '' : suggestHtml(p);
+  return '';
+}
+function threadHtml(A, mode) {
+  return A.S.turns.map((t, ti) => t.role === 'user' ? `<div class="u">${esc(t.text)}</div>`
+    : `<div class="a">${t.parts.map((p, pi) => partHtml(p, A, `${ti}.${pi}`, mode)).join('')}${A.S.busy && ti === A.S.turns.length - 1 && !t.parts.some(p => p.status === 'running' || (p.type === 'text' && p.shown < p.text.length) || (p.type === 'progress' && p.status === 'running')) ? '<div class="step-head"><span class="spin"></span><span class="shimmer">Working</span></div>' : ''}</div>`).join('');
+}
+const composerHtml = (placeholder, model = true) => `<form class="composer" data-composer>
+  <label class="vh" for="q">Message Puterminator</label>
+  <textarea id="q" rows="1" placeholder="${placeholder}" autocomplete="off"></textarea>
+  <div class="composer-row">${model ? `<button type="button" class="pick" aria-label="Model: Sonnet 5.5">Sonnet 5.5 ${ic('chev', 'down')}</button><button type="button" class="pick" aria-label="Target folder: ${ROOT}">${ic('folder')}${ROOT}</button>` : ''}
+    <span class="grow"></span><span class="pick num" data-credits style="pointer-events:none"></span><button class="send" type="submit" aria-label="Send">${ic('arrowUp')}</button></div></form>`;
+const sideHtml = (A, active) => `<aside class="side" aria-label="Navigation"><div class="ws"><span class="logo" aria-hidden="true">P</span>Puterminator</div>
+  <button class="nav" data-new aria-current="${active === 'new' ? 'page' : 'false'}">${ic('plus')}New chat</button>
+  <button class="nav">${ic('history')}History</button><button class="nav">${ic('folder')}Library</button>
+  <div class="side-label">Today</div><button class="nav trunc" aria-current="${active === 'chat' ? 'page' : 'false'}" data-title>${esc(A.S.title)}</button>
+  <div class="side-foot"><div style="display:flex;justify-content:space-between;color:var(--fg-3);font-size:12px"><span>Credits</span><span class="num" data-credits2></span></div><div class="meter"><i data-meter></i></div>
+  <div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span class="logo" style="background:var(--hover);color:var(--fg)">A</span><span>altay</span></div></div></aside>`;
+const STARTERS = [
+  ['chart', 'Audit my library', 'Score naming, structure, junk and duplicates'],
+  ['sparkle', 'Organize everything', 'Plex, clean names or slugs. You pick'],
+  ['trash', 'Clean junk only', 'Tracker files, samples, duplicate copies'],
+  ['clock', 'What did I never open?', 'Videos you never played, biggest first'],
+];
+const heroHtml = () => `<div class="hero"><h1>What should I do with your put.io?</h1><p class="sub">I read your files, propose a plan, and change nothing until you say so.</p><div class="memory">${ic('history')}<span>Last time, Oct 29: organized 2,112 files in ${ROOT}. Checkpoint #1 is still there if you want it back.</span></div>
+  <div class="composer-slot">${composerHtml('Ask Puterminator…')}</div>
+  <div class="cards">${STARTERS.map(([i, t, d]) => `<button class="card-s" data-say="${t}">${ic(i)}<span class="t">${t}</span><span class="d">${d}</span></button>`).join('')}</div></div>`;
+
+// generic wiring for a variant root
+function wire(root, A, rerender) {
+  root.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.say) A.send(b.dataset.say);
+    else if (b.dataset.choose) A.choose(b.dataset.choose);
+    else if (b.dataset.exp) { expanded.has(b.dataset.exp) ? expanded.delete(b.dataset.exp) : expanded.add(b.dataset.exp); rerender(); }
+    else if (b.dataset.tog) A.toggleGroup(b.dataset.tog);
+    else if (b.dataset.open) A.openGroup(b.dataset.open);
+    else if (b.dataset.more) A.more(b.dataset.more);
+    else if ('stop' in b.dataset) A.stop();
+    else if ('undo' in b.dataset) A.undo();
+    else if ('new' in b.dataset) mount(current);
+  });
+  root.addEventListener('submit', e => { e.preventDefault(); const ta = e.target.querySelector('textarea'); const v = ta.value; ta.value = ''; autosize(ta); A.send(v); });
+  root.addEventListener('keydown', e => { if (e.target.tagName === 'TEXTAREA' && e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); e.target.form.requestSubmit(); } });
+  root.addEventListener('input', e => { if (e.target.tagName === 'TEXTAREA') autosize(e.target); });
+}
+const autosize = ta => { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; };
+function syncChrome(root, A) {
+  root.querySelectorAll('[data-credits]').forEach(el => el.textContent = `${A.S.credits} credits`);
+  root.querySelectorAll('[data-credits2]').forEach(el => el.textContent = `${A.S.credits} / 500`);
+  root.querySelectorAll('[data-meter]').forEach(el => el.style.transform = `scaleX(${A.S.credits / 500})`);
+  root.querySelectorAll('[data-title]').forEach(el => el.textContent = A.S.title);
+  root.querySelectorAll('.send').forEach(el => { el.innerHTML = A.S.busy && !A.S.waiting ? ic('stop') : ic('arrowUp'); el.setAttribute('aria-label', A.S.busy && !A.S.waiting ? 'Stop' : 'Send'); });
+}
+function stickToBottom(sc, wasNear) { if (wasNear) sc.scrollTop = sc.scrollHeight; }
+
+// ======================= 1. THREAD (Linear Ask) =======================
+function Thread() {
+  const el = document.createElement('div');
+  el.innerHTML = `<div class="shell"><main class="main"><div class="mainbar"><span class="logo" aria-hidden="true">P</span><span class="title">Puterminator</span><span style="color:var(--fg-4)">/</span><span style="color:var(--fg-3)">${ROOT}</span><span class="grow"></span></div>
+    <div class="scroll"><div data-body></div></div><div class="composer-wrap" data-cw hidden>${composerHtml('Reply…')}</div></main></div>`;
+  let A;
+  const body = el.querySelector('[data-body]'), sc = el.querySelector('.scroll'), cw = el.querySelector('[data-cw]');
+  const render = () => {
+    const near = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160;
+    if (!A.S.turns.length) { if (!body.querySelector('.hero')) body.innerHTML = heroHtml(); cw.hidden = true; }
+    else { cw.hidden = false; body.innerHTML = `<div class="thread">${threadHtml(A, 'thread')}</div>`; }
+    syncChrome(el, A); stickToBottom(sc, near);
+  };
+  A = createAgent(render);
+  wire(el, A, render); render();
+  return el;
+}
+
+// ======================= 2. WORKSPACE (Cursor / v0 split) =======================
+function Workspace() {
+  const el = document.createElement('div');
+  el.innerHTML = `<div class="shell"><main class="main"><div class="mainbar"><span class="logo" aria-hidden="true">P</span><span class="title">Puterminator</span><span style="color:var(--fg-4)">/</span><span style="color:var(--fg-3)">${ROOT}</span><span class="grow"></span></div>
+    <div class="split"><div class="chatcol"><div class="scroll"><div data-body></div></div><div class="composer-wrap">${composerHtml('Ask Puterminator…')}</div></div>
+    <section class="pane" aria-label="Workspace"><div class="tabs" role="tablist" data-tabs></div><div class="pane-body" data-pane-body></div></section></div></main></div>`;
+  let A, tab = 'library';
+  const body = el.querySelector('[data-body]'), sc = el.querySelector('.scroll'), tabs = el.querySelector('[data-tabs]'), pb = el.querySelector('[data-pane-body]');
+  const libHtml = () => { const tops = [['audiobooks', 4.1], ['comedians', 17.7], ['courses', 35.2], ['documentaries', 28.8], ['movies', 124.3], ['music', 2.1], ['series', 1645.8], ['youtube', 0.01]];
+    return `<div class="lib"><div class="lib-row h"><span>Name</span><span style="text-align:end">Size</span><span style="text-align:end">Status</span></div>${tops.map(([n, s]) => `<div class="lib-row"><span style="display:flex;gap:8px;align-items:center">${ic('folder')}${n}</span><span class="num" style="text-align:end">${s >= 1 ? s.toFixed(1) + ' GB' : '9 MB'}</span><span style="text-align:end">${A.S.plan?.status === 'applied' ? '<span class="tag tag-ok">Tidy</span>' : A.S.turns.some(t => t.parts?.some(p => p.type === 'score')) ? (['series', 'movies', 'documentaries'].includes(n) ? '<span class="tag tag-warn">Messy</span>' : '<span class="tag">Okay</span>') : '<span style="color:var(--fg-4)">—</span>'}</span></div>`).join('')}</div>`; };
+  const render = () => {
+    const near = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160;
+    if (A.S.pane && A.S.pane !== A._lastPane) { tab = A.S.pane; A._lastPane = A.S.pane; }
+    const has = { library: true, score: A.S.turns.some(t => t.parts?.some(p => p.type === 'score')), plan: !!A.S.plan, unopened: A.S.turns.some(t => t.parts?.some(p => p.type === 'unopened')), history: !!A.S.turns.some(t => t.parts?.some(p => p.type === 'done')) };
+    tabs.innerHTML = [['library', 'Library'], ['score', 'Score'], ['plan', 'Plan'], ['unopened', 'Unplayed'], ['history', 'History']].filter(([k]) => has[k]).map(([k, l]) => `<button class="tab" role="tab" aria-selected="${tab === k}" data-tab="${k}">${l}</button>`).join('');
+    body.innerHTML = A.S.turns.length ? `<div class="thread">${threadHtml(A, 'split')}</div>` : `<div class="thread" style="padding-top:20px"><div class="memory" style="justify-content:flex-start">${ic('history')}<span>Last time, Oct 29: organized 2,112 files in ${ROOT}. Checkpoint #1 is still there if you want it back.</span></div><div class="a"><p style="color:var(--fg-2)">I can audit, organize, clean junk, or find what you never played. Nothing changes until you approve.</p>${suggestHtml({ items: STARTERS.map(s => s[1]) })}</div></div>`;
+    const prog = A.S.turns.flatMap(t => t.parts || []).filter(p => p.type === 'progress').pop(), done = A.S.turns.flatMap(t => t.parts || []).filter(p => p.type === 'done').pop();
+    const sp = A.S.turns.flatMap(t => t.parts || []).find(p => p.type === 'score');
+    pb.innerHTML = tab === 'library' ? libHtml() : tab === 'score' && sp ? `<div style="max-width:520px;display:grid;gap:12px">${scoreHtml(sp)}<p style="margin:0;color:var(--fg-2)">Naming is the big one: 1,442 files still carry release tags.</p></div>`
+      : tab === 'plan' ? `<div style="max-width:760px">${planHtml(A)}</div>` : tab === 'unopened' ? `<div style="max-width:760px">${unopenedHtml(40)}</div>`
+      : tab === 'history' ? `<div style="max-width:760px;display:grid;gap:12px">${prog ? progressHtml(prog, A) : ''}${done ? doneHtml(done) : ''}</div>` : '';
+    syncChrome(el, A); stickToBottom(sc, near);
+  };
+  A = createAgent(render);
+  wire(el, A, render);
+  el.addEventListener('click', e => { const t = e.target.closest('[data-tab],[data-pane]'); if (t) { tab = t.dataset.tab || t.dataset.pane; render(); } });
+  render();
+  return el;
+}
+
+// ======================= 3. AUTOPILOT (Cursor setup checklist) =======================
+function Autopilot() {
+  const el = document.createElement('div');
+  el.innerHTML = `<div class="shell"><main class="main"><div class="mainbar"><span class="logo" aria-hidden="true">P</span><span class="title">Puterminator</span><span style="color:var(--fg-4)">/</span><span style="color:var(--fg-3)">${ROOT}</span><span class="grow"></span></div>
+    <div class="scroll"><div data-body></div></div><div class="composer-wrap" data-cw hidden>${composerHtml('Steer the run…', false)}</div></main></div>`;
+  let A;
+  const body = el.querySelector('[data-body]'), sc = el.querySelector('.scroll'), cw = el.querySelector('[data-cw]');
+  const goals = [['sparkle', 'Organize everything', 'Rename, restructure, clean'], ['chart', 'Audit my library', 'Score only, change nothing'], ['trash', 'Clean junk only', 'No renames'], ['clock', 'What did I never open?', 'Free up space']];
+  const render = () => {
+    const near = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160;
+    if (!A.S.turns.length) {
+      cw.hidden = true;
+      body.innerHTML = `<div class="run"><div class="run-head"><h2>Start a run on ${ROOT}</h2><span style="color:var(--fg-3)">Pick a goal. I work through it and stop only when I need you.</span><div class="memory" style="justify-content:flex-start;margin-top:6px">${ic('history')}<span>Last time, Oct 29: organized 2,112 files in ${ROOT}. Checkpoint #1 is still there if you want it back.</span></div></div>
+        <div class="cards" style="grid-template-columns:repeat(2,minmax(0,1fr))">${goals.map(([i, t, d]) => `<button class="card-s" data-say="${t}">${ic(i)}<span class="t">${t}</span><span class="d">${d}</span></button>`).join('')}</div></div>`;
+    } else {
+      cw.hidden = false;
+      // Flatten the whole conversation into a checklist: tool steps, questions, approvals, apply.
+      const items = []; let notes = [];
+      A.S.turns.forEach((t, ti) => { if (t.role === 'user') { if (ti > 0) items.push({ kind: 'user', text: t.text }); return; }
+        t.parts.forEach((p, pi) => {
+          const id = `${ti}.${pi}`;
+          if (p.type === 'text') notes.push(p);
+          else if (p.type === 'step' || p.type === 'think') { if (p.type === 'think') return; items.push({ kind: 'step', p, id, notes }); notes = []; }
+          else if (p.type === 'question') { items.push({ kind: 'q', p, id, notes }); notes = []; }
+          else if (['score', 'plan', 'progress', 'done', 'unopened', 'suggest'].includes(p.type)) { const last = items[items.length - 1]; if (last) (last.extra ||= []).push({ p, id }); }
+        }); });
+      const lastNotes = notes;
+      const first = A.S.turns[0].text;
+      body.innerHTML = `<div class="run"><div class="run-head"><h2>${esc(first)}</h2><span style="color:var(--fg-3)">${A.S.busy ? 'Running' : A.S.waiting ? 'Waiting for you' : 'Idle'} · Sonnet 5.5 · ${ROOT}</span></div><div class="checklist">
+        ${items.map((it, k) => {
+          if (it.kind === 'user') return `<div class="ck"><span class="ck-ic" aria-hidden="true" style="color:var(--fg-3)">${ic('chev')}</span><div style="color:var(--fg-2)">You: ${esc(it.text)}</div></div>`;
+          const p = it.p, running = p.status === 'running' || (it.kind === 'q' && !p.answer), need = it.kind === 'q' && !p.answer;
+          const icon = need ? '<span class="ck-ic need" aria-label="Needs you">!</span>' : running ? '<span class="ck-ic"><span class="spin"></span></span>' : `<span class="ck-ic done" aria-label="Done">${ic('check')}</span>`;
+          const title = it.kind === 'q' ? esc(p.q) : esc(p.label);
+          const detail = it.kind === 'q' ? (p.answer ? esc(p.options.find(o => o.id === p.answer)?.label || '') : '') : esc(p.detail || '');
+          const notesHtml = it.notes?.length ? it.notes.map(n => `<p style="margin:0;color:var(--fg-2);max-width:62ch">${md(n.text.slice(0, n.shown))}</p>`).join('') : '';
+          const extra = (it.extra || []).map(x => partHtml(x.p, A, x.id, 'thread')).join('');
+          return `<div class="ck ${need || running ? 'active' : ''}">${icon}<div style="min-width:0"><div class="ck-t">${title}${need ? '<span class="tag tag-warn">Needs you</span>' : ''}</div>${detail ? `<div class="ck-d num">${detail}</div>` : ''}
+            ${(notesHtml || (need ? questionHtml(p, A) : '') || extra) ? `<div class="ck-body">${notesHtml}${need ? questionHtml(p, A) : ''}${extra}</div>` : ''}</div></div>`;
+        }).join('')}
+        ${lastNotes.length ? `<div class="ck"><span class="ck-ic" aria-hidden="true"></span><div class="ck-body" style="margin:0">${lastNotes.map(n => `<p style="margin:0;color:var(--fg-2);max-width:62ch">${md(n.text.slice(0, n.shown))}</p>`).join('')}</div></div>` : ''}
+      </div></div>`;
+    }
+    syncChrome(el, A); stickToBottom(sc, near);
+  };
+  A = createAgent(render);
+  wire(el, A, render); render();
+  return el;
+}
+
+const variants = [Thread, Workspace, Autopilot];
+
+// ---------- picker wiring — PICKER.md reference, re-mount renders a fresh variant ----------
+const stage = document.getElementById('stage');
+const picker = document.querySelector('.proto-picker');
+const highlight = picker.querySelector('.proto-picker-highlight');
+const items = [...picker.querySelectorAll('.proto-picker-item:not(.proto-picker-replay)')];
+const replay = picker.querySelector('.proto-picker-replay');
+let current = 0;
+function moveHighlight() { const el = items[current]; highlight.style.width = el.offsetWidth + 'px'; highlight.style.transform = `translateX(${el.offsetLeft}px)`; }
+function mount(i) { stage.innerHTML = ''; expanded.clear(); seen.clear(); requestAnimationFrame(() => { stage.appendChild(variants[i]()); }); }
+function setActive(i) {
+  if (i < 0 || i >= variants.length) return;
+  current = i;
+  items.forEach((el, j) => { el.toggleAttribute('data-active', j === i); if (j === i) el.setAttribute('aria-current', 'true'); else el.removeAttribute('aria-current'); });
+  moveHighlight();
+  const url = new URL(location); url.searchParams.set('v', i + 1); history.replaceState(null, '', url);
+  mount(i);
+}
+items.forEach((el, i) => el.addEventListener('click', () => setActive(i)));
+replay?.addEventListener('click', () => mount(current));
+window.addEventListener('resize', moveHighlight);
+document.addEventListener('keydown', (e) => {
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const num = parseInt(e.key, 10);
+  if (num >= 1 && num <= variants.length) setActive(num - 1);
+  else if (e.key === 'ArrowRight') setActive((current + 1) % variants.length);
+  else if (e.key === 'ArrowLeft') setActive((current - 1 + variants.length) % variants.length);
+  else if (e.key === 'r' || e.key === 'R') mount(current);
+});
+setActive((parseInt(new URLSearchParams(location.search).get('v'), 10) || 1) - 1);
+requestAnimationFrame(() => requestAnimationFrame(() => picker.setAttribute('data-ready', '')));
+</script>
+</body>
+</html>

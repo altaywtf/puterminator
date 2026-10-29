@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "puterminator",
+  "main": "src/server/index.ts",
+  "compatibility_date": "2026-10-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "puterminator.uinaf.dev", "custom_domain": true }],
+  "assets": { "not_found_handling": "single-page-application", "run_worker_first": ["/agent", "/agent/*", "/auth/*", "/api/*"] },
+  "durable_objects": { "bindings": [{ "name": "Puterminator", "class_name": "Puterminator" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Puterminator"] }],
+  "vars": {
+    "PUBLIC_URL": "https://puterminator.uinaf.dev",
+    "MODEL": "claude-sonnet-5-5",
+    "MONTHLY_TOKEN_CAP": "1000000"
+  },
+  "observability": { "enabled": true }
+}
