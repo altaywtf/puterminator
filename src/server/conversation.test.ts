@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Redacted from "effect/Redacted";
 import { describe, expect, it } from "vitest";
-import type { ServerEvent } from "../shared/contract";
+import type { MessageParam, ServerEvent } from "../shared/contract";
 import { makeAgent } from "./conversation";
 import { anthropicLayer } from "./runner";
 import { makeStore, month } from "./store";
@@ -18,9 +18,13 @@ const library = [
 
 const send = (text: string) => JSON.stringify({ type: "send", text, folder: { id: 0, name: "Your Files" } });
 
-const setup = async (replies: Array<Reply>, opts: { cap?: number; token?: string | null; putioUnauthorized?: boolean } = {}) => {
+const setup = async (
+  replies: Array<Reply>,
+  opts: { cap?: number; token?: string | null; putioUnauthorized?: boolean; history?: Array<MessageParam> } = {},
+) => {
   const sql = memorySql();
   const store = makeStore(sql);
+  for (const m of opts.history ?? []) store.append(m);
   const anthropic = makeFakeAnthropic(replies);
   const putio = makeFakePutio({ files: library, pageSize: 2, unauthorized: opts.putioUnauthorized ?? false });
   const events: Array<ServerEvent> = [];
@@ -125,6 +129,27 @@ describe("a turn", () => {
     expect(t.events.filter((e) => e.type === "error")).toEqual([{ type: "error", message: "put.io signed you out. Sign in again." }]);
     expect(t.store.token()).toBeNull();
     expect(t.agent.state().busy).toBe(false);
+  });
+
+  it("closes a tool_use left unanswered by an earlier activation before the next user message", async () => {
+    const t = await setup([{ kind: "sse", events: textTurn("Hi.", { input: 5, output: 1 }) }], {
+      history: [
+        { role: "user", content: [{ type: "text", text: "Audit my library" }] },
+        { role: "assistant", content: [{ type: "tool_use", id: "toolu_old", name: "scan_library", input: {} }] },
+      ],
+    });
+    await Effect.runPromise(t.agent.receive(send("hi")));
+    await t.settle();
+    const sent = t.anthropic.requests[0]?.body.messages as Array<{ role: string; content: Array<{ type: string }> }>;
+    expect(sent.map((m) => [m.role, m.content.map((b) => b.type)])).toEqual([
+      ["user", ["text"]],
+      ["assistant", ["tool_use"]],
+      ["user", ["tool_result"]],
+      ["user", ["text", "text"]],
+    ]);
+    expect(sent[2]?.content).toEqual([
+      { type: "tool_result", tool_use_id: "toolu_old", content: "Stopped before this tool finished.", is_error: true },
+    ]);
   });
 
   it("answers from the app without calling Claude once the month's credits are spent", async () => {

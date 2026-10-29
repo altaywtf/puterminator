@@ -101,14 +101,14 @@ export const makeAgent = (deps: AgentDeps) =>
       return credits;
     });
 
-    let last: MessageParam | null = null;
+    let last: MessageParam | null = store.history().at(-1) ?? null;
     const append = (m: MessageParam) => {
       store.append(m);
       last = m;
       broadcast({ type: "message", message: m });
     };
 
-    // A stopped or failed turn can leave a tool_use without its result, which the API rejects next turn.
+    // A stopped, failed or evicted turn can leave a tool_use without its result, which the API rejects next turn.
     const closeDanglingTools = () => {
       if (last?.role !== "assistant" || typeof last.content === "string") return;
       const ids = last.content.flatMap((b) => (b.type === "tool_use" && typeof b.id === "string" ? [b.id] : []));
@@ -206,6 +206,7 @@ export const makeAgent = (deps: AgentDeps) =>
             : "No scan yet.",
           `Credits left this month: ${Math.max(0, Math.floor((credits.cap - credits.used) / 1000))}.`,
         ].join(" ");
+        closeDanglingTools();
         append({
           role: "user",
           content: [
