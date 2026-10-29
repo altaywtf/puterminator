@@ -102,23 +102,13 @@ flowchart LR
 - Stage `prod` deploys script `puterminator` on `puterminator.uinaf.dev` (zone `uinaf.dev`), with `workers.dev` off.
 - The first `prod` deploy adopts the wrangler-deployed Worker. Only `prod` may adopt; other stages fail with `OwnedBySomeoneElse`.
 - Adoption is one-way. Alchemy uploads Durable Objects through Cloudflare's declarative exports, so wrangler's `migrations` deploys stop working for this script.
-- Auth: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in `.env.prod` or the shell. Both live in 1Password `op://uinaf/uinaf-cloudflare/ACCOUNT_ID` and `ACCOUNT_API_TOKEN`. Alchemy reads them before the stack runs, so they never become Worker secrets.
+- Auth: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in the shell, from the `uinaf-cloudflare-workers-deploy` payload in `uinaf/vault` (`sops exec-env`). Alchemy reads them before the stack runs, so they never become Worker secrets.
 - Token: Workers Scripts Write and Account Settings Read on the account, Workers Routes Write and Zone Read on `uinaf.dev`.
 
-#### First deploy: rehearse, then adopt
+#### Adoption and rollback
 
-`alchemy plan` shows only a Worker `update`. Durable Object class creates and deletes are decided during the upload, so the plan cannot prove the `Puterminator` namespace survives. Rehearse on a throwaway script first:
+- `alchemy plan` shows only a Worker `update`; Durable Object class changes are decided during the upload. The deploy log's `durable object reconciliation` line must show empty `deletedClasses` and `newSqliteClasses`.
+- Rehearsed on 2026-10-29 with a throwaway v1 Worker: adoption kept the `Puterminator` namespace and its SQLite rows, v1 session cookies stayed valid, and live turns worked.
+- `wrangler rollback` to a v1 version fails after adoption (`provisioned_class_missing_from_config`). Rollback is `pnpm run deploy` from an earlier commit of this stack.
 
-1. On a scratch branch from `main`, set `name` in `wrangler.jsonc` to `puterminator-adopt-test`, drop `routes`, and point `PUBLIC_URL` at its `workers.dev` URL. `wrangler deploy` and `wrangler secret put` its secrets, then sign in on its `workers.dev` URL and send one message, so one Durable Object holds a row.
-2. On a scratch branch from this stack, set `name` to `puterminator-adopt-test`, drop `domain`, set `workersDev: true` in [`worker.ts`](src/server/worker.ts), and let stage `adopt-test` adopt in [`alchemy.run.ts`](alchemy.run.ts). Run `alchemy deploy --stage adopt-test --env-file .env.prod`.
-3. Pass: the `durable object reconciliation` log line shows empty `deletedClasses` and `newSqliteClasses`, and the earlier message still shows in the thread.
-4. Rollback check: `wrangler deployments list --name puterminator-adopt-test`, then `wrangler rollback <v1 version id> --name puterminator-adopt-test`. Record whether it works.
-5. Delete the throwaway script and its `adopt-test` state.
-
-Before the prod deploy, record the live v1 version id with `wrangler deployments list --name puterminator`.
-
-#### Rollback
-
-- If step 4 worked: `wrangler rollback <v1 version id> --name puterminator`.
-- If it failed: v1 cannot come back after adoption. Rollback is `pnpm run deploy` from an earlier commit of this stack.
 - Pins: one `effect` for the whole graph via overrides in [`pnpm-workspace.yaml`](pnpm-workspace.yaml). Upgrade effect, foldkit, alchemy and `@putdotio/sdk` together.
