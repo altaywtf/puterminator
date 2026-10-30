@@ -36,10 +36,10 @@ function render(node: Nodes): Child {
               ih.Target("_blank"),
               ih.Rel("noopener noreferrer"),
               ih.Title(`${hit.path} · open on put.io`),
-              ih.Class(`${chip} inline-flex max-w-[min(100%,40ch)] align-bottom no-underline decoration-fg-4 underline-offset-3 transition-colors duration-160 hover:text-accent hover:underline`),
+              ih.Class(`${chip} inline-flex max-w-[min(100%,40ch)] align-bottom no-underline transition-colors duration-160 hover:text-accent`),
             ],
             // The model often quotes whole paths; the chip shows the name and keeps the path in its title.
-            [ih.code([ih.Class("truncate")], [hit.name]), ih.span([ih.Class("ms-1 flex-none text-[12px] text-fg-3"), ih.AriaHidden(true)], ["↗"])],
+            [ih.code([ih.Class("truncate border-0! bg-transparent! p-0! text-inherit!")], [hit.name]), ih.span([ih.Class("ms-1 flex-none text-[12px] text-fg-3"), ih.AriaHidden(true)], ["↗"])],
           )
         : ih.code([ih.Class(chip)], [node.value]);
     }
