@@ -31,6 +31,8 @@ export type LastAudit = typeof LastAudit.Type;
  */
 export const AgentState = Schema.Struct({
   username: Schema.NullOr(Schema.String),
+  /** Set at sign-in; state saved before it existed decodes without it. */
+  avatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
   folder: Folder,
   credits: Credits,
   lastAudit: Schema.NullOr(LastAudit),
@@ -40,6 +42,7 @@ export type AgentState = typeof AgentState.Type;
 
 export const initialAgentState = (month: string): AgentState => ({
   username: null,
+  avatarUrl: null,
   folder: ROOT_FOLDER,
   credits: { month, used: 0, cap: 0 },
   lastAudit: null,

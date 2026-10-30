@@ -104,13 +104,37 @@ const liveStatus = (h: H, model: Model) =>
     ],
   );
 
+/** put.io's avatar, loaded straight from put.io; the initial stands in when there is none or it fails. */
+const avatar = (h: H, username: string, url: string | null) =>
+  url
+    ? h.img([
+        h.Src(url),
+        h.Alt(""),
+        h.Width("20"),
+        h.Height("20"),
+        h.Referrerpolicy("no-referrer"),
+        h.Draggable(false),
+        h.OnError(Message.FailedAvatar()),
+        h.Class("block size-5 flex-none rounded-xs bg-raised object-cover select-none"),
+      ])
+    : h.span(
+        [h.Class("grid size-5 flex-none place-items-center rounded-xs bg-raised text-[12px] text-fg-2 select-none"), h.AriaHidden(true)],
+        [username.slice(0, 1)],
+      );
+
+const account = (h: H, username: string, url: string | null) =>
+  h.span([h.Class("flex min-w-0 items-center gap-2"), h.Title(`signed in as ${username}`)], [
+    avatar(h, username, url),
+    h.span([h.Class("truncate text-[13px] text-fg-3 max-[560px]:sr-only")], [username]),
+  ]);
+
 const shell = (h: H, model: Model, children: Html[]) =>
   frame(
     h,
     [
       h.span([h.Class("grow")], []),
       status(h, model),
-      h.span([h.Class("truncate text-[13px] text-fg-3 max-[560px]:hidden")], [model.agent?.username ?? ""]),
+      ...(model.agent?.username ? [account(h, model.agent.username, model.avatarFailed ? null : (model.agent.avatarUrl ?? null))] : []),
       h.button(
         [
           h.Type("button"),

@@ -57,7 +57,7 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         webSocketClose: Effect.fn(function* (socket: Cloudflare.WebSocket, code: number, reason: string) {
           yield* socket.close(code, reason);
         }),
-        setAuth: (token: string, username: string) => agent.setAuth(token, username),
+        setAuth: (token: string, username: string, avatarUrl: string | null) => agent.setAuth(token, username, avatarUrl),
         signOut: () => agent.signOut,
         rootFolders: () => agent.rootFolders.pipe(Effect.orDie),
         thumbnail: (id: number) => agent.thumbnail(id),

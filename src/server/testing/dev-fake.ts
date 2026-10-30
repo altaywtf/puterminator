@@ -139,7 +139,7 @@ const putio = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
   }
   if (!authorized(req)) return json(res, 401, { status: "ERROR", error_type: "invalid_grant", status_code: 401 });
   if (route === "GET /v2/account/info") {
-    const info = { user_id: 4242, username: "altay", mail: "dev@localhost", disk: {} };
+    const info = { user_id: 4242, username: "altay", mail: "dev@localhost", avatar_url: "https://www.gravatar.com/avatar/0?d=identicon&s=80", disk: {} };
     return json(res, 200, { info: url.searchParams.get("download_token") === "1" ? { ...info, download_token: "fake-dl" } : info, status: "OK" });
   }
   const one = route.match(/^GET \/v2\/files\/(\d+)$/);

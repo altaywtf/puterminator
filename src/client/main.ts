@@ -72,6 +72,8 @@ export const Model = Schema.Struct({
   treeOpen: Schema.Boolean,
   treeExpanded: Schema.Array(Schema.Finite),
   treeFocus: Schema.NullOr(Schema.Finite),
+  /** The put.io avatar didn't load; the topbar shows the initial instead. */
+  avatarFailed: Schema.Boolean,
   /** The video playing in the overlay; `src` arrives from /api/files/:id/stream. */
   player: Schema.NullOr(
     Schema.Struct({ id: Schema.Finite, name: Schema.String, src: Schema.NullOr(Schema.String), failed: Schema.Boolean }),
@@ -113,6 +115,7 @@ export const Message = defineMessageUnion({
   GotStream: { id: Schema.Finite, src: Schema.String },
   FailedStream: { id: Schema.Finite },
   ClosedPlayer: {},
+  FailedAvatar: {},
   UpdatedDraft: { value: Schema.String },
   SubmittedDraft: {},
   ClickedStarter: { text: Schema.String },
@@ -523,6 +526,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     FailedStream: ({ id }) =>
       model.player?.id === id ? { model: modifyFields(model, { player: (p) => (p ? { ...p, failed: true } : p) }) } : { model },
     ClosedPlayer: () => ({ model: modifyFields(model, { player: () => null }), commands: [DetachPlayer()] }),
+    FailedAvatar: () => ({ model: modifyFields(model, { avatarFailed: () => true }) }),
     ClickedSignOut: () => ({ model, commands: [SignOut()] }),
     CompletedEffect: () => ({ model }),
   });
@@ -552,6 +556,7 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     treeOpen: false,
     treeExpanded: [],
     treeFocus: null,
+    avatarFailed: false,
     player: null,
   },
   commands: [FetchMe()],

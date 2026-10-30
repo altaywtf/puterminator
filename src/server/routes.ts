@@ -19,7 +19,7 @@ import {
 
 /** The Worker's view of one user's Durable Object. */
 export interface UserAgent {
-  readonly setAuth: (token: string, username: string) => Effect.Effect<void>;
+  readonly setAuth: (token: string, username: string, avatarUrl: string | null) => Effect.Effect<void>;
   readonly signOut: () => Effect.Effect<void>;
   readonly rootFolders: () => Effect.Effect<ReadonlyArray<Folder>>;
   readonly thumbnail: (id: number) => Effect.Effect<string | null>;
@@ -82,7 +82,7 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
         return text("Sign-in failed. Try again.", 502);
       }
       const uid = `putio-${signedIn.success.info.userId}`;
-      yield* deps.agentFor(uid).setAuth(signedIn.success.token, signedIn.success.info.username);
+      yield* deps.agentFor(uid).setAuth(signedIn.success.token, signedIn.success.info.username, signedIn.success.info.avatarUrl);
       const session = yield* signSession(auth.sessionSecret, uid);
       return HttpServerResponse.redirect("/").pipe(
         HttpServerResponse.setCookieUnsafe(SESSION_COOKIE, session, cookieOptions(SESSION_MAX_AGE_SEC)),

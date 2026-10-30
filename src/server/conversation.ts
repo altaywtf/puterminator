@@ -350,10 +350,10 @@ export const makeAgent = (deps: AgentDeps) =>
           start(event.value.text, event.value.folder);
         }),
       /** Called by the Worker after OAuth. Never reachable from the browser. */
-      setAuth: (token: string, username: string) =>
+      setAuth: (token: string, username: string, avatarUrl: string | null) =>
         Effect.sync(() => {
           store.setToken(token);
-          setState({ ...state, username });
+          setState({ ...state, username, avatarUrl });
         }),
       signOut: Effect.sync(() => store.deleteToken()),
       /** A file's screenshot URL, or null for none, no token or a failed read. Cached per activation. */

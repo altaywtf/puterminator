@@ -41,7 +41,7 @@ const setup = async (
       partialEveryMs: 0,
     }),
   );
-  if (opts.token !== null) await Effect.runPromise(agent.setAuth(opts.token ?? "putio-token", "altay"));
+  if (opts.token !== null) await Effect.runPromise(agent.setAuth(opts.token ?? "putio-token", "altay", null));
   return { sql, store, agent, anthropic, putio, events, settle: () => Promise.all(turns) };
 };
 

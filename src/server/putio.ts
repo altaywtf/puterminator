@@ -97,11 +97,23 @@ export const exchangeCode = (input: { clientId: string; clientSecret: string; re
     Effect.mapError(() => new PutioFailed({ message: "put.io code exchange failed" })),
   );
 
-// Only the two fields sign-in needs, so drift elsewhere in the account payload can't break it.
-const AccountInfo = Schema.Struct({ info: Schema.Struct({ user_id: Schema.Finite, username: Schema.String }) });
+// Only the fields sign-in needs, so drift elsewhere in the account payload can't break it.
+const AccountInfo = Schema.Struct({
+  info: Schema.Struct({ user_id: Schema.Finite, username: Schema.String, avatar_url: Schema.optional(Schema.NullOr(Schema.String)) }),
+});
+
+/** The browser loads the avatar straight from this URL, so anything but https is dropped. */
+const httpsUrl = (raw: string | null | undefined): string | null => {
+  if (!raw) return null;
+  try {
+    return new URL(raw).protocol === "https:" ? raw : null;
+  } catch {
+    return null;
+  }
+};
 
 export const accountInfo = read("/account/info", requestJson(AccountInfo, { method: "GET", path: "/v2/account/info" })).pipe(
-  Effect.map(({ info }) => ({ userId: info.user_id, username: info.username })),
+  Effect.map(({ info }) => ({ userId: info.user_id, username: info.username, avatarUrl: httpsUrl(info.avatar_url) })),
 );
 
 // Narrower than the SDK's FileBroadSchema: an unknown `file_type` must not fail a whole page.

@@ -85,17 +85,18 @@ describe("OAuth callback", () => {
       return Response.json({ access_token: "tok-1" });
     }
     if (url.pathname === "/v2/account/info" && request.headers.get("authorization")?.endsWith("tok-1")) {
-      return Response.json({ info: { user_id: 77, username: "altay", disk: {} }, status: "OK" });
+      return Response.json({ info: { user_id: 77, username: "altay", avatar_url: avatar, disk: {} }, status: "OK" });
     }
     return Response.json({ status: "ERROR" }, { status: 401 });
   }) as typeof fetch;
 
+  let avatar = "https://www.gravatar.com/avatar/abc";
   const callback = async (code: string) => {
     const config = await configFrom(valid);
     if (!Exit.isSuccess(config)) throw new Error("config failed");
-    const calls: Array<[string, string, string]> = [];
+    const calls: Array<[string, string, string, string | null]> = [];
     const agent = (uid: string): UserAgent => ({
-      setAuth: (token, username) => Effect.sync(() => void calls.push([uid, token, username])),
+      setAuth: (token, username, avatarUrl) => Effect.sync(() => void calls.push([uid, token, username, avatarUrl])),
       signOut: () => Effect.void,
       rootFolders: () => Effect.succeed([]),
       thumbnail: () => Effect.succeed(null),
@@ -115,9 +116,18 @@ describe("OAuth callback", () => {
   it("exchanges the code, stores the token in the user's object and signs a session", async () => {
     const { response, calls, session, me } = await callback("good-code");
     expect([response.status, response.headers.get("location")]).toEqual([302, "/"]);
-    expect(calls).toEqual([["putio-77", "tok-1", "altay"]]);
+    expect(calls).toEqual([["putio-77", "tok-1", "altay", "https://www.gravatar.com/avatar/abc"]]);
     expect(session).toMatch(/HttpOnly/);
     expect(me).toEqual({ configured: true, signedIn: true });
+  });
+
+  it("keeps only an https avatar, since the browser loads it directly", async () => {
+    for (const bad of ["http://www.gravatar.com/avatar/abc", "javascript:alert(1)", ""]) {
+      avatar = bad;
+      const { calls } = await callback("good-code");
+      expect(calls[0]?.[3], bad).toBeNull();
+    }
+    avatar = "https://www.gravatar.com/avatar/abc";
   });
 
   it("answers 502 and stores nothing when put.io rejects the code", async () => {
