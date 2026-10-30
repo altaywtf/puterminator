@@ -109,19 +109,6 @@ const shell = (h: H, model: Model, children: Html[]) =>
     [
       h.span([h.Class("u-tag max-[420px]:hidden")], ["read-only"]),
       h.span([h.Class("grow")], []),
-      ...(model.library
-        ? [
-            h.button(
-              [
-                h.Type("button"),
-                h.Class(`hit text-[13px] transition-colors duration-160 hover:text-fg ${model.treeOpen ? "text-fg-strong" : "text-fg-2"}`),
-                h.AriaExpanded(model.treeOpen),
-                h.OnClick(Message.ToggledTree()),
-              ],
-              ["library"],
-            ),
-          ]
-        : []),
       status(h, model),
       h.span([h.Class("truncate text-[13px] text-fg-3 max-[560px]:hidden")], [model.agent?.username ?? ""]),
       h.button(
@@ -319,9 +306,11 @@ const scoreCard = (h: H, model: Model, a: Audit, uid: string, live: boolean) => 
         [h.Class("flex flex-wrap items-center gap-x-2 border-t border-line px-5 py-2.5 text-[11px] text-fg-3 tabular-nums")],
         [
           ...facts.flatMap((f, i) => (i === 0 ? [h.span([], [f])] : [h.span([h.Class("text-fg-4")], ["·"]), h.span([], [f])])),
+          h.span([h.Class("grow")], []),
           ...(a.truncated
-            ? [h.span([h.Class("ms-auto flex items-center gap-2 text-fg-2"), h.Title("too big to read in one go")], [dot(h, "warn"), "partial scan"])]
+            ? [h.span([h.Class("flex items-center gap-2 text-fg-2"), h.Title("too big to read in one go")], [dot(h, "warn"), "partial scan"])]
             : []),
+          ...(model.library ? [browseButton(h)] : []),
         ],
       ),
       ...auditDetails(h, model, libraryIndex(model), uid, a),
@@ -444,7 +433,14 @@ const starterRows = (h: H, enabled: boolean) =>
     ],
   );
 
-const lastScanStrip = (h: H, last: LastAudit, credits: Credits) =>
+/** The library tree opens from where the library's numbers are, not from the topbar. */
+const browseButton = (h: H) =>
+  h.button(
+    [h.Type("button"), h.Class("hit ms-auto flex-none text-[11px] text-fg-2 transition-colors duration-160 hover:text-fg active:text-fg"), h.OnClick(Message.ToggledTree())],
+    ["browse →"],
+  );
+
+const lastScanStrip = (h: H, last: LastAudit, credits: Credits, browsable: boolean) =>
   h.div(
     [h.Class("u-panel-grid grid-cols-3 max-[480px]:grid-cols-2")],
     [
@@ -454,7 +450,11 @@ const lastScanStrip = (h: H, last: LastAudit, credits: Credits) =>
       ),
       h.div(
         [h.Class("u-stat p-4!")],
-        [label(h, "items"), h.span([h.Class("u-stat-value tabular-nums")], [fmt(last.items)]), h.span([h.Class("u-stat-note truncate")], [`in ${last.rootName}`])],
+        [
+          label(h, "items"),
+          h.span([h.Class("u-stat-value tabular-nums")], [fmt(last.items)]),
+          h.span([h.Class("u-stat-note flex min-w-0 items-center gap-2")], [h.span([h.Class("truncate")], [`in ${last.rootName}`]), ...(browsable ? [browseButton(h)] : [])]),
+        ],
       ),
       h.div(
         [h.Class("u-stat p-4! max-[480px]:hidden")],
@@ -655,7 +655,7 @@ const emptyThread = (h: H, model: Model) => {
               ]),
             ],
           ),
-          ...(model.agent?.lastAudit ? [lastScanStrip(h, model.agent.lastAudit, model.agent.credits)] : []),
+          ...(model.agent?.lastAudit ? [lastScanStrip(h, model.agent.lastAudit, model.agent.credits, model.library !== null)] : []),
           composer(h, model, "ask puterminator…", false),
           starterRows(h, enabled),
           ...statusRows(h, model),
