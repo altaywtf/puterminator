@@ -167,7 +167,7 @@ export const downloadToken = read(
 export const hlsUrl = (id: number, token: string, base: string = PUTIO_API) =>
   buildFileHlsStreamUrl(base, id, { downloadToken: token });
 
-/** Top-level folders for the composer's target picker. */
+/** Top-level folders for the composer's target picker; put.io's shared-items folders have negative ids and stay out. */
 export const rootFolders: Effect.Effect<Array<Folder>, PutioError, PutioSdkContext> = listPaged(0, 1000).pipe(
-  Effect.map((files) => files.filter((f) => f.file_type === "FOLDER").map((f) => ({ id: f.id, name: f.name }))),
+  Effect.map((files) => files.filter((f) => f.file_type === "FOLDER" && f.id >= 0).map((f) => ({ id: f.id, name: f.name }))),
 );
