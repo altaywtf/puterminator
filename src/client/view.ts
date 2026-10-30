@@ -36,8 +36,8 @@ const STARTER_NOTES: Record<string, string> = {
   "which duplicates do i have?": "copies, and which one to keep.",
 };
 
-// The narrow shell: 40rem of content plus the gutter.
-const COLUMN = "mx-auto grid w-full max-w-[calc(40rem+40px)] px-5 max-[480px]:px-4";
+// The reading column: 46rem of content plus the gutter.
+const COLUMN = "mx-auto grid w-full max-w-[calc(46rem+40px)] px-5 max-[480px]:px-4";
 
 // On-screen keyboards rarely send Shift+Enter, so on touch Enter is a newline and the button sends.
 const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
@@ -59,16 +59,17 @@ const mark = (h: H, px: number) =>
 const dot = (h: H, tone: "live" | "ok" | "warn" | "error" | null = null) =>
   h.span([h.Class(`u-dot ${tone ? `u-dot--${tone}` : ""}`), h.AriaHidden(true)], []);
 
-const label = (h: H, text: string, extra = "") => h.span([h.Class(`u-label ${extra}`)], [text]);
+/** Lowercase meta text; uinaf's uppercase micro-label belongs on dashboards, not in a conversation. */
+const label = (h: H, text: string, extra = "") => h.span([h.Class(`text-[12px] text-fg-3 ${extra}`)], [text]);
 
 // ---------- shell ----------
 
 const status = (h: H, model: Model) =>
   model.connection._tag === "Connected"
-    ? h.span([h.Class("flex items-center gap-2 text-[11px] text-fg-3")], [dot(h, "live"), "online"])
+    ? h.span([h.Class("flex items-center gap-2 text-[12px] text-fg-3")], [dot(h, "live"), "online"])
     : model.connection._tag === "Lost"
-      ? h.span([h.Class("flex items-center gap-2 text-[11px] text-fg-3")], [dot(h, "warn"), "reconnecting"])
-      : h.span([h.Class("flex items-center gap-2 text-[11px] text-fg-3")], [dot(h), "connecting"]);
+      ? h.span([h.Class("flex items-center gap-2 text-[12px] text-fg-3")], [dot(h, "warn"), "reconnecting"])
+      : h.span([h.Class("flex items-center gap-2 text-[12px] text-fg-3")], [dot(h), "connecting"]);
 
 /** One 56px topbar row over the content; no inset panel, no shadow. */
 const frame = (h: H, topbarEnd: Html[], children: Html[], busy = false) =>
@@ -107,7 +108,6 @@ const shell = (h: H, model: Model, children: Html[]) =>
   frame(
     h,
     [
-      h.span([h.Class("u-tag max-[420px]:hidden")], ["read-only"]),
       h.span([h.Class("grow")], []),
       status(h, model),
       h.span([h.Class("truncate text-[13px] text-fg-3 max-[560px]:hidden")], [model.agent?.username ?? ""]),
@@ -157,7 +157,7 @@ const signInView = (h: H, kind: SignIn) =>
         [h.Class("enter w-full max-w-[360px]")],
         [
           h.div(
-            [h.Class("u-panel u-ticks grid gap-6 p-8!")],
+            [h.Class("u-panel grid gap-6 p-8!")],
             [
               art(h, kind === "ready" ? "asleep" : "unplugged", 72),
               h.div(
@@ -226,8 +226,7 @@ const toolRow = (h: H, item: ToolItem, model: Model) => {
   return h.keyed("div")(item.key, [h.Class(`grid min-w-0 ${item.state === "running" ? "enter-soft" : ""}`)], [head, ...(open || item.state === "running" ? [body] : [])]);
 };
 
-const runLog = (h: H, key: string, rows: Html[]) =>
-  h.keyed("div")(`log.${key}`, [h.Class("grid min-w-0 border border-line bg-sunk px-3 py-1.5")], rows);
+const runLog = (h: H, key: string, rows: Html[]) => h.keyed("div")(`log.${key}`, [h.Class("grid min-w-0")], rows);
 
 // ---------- score card ----------
 
@@ -243,77 +242,77 @@ const MOOD_LINE: Record<Mood, string> = {
   unplugged: "",
 };
 
-const ticks = (h: H, value: number, worst: boolean) => {
-  const on = Math.round(Math.min(100, Math.max(0, value)) / 10);
-  return h.span(
-    [h.Class("flex gap-[3px]"), h.AriaHidden(true)],
-    Array.from({ length: 10 }, (_, i) =>
-      h.i([h.Class(`grow-bar block h-1 w-full ${i < on ? (worst ? "bg-accent" : "bg-fg-2") : "bg-line"}`), h.Style({ animationDelay: `${i * 12}ms` })], []),
-    ),
-  );
-};
+/** One thin bar per subscore; the worst one is the only accent on the card. */
+const bar = (h: H, value: number, worst: boolean) =>
+  h.span([h.Class("block h-0.5 w-full bg-line"), h.AriaHidden(true)], [
+    h.i([h.Class(`grow-bar block h-full ${worst ? "bg-accent" : "bg-fg-3"}`), h.Style({ width: `${Math.min(100, Math.max(0, value))}%` })], []),
+  ]);
 
-const subScore = (h: H, name: string, value: number, note: string, worst: boolean) =>
+const subScore = (h: H, name: string, value: number, worst: boolean) =>
   h.div(
-    [h.Class("grid min-w-0 content-start gap-2 p-4!")],
+    [h.Class("grid min-w-0 content-start gap-1.5")],
     [
-      h.span([h.Class("flex items-center justify-between gap-2")], [label(h, name, worst ? "u-label--accent" : ""), ...(worst ? [h.span([h.Class("text-[10px] text-fg-3")], ["worst"])] : [])]),
-      h.span([h.Class("text-xl leading-none text-fg-strong tabular-nums")], [`${value}`]),
-      ticks(h, value, worst),
-      h.span([h.Class("truncate text-[11px] text-fg-3"), h.Title(note)], [note]),
+      h.span([h.Class("flex items-baseline justify-between gap-2")], [
+        label(h, name, worst ? "text-accent!" : ""),
+        h.span([h.Class("text-[13px] text-fg-strong tabular-nums")], [`${value}`]),
+      ]),
+      bar(h, value, worst),
     ],
   );
 
 const scoreCard = (h: H, model: Model, a: Audit, uid: string, live: boolean) => {
   const mood = moodOf(a);
-  const subs: Array<[string, number, string]> = [
-    ["naming", a.scores.naming, `${fmt(a.naming.messy)} release names`],
-    ["structure", a.scores.structure, `${fmt(a.structure.wrapperFolders)} wrapper folders`],
-    ["junk", a.scores.junk, `${fmt(a.junk.count)} files · ${size(a.junk.bytes)}`],
-    ["duplicates", a.scores.duplicates, `${fmt(a.duplicates.groups)} groups · ${size(a.duplicates.wastedBytes)}`],
+  const subs: Array<[string, number]> = [
+    ["naming", a.scores.naming],
+    ["structure", a.scores.structure],
+    ["junk", a.scores.junk],
+    ["duplicates", a.scores.duplicates],
   ];
   const worst = Math.min(...subs.map((s) => s[1]));
   const worstName = worst < 100 ? subs.find((s) => s[1] === worst)?.[0] : undefined;
-  const facts = [`${fmt(a.totals.items)} items`, size(a.totals.bytes), `${fmt(a.neverPlayed.count)} never played`];
-  return h.div(
-    [h.Class(`${live ? "enter live" : ""} u-ticks my-2 grid border border-line bg-bg`), h.DataAttribute("testid", "score-card")],
+  const facts = [`${fmt(a.totals.items)} items`, size(a.totals.bytes)];
+  return h.section(
+    [h.Class(`${live ? "enter live" : ""} my-3 grid gap-6`), h.AriaLabel("library score"), h.DataAttribute("testid", "score-card")],
     [
       h.div(
-        [h.Class("flex items-center gap-5 border-b border-line p-5")],
+        [h.Class("flex items-center gap-5")],
         [
-          h.span([h.Class("grid size-[88px] flex-none place-items-center border border-line bg-black")], [art(h, mood, 72, uid)]),
+          art(h, mood, 72, uid),
           h.div(
-            [h.Class("grid min-w-0 gap-1.5")],
+            [h.Class("grid min-w-0 gap-1")],
             [
               label(h, `library score · ${a.rootName}`, "truncate"),
               h.div(
-                [h.Class("flex items-baseline gap-1"), h.Role("img"), h.AriaLabel(`library score ${a.score} out of 100`)],
+                [h.Class("flex items-baseline gap-3")],
                 [
-                  h.span([h.Class("text-[40px] leading-none text-fg-strong tabular-nums")], [`${a.score}`]),
-                  h.span([h.Class("text-[13px] text-fg-3")], ["/100"]),
+                  h.span(
+                    [h.Class("flex items-baseline gap-1.5"), h.Role("img"), h.AriaLabel(`library score ${a.score} out of 100`)],
+                    [h.span([h.Class("text-[40px] leading-none text-fg-strong tabular-nums")], [`${a.score}`]), h.span([h.Class("text-[13px] text-fg-3")], ["/100"])],
+                  ),
+                  h.span([h.Class("text-[13px] text-fg-2")], [MOOD_LINE[mood]]),
                 ],
               ),
-              h.span([h.Class("text-[13px] text-fg-2")], [MOOD_LINE[mood]]),
             ],
           ),
         ],
       ),
+      h.div([h.Class("grid grid-cols-4 gap-x-6 gap-y-4 max-[520px]:grid-cols-2")], subs.map(([n, v]) => subScore(h, n, v, n === worstName))),
       h.div(
-        [h.Class("u-panel-grid grid-cols-4 border-0! max-[600px]:grid-cols-2")],
-        subs.map(([n, v, note]) => subScore(h, n, v, note, n === worstName)),
-      ),
-      h.div(
-        [h.Class("flex flex-wrap items-center gap-x-2 border-t border-line px-5 py-2.5 text-[11px] text-fg-3 tabular-nums")],
+        [h.Class("grid gap-2")],
         [
-          ...facts.flatMap((f, i) => (i === 0 ? [h.span([], [f])] : [h.span([h.Class("text-fg-4")], ["·"]), h.span([], [f])])),
-          h.span([h.Class("grow")], []),
-          ...(a.truncated
-            ? [h.span([h.Class("flex items-center gap-2 text-fg-2"), h.Title("too big to read in one go")], [dot(h, "warn"), "partial scan"])]
-            : []),
-          ...(model.library ? [browseButton(h)] : []),
+          h.div(
+            [h.Class("flex flex-wrap items-center gap-x-2 text-[12px] text-fg-3 tabular-nums")],
+            [
+              ...facts.flatMap((f, i) => (i === 0 ? [h.span([], [f])] : [h.span([h.Class("text-fg-4")], ["·"]), h.span([], [f])])),
+              ...(a.truncated
+                ? [h.span([h.Class("text-fg-4")], ["·"]), h.span([h.Class("flex items-center gap-2 text-fg-2"), h.Title("too big to read in one go")], [dot(h, "warn"), "partial scan"])]
+                : []),
+              ...(model.library ? [browseButton(h)] : []),
+            ],
+          ),
+          ...auditDetails(h, model, libraryIndex(model), uid, a),
         ],
       ),
-      ...auditDetails(h, model, libraryIndex(model), uid, a),
     ],
   );
 };
@@ -367,31 +366,25 @@ const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live
   return out.length > 0 ? out : [runLog(h, `${turn.key}.wait`, [liveRow(h, "working")])];
 };
 
+/** The agent speaks from a gutter mark; no name row, no box. */
 const agentView = (h: H, turn: Turn, model: Model, caretKey: string | null, live: boolean) =>
   h.keyed("article")(
     turn.key,
-    [h.Class("grid min-w-0 gap-3"), h.DataAttribute("role", "assistant"), h.AriaLabel("puterminator")],
+    [h.Class("grid min-w-0 grid-cols-[20px_minmax(0,1fr)] gap-x-3 max-[480px]:grid-cols-1"), h.DataAttribute("role", "assistant"), h.AriaLabel("puterminator")],
     [
-      h.div(
-        [h.Class("flex items-center gap-2.5")],
-        [mark(h, 20), label(h, "puterminator", "text-fg-2!"), ...(live ? [h.span([h.Class("text-[11px] text-fg-4")], ["· working"])] : [])],
-      ),
-      h.div([h.Class("grid min-w-0 gap-3 ps-[30px] max-[480px]:ps-0")], agentBody(h, turn, model, caretKey, live)),
+      h.span([h.Class("pt-0.5 max-[480px]:hidden")], [mark(h, 20)]),
+      h.div([h.Class("grid min-w-0 gap-3")], agentBody(h, turn, model, caretKey, live)),
     ],
   );
 
+/** The user's words sit on the right in a quiet block; that alone tells the voices apart. */
 const userView = (h: H, turn: Turn, live: boolean) =>
   h.keyed("article")(
     turn.key,
+    [h.Class(`grid justify-items-end ${live ? "enter-soft" : ""}`), h.DataAttribute("role", "user"), h.AriaLabel("you")],
     [
-      h.Class(`grid justify-items-end gap-1.5 border-t border-line pt-6 first:border-t-0 first:pt-0 ${live ? "enter-soft" : ""}`),
-      h.DataAttribute("role", "user"),
-      h.AriaLabel("you"),
-    ],
-    [
-      label(h, "you"),
       h.div(
-        [h.Class("max-w-[85%] rounded-xs border border-line-strong bg-raised px-4 py-2.5 break-words whitespace-pre-wrap text-fg-strong")],
+        [h.Class("max-w-[80%] rounded-xs bg-raised px-4 py-2.5 break-words whitespace-pre-wrap text-fg-strong")],
         [turn.items[0]?.kind === "user" ? turn.items[0].text : ""],
       ),
     ],
@@ -399,10 +392,15 @@ const userView = (h: H, turn: Turn, live: boolean) =>
 
 const followUps = (h: H, items: readonly string[], enabled: boolean) =>
   h.div(
-    [h.Class("flex flex-wrap gap-x-2 gap-y-3 ps-[30px] pointer-coarse:gap-y-4 max-[480px]:ps-0")],
+    [h.Class("flex flex-wrap gap-x-5 gap-y-2 ps-8 max-[480px]:ps-0")],
     items.map((s) =>
       h.button(
-        [h.Type("button"), h.Disabled(!enabled), h.Class("hit u-btn u-btn--sm text-fg-2! disabled:opacity-40"), h.OnClick(Message.ClickedStarter({ text: s }))],
+        [
+          h.Type("button"),
+          h.Disabled(!enabled),
+          h.Class("hit text-[13px] text-fg-3 transition-colors duration-160 hover:text-fg active:text-fg disabled:opacity-40"),
+          h.OnClick(Message.ClickedStarter({ text: s })),
+        ],
         [`${s} →`],
       ),
     ),
@@ -410,23 +408,23 @@ const followUps = (h: H, items: readonly string[], enabled: boolean) =>
 
 const starterRows = (h: H, enabled: boolean) =>
   h.div(
-    [h.Class("grid")],
+    [h.Class("grid gap-1")],
     [
-      label(h, "start with", "mb-2"),
+      label(h, "start with", "mb-1"),
       ...STARTERS.map((s) =>
         h.button(
           [
             h.Type("button"),
             h.Disabled(!enabled),
-            h.Class(
-              "group grid grid-cols-[1fr_auto] items-baseline gap-x-4 border-t border-line py-3 text-start transition-colors duration-160 last:border-b active:bg-raised disabled:opacity-40",
-            ),
+            h.Class("group -mx-3 grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 rounded-xs px-3 py-2 text-start transition-colors duration-160 hover:bg-raised active:bg-raised disabled:opacity-40"),
             h.OnClick(Message.ClickedStarter({ text: s })),
           ],
           [
-            h.span([h.Class("text-fg-strong transition-colors duration-160 group-hover:text-accent group-active:text-accent")], [s]),
-            h.span([h.Class("text-[12px] text-fg-4 transition-transform duration-160 group-hover:text-fg-2 motion-safe:group-hover:translate-x-0.5")], ["→"]),
-            h.span([h.Class("col-span-2 text-[13px] text-fg-3")], [STARTER_NOTES[s] ?? ""]),
+            h.span([h.Class("flex min-w-0 items-baseline gap-3")], [
+              h.span([h.Class("text-fg-strong transition-colors duration-160 group-hover:text-accent group-active:text-accent")], [s]),
+              h.span([h.Class("truncate text-[13px] text-fg-3 max-[520px]:hidden")], [STARTER_NOTES[s] ?? ""]),
+            ]),
+            h.span([h.Class("text-[13px] text-fg-4 transition-transform duration-160 group-hover:text-fg-2 motion-safe:group-hover:translate-x-0.5")], ["→"]),
           ],
         ),
       ),
@@ -436,30 +434,20 @@ const starterRows = (h: H, enabled: boolean) =>
 /** The library tree opens from where the library's numbers are, not from the topbar. */
 const browseButton = (h: H) =>
   h.button(
-    [h.Type("button"), h.Class("hit ms-auto flex-none text-[11px] text-fg-2 transition-colors duration-160 hover:text-fg active:text-fg"), h.OnClick(Message.ToggledTree())],
+    [h.Type("button"), h.Class("hit ms-auto flex-none text-[12px] text-fg-2 transition-colors duration-160 hover:text-fg active:text-fg"), h.OnClick(Message.ToggledTree())],
     ["browse →"],
   );
 
+const stat = (h: H, name: string, value: string, note: Array<Html | string>) =>
+  h.div([h.Class("grid min-w-0 gap-1")], [label(h, name), h.span([h.Class("text-xl leading-none text-fg-strong tabular-nums")], [value]), h.span([h.Class("flex min-w-0 items-center gap-2 text-[12px] text-fg-3")], note)]);
+
 const lastScanStrip = (h: H, last: LastAudit, credits: Credits, browsable: boolean) =>
   h.div(
-    [h.Class("u-panel-grid grid-cols-3 max-[480px]:grid-cols-2")],
+    [h.Class("grid grid-cols-3 gap-6 max-[480px]:grid-cols-2")],
     [
-      h.div(
-        [h.Class("u-stat p-4!")],
-        [label(h, "last score"), h.span([h.Class("u-stat-value tabular-nums")], [`${last.score}`]), h.span([h.Class("u-stat-note")], [new Date(last.at).toLocaleDateString("en-US", { month: "short", day: "numeric" }).toLowerCase()])],
-      ),
-      h.div(
-        [h.Class("u-stat p-4!")],
-        [
-          label(h, "items"),
-          h.span([h.Class("u-stat-value tabular-nums")], [fmt(last.items)]),
-          h.span([h.Class("u-stat-note flex min-w-0 items-center gap-2")], [h.span([h.Class("truncate")], [`in ${last.rootName}`]), ...(browsable ? [browseButton(h)] : [])]),
-        ],
-      ),
-      h.div(
-        [h.Class("u-stat p-4! max-[480px]:hidden")],
-        [label(h, "credits"), h.span([h.Class("u-stat-value tabular-nums")], [fmt(creditsLeft(credits))]), h.span([h.Class("u-stat-note")], ["left this month"])],
-      ),
+      stat(h, "last score", `${last.score}`, [new Date(last.at).toLocaleDateString("en-US", { month: "short", day: "numeric" }).toLowerCase()]),
+      stat(h, "items", fmt(last.items), [h.span([h.Class("truncate")], [`in ${last.rootName}`]), ...(browsable ? [browseButton(h)] : [])]),
+      h.div([h.Class("max-[480px]:hidden")], [stat(h, "credits", fmt(creditsLeft(credits)), ["left this month"])]),
     ],
   );
 
@@ -596,7 +584,7 @@ const composer = (h: H, model: Model, placeholder: string, floating: boolean) =>
         ? [h.p([h.Id(errorId), h.Class("m-0 flex items-center gap-2 text-[12px] text-fg-2"), h.Role("alert")], [dot(h, "error"), LENGTH_ERROR])]
         : []),
       h.div(
-        [h.Class("flex min-w-0 items-center gap-2 text-[11px] text-fg-3")],
+        [h.Class("flex min-w-0 items-center gap-2 text-[12px] text-fg-3")],
         [
           h.span([h.Class("-ms-1.5")], [folderMenu(h, model, !floating)]),
           sep,
@@ -637,7 +625,7 @@ const emptyThread = (h: H, model: Model) => {
     [h.Id(THREAD_ID), h.Class("flex-1 overflow-y-auto overscroll-contain")],
     [
       h.div(
-        [h.Class(`${COLUMN} enter gap-8 pt-[10svh] pb-16`)],
+        [h.Class(`${COLUMN} enter gap-10 pt-[12svh] pb-16`)],
         [
           h.div(
             [h.Class("grid grid-cols-[1fr_auto] items-center gap-8 max-[520px]:grid-cols-1")],
@@ -645,14 +633,12 @@ const emptyThread = (h: H, model: Model) => {
               h.div(
                 [h.Class("grid gap-3")],
                 [
-                  h.span([h.Class("flex items-center gap-2")], [dot(h), label(h, "library agent for put.io")]),
+                  label(h, "library agent for put.io · read-only"),
                   h.h1([h.Class("m-0 max-w-[22ch] text-[32px] leading-[1.15] font-normal tracking-[-0.01em] text-balance text-fg-strong")], ["what should i do with your put.io?"]),
                   h.p([h.Class("m-0 max-w-[46ch] text-fg-2")], ["i read your files, score the library and answer questions. i change nothing."]),
                 ],
               ),
-              h.span([h.Class("u-ticks pointer-events-none grid size-[136px] place-items-center border border-line bg-black select-none max-[520px]:hidden")], [
-                art(h, "idle", 96),
-              ]),
+              h.span([h.Class("pointer-events-none select-none max-[520px]:hidden")], [art(h, "idle", 112)]),
             ],
           ),
           ...(model.agent?.lastAudit ? [lastScanStrip(h, model.agent.lastAudit, model.agent.credits, model.library !== null)] : []),
@@ -686,7 +672,7 @@ const threadPage = (h: H, model: Model) => {
       [h.Id(THREAD_ID), h.Class("flex-1 overflow-y-auto overscroll-contain [scroll-padding-bottom:56px]")],
       [
         h.div(
-          [h.Class(`${COLUMN} gap-7 pt-10 pb-14`)],
+          [h.Class(`${COLUMN} gap-9 pt-10 pb-14`)],
           [
             ...turns.map((t) => (t.role === "user" ? userView(h, t, busy && (t === last || t === turns.at(-2))) : agentView(h, t, model, caretKey, busy && t === last))),
             ...(pending ? [agentView(h, { key: "pending", role: "assistant", items: [] }, model, null, true)] : []),

@@ -46,11 +46,14 @@ const bytes = (n: Node) => (n.size === 0 ? "empty" : size(n.size));
 
 const parentPath = (n: Node) => n.path.slice(0, n.path.length - n.name.length - 1) || "/";
 
-const badges = (h: H, n: Node) => [
-  ...(has(n, FileFlag.junk) ? [h.span([h.Class("u-tag h-[18px]!")], ["junk"])] : []),
-  ...(has(n, FileFlag.video) && !has(n, FileFlag.played) ? [h.span([h.Class("u-tag h-[18px]!")], ["unplayed"])] : []),
-  ...(has(n, FileFlag.messy) ? [h.span([h.Class("u-tag h-[18px]! max-[520px]:hidden")], ["release name"])] : []),
-];
+/** Flags read as quiet words after the folder, not as boxed tags. */
+const badges = (h: H, n: Node) =>
+  [
+    ...(has(n, FileFlag.junk) ? [["junk", "text-fg-2"]] : []),
+    ...(has(n, FileFlag.video) && !has(n, FileFlag.played) ? [["unplayed", ""]] : []),
+    ...(has(n, FileFlag.messy) ? [["release name", ""]] : []),
+    // Phones keep the note (why the file is listed) over the flags.
+  ].map(([t, c]) => h.span([h.Class(`flex-none max-[520px]:hidden ${c}`)], [`· ${t}`]));
 
 const putioLink = (h: H, n: Node): Html =>
   !isRegular(n)
@@ -71,7 +74,7 @@ const revealButton = (h: H, ix: Index, n: Node) =>
   h.button(
     [
       h.Type("button"),
-      h.Class("hit text-[11px] text-fg-3 transition-colors duration-160 hover:text-fg"),
+      h.Class("hit text-[12px] text-fg-3 transition-colors duration-160 hover:text-fg"),
       h.AriaLabel(`show ${n.name} in the library tree`),
       h.OnClick(Message.RevealedFile({ id: n.id, ancestors: ancestors(ix, n.id) })),
     ],
@@ -82,10 +85,10 @@ const isPlayable = (n: Node) => has(n, FileFlag.video) && isRegular(n);
 
 /** A 16:9 tile: the put.io screenshot for videos (and the play button), the extension otherwise. */
 const tile = (h: H, n: Node) => {
-  const box = "relative grid h-9 w-16 flex-none place-items-center overflow-hidden border border-line bg-black";
+  const box = "relative grid h-9 w-16 flex-none place-items-center overflow-hidden rounded-xs bg-raised";
   if (!isPlayable(n)) {
     const ext = isFolder(n) ? "dir" : (n.name.match(/\.([a-z0-9]{1,5})$/i)?.[1] ?? "file");
-    return h.span([h.Class(`${box} text-[10px] tracking-[0.08em] text-fg-4 uppercase`), h.AriaHidden(true)], [ext]);
+    return h.span([h.Class(`${box} text-[12px] text-fg-4`), h.AriaHidden(true)], [ext.toLowerCase()]);
   }
   return h.button(
     [
@@ -107,7 +110,7 @@ const tile = (h: H, n: Node) => {
       ]),
       h.span(
         [
-          h.Class("relative text-[11px] text-fg-strong opacity-70 transition-opacity duration-160 group-hover/tile:opacity-100 [text-shadow:0_0_4px_#000]"),
+          h.Class("relative text-[12px] text-fg-strong opacity-70 transition-opacity duration-160 group-hover/tile:opacity-100 [text-shadow:0_0_4px_#000]"),
           h.AriaHidden(true),
         ],
         ["▶"],
@@ -118,22 +121,19 @@ const tile = (h: H, n: Node) => {
 
 const fileRow = (h: H, ix: Index, n: Node, note: string | null = null) =>
   h.li(
-    [h.Class("group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 border-t border-line px-3 py-2 first:border-t-0 hover:bg-bg")],
+    [h.Class("group -mx-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 rounded-xs px-2 py-1.5 transition-colors duration-160 hover:bg-raised")],
     [
       tile(h, n),
       h.div(
         [h.Class("grid min-w-0 gap-0.5")],
         [
           h.span([h.Class("truncate text-[13px] text-fg-strong"), h.Title(n.path)], [isFolder(n) ? `${n.name}/` : n.name]),
-          h.span([h.Class("flex min-w-0 items-center gap-2 text-[11px] text-fg-3")], [
-            h.span([h.Class("truncate")], [note ?? parentPath(n)]),
-            ...badges(h, n),
-          ]),
+          h.span([h.Class("flex min-w-0 items-center gap-1.5 text-[12px] text-fg-3")], [h.span([h.Class("truncate")], [note ?? parentPath(n)]), ...badges(h, n)]),
         ],
       ),
       h.div(
         [h.Class("flex items-center gap-3")],
-        [h.span([h.Class("text-[11px] text-fg-2 tabular-nums")], [bytes(n)]), revealButton(h, ix, n), putioLink(h, n)],
+        [h.span([h.Class("text-[12px] text-fg-2 tabular-nums")], [bytes(n)]), revealButton(h, ix, n), putioLink(h, n)],
       ),
     ],
   );
@@ -145,7 +145,7 @@ const showMore = (h: H, key: string, open: boolean, hidden: number) =>
         h.button(
           [
             h.Type("button"),
-            h.Class("w-full border-t border-line px-3 py-2 text-start text-[11px] text-fg-3 transition-colors duration-160 hover:text-fg"),
+            h.Class("hit w-fit text-start text-[12px] text-fg-3 transition-colors duration-160 hover:text-fg"),
             h.AriaExpanded(open),
             h.OnClick(Message.ToggledStep({ key })),
           ],
@@ -158,14 +158,10 @@ export const fileList = (h: H, model: Model, ix: Index, key: string, nodes: Node
   const moreKey = `files.${key}`;
   const open = model.expanded.includes(moreKey);
   const shown = open ? nodes : nodes.slice(0, ROWS);
-  return h.keyed("div")(moreKey, [h.Class("grid min-w-0 border border-line bg-sunk")], [
-    h.div(
-      [h.Class("flex items-center justify-between border-b border-line px-3 py-1.5")],
-      [
-        h.span([h.Class("u-label")], [`${fmt(total)} ${total === 1 ? "file" : "files"}`]),
-        ...(total > nodes.length ? [h.span([h.Class("text-[11px] text-fg-4")], [`showing ${fmt(nodes.length)}`])] : []),
-      ],
-    ),
+  return h.keyed("div")(moreKey, [h.Class("grid min-w-0 gap-1")], [
+    h.span([h.Class("text-[12px] text-fg-3")], [
+      `${fmt(total)} ${total === 1 ? "file" : "files"}${total > nodes.length ? ` · showing ${fmt(nodes.length)}` : ""}`,
+    ]),
     h.ul([h.Class("m-0 grid list-none p-0")], shown.map((n) => fileRow(h, ix, n))),
     ...showMore(h, moreKey, open, nodes.length - ROWS),
   ]);
@@ -183,12 +179,12 @@ export const auditDetails = (h: H, model: Model, ix: Index | null, key: string, 
   const tabKey = (t: Tab) => `audit.${key}.${t}`;
   const open = tabs.filter(([t, , n]) => n > 0 && model.expanded.includes(tabKey(t)));
   const body = (t: Tab): Html[] => {
-    if (!ix) return [h.p([h.Class("m-0 px-3 py-2 text-[11px] text-fg-3")], ["scan again to get links for these files."])];
+    if (!ix) return [h.p([h.Class("m-0 py-1 text-[12px] text-fg-3")], ["scan again to get links for these files."])];
     if (t === "duplicates")
       return a.duplicates.examples.map((d) => {
         const keep = resolve(ix, d.keep);
         const drops = d.drop.map((p) => resolve(ix, p));
-        return h.li([h.Class("grid border-t border-line first:border-t-0")], [
+        return h.li([h.Class("grid")], [
           ...(keep ? [fileRow(h, ix, keep, `keep · ${parentPath(keep)}`)] : []),
           ...drops.flatMap((n) => (n ? [fileRow(h, ix, n, `drop · ${parentPath(n)}`)] : [])),
         ]);
@@ -199,28 +195,29 @@ export const auditDetails = (h: H, model: Model, ix: Index | null, key: string, 
       return n ? [fileRow(h, ix, n, `${f.why} · ${parentPath(n)}`)] : [];
     });
   };
+  const phrase = (t: Tab, n: number) =>
+    t === "junk" ? `${fmt(n)} junk ${n === 1 ? "file" : "files"}` : t === "duplicates" ? `${fmt(n)} duplicate ${n === 1 ? "group" : "groups"}` : `${fmt(n)} never played`;
   return [
     h.div(
-      [h.Class("flex flex-wrap items-center gap-2 border-t border-line px-5 py-3")],
-      tabs.map(([t, name, n]) =>
-        h.button(
-          [
-            h.Type("button"),
-            h.Class("u-pill disabled:opacity-40"),
-            h.Disabled(n === 0),
-            h.AriaPressed(String(model.expanded.includes(tabKey(t)))),
-            h.OnClick(Message.ToggledStep({ key: tabKey(t) })),
-          ],
-          [`${name} · ${fmt(n)}`],
-        ),
-      ),
+      [h.Class("flex flex-wrap items-center gap-x-5 gap-y-1")],
+      tabs.flatMap(([t, , n]) => {
+        const on = model.expanded.includes(tabKey(t));
+        return n === 0
+          ? [h.span([h.Class("text-[12px] text-fg-4")], [phrase(t, n)])]
+          : [
+              h.button(
+                [
+                  h.Type("button"),
+                  h.Class("step-head hit gap-1.5! text-[12px]!"),
+                  h.AriaExpanded(on),
+                  h.OnClick(Message.ToggledStep({ key: tabKey(t) })),
+                ],
+                [h.span([h.Class(`name ${on ? "text-fg" : ""}`)], [phrase(t, n)]), h.span([h.Class("chev leading-none"), h.AriaHidden(true)], ["›"])],
+              ),
+            ];
+      }),
     ),
-    ...open.map(([t, name]) =>
-      h.div([h.Class("border-t border-line bg-sunk")], [
-        h.span([h.Class("u-label block px-3 pt-2")], [name]),
-        h.ul([h.Class("m-0 grid list-none p-0")], body(t)),
-      ]),
-    ),
+    ...open.map(([t, name]) => h.ul([h.Class("m-0 grid list-none p-0"), h.AriaLabel(name)], body(t))),
   ];
 };
 
@@ -260,19 +257,19 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, siblingMax: number): Ht
             h.span([h.Class(`truncate ${folder ? "text-fg-strong" : has(n, FileFlag.junk) ? "text-fg-3" : "text-fg"}`)], [n.name]),
           ]),
           h.span([h.Class("ms-[18px] block h-0.5 bg-line")], [h.i([h.Class(`block h-full ${n.junk > 0 && !folder ? "bg-fg-4" : "bg-fg-3"}`), h.Style({ width: `${width}%` })], [])]),
-          ...(counts ? [h.span([h.Class("ms-[18px] truncate text-[11px] text-fg-3")], [counts])] : []),
+          ...(counts ? [h.span([h.Class("ms-[18px] truncate text-[12px] text-fg-3")], [counts])] : []),
         ],
       ),
       h.div(
         [h.Class("flex items-center gap-3")],
         [
-          h.span([h.Class("text-[11px] text-fg-2 tabular-nums")], [isRegular(n) ? bytes(n) : "shared"]),
+          h.span([h.Class("text-[12px] text-fg-2 tabular-nums")], [isRegular(n) ? bytes(n) : "shared"]),
           ...(isPlayable(n)
             ? [
                 h.button(
                   [
                     h.Type("button"),
-                    h.Class("hit text-[11px] text-fg-3 transition-colors duration-160 hover:text-fg"),
+                    h.Class("hit text-[12px] text-fg-3 transition-colors duration-160 hover:text-fg"),
                     h.AriaLabel(`play ${n.name}`),
                     h.OnClick(Message.OpenedPlayer({ id: n.id, name: n.name })),
                   ],
@@ -285,7 +282,7 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, siblingMax: number): Ht
                 h.button(
                   [
                     h.Type("button"),
-                    h.Class("hit text-[11px] text-fg-3 opacity-0 transition-opacity duration-160 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 hover:text-fg"),
+                    h.Class("hit text-[12px] text-fg-3 opacity-0 transition-opacity duration-160 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 hover:text-fg"),
                     h.AriaLabel(`ask about ${n.name}`),
                     h.Title("target this folder"),
                     h.OnClick(Message.PickedFolder({ folder: { id: n.id, name: n.name.slice(0, 200) } })),
@@ -306,7 +303,7 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, siblingMax: number): Ht
     row,
     ...kids.slice(0, TREE_CAP).flatMap((c) => treeRow(h, model, ix, c, max)),
     ...(kids.length > TREE_CAP
-      ? [h.div([h.Class("py-1.5 text-[11px] text-fg-4"), h.Style({ paddingInlineStart: `${30 + n.depth * 14}px` })], [`+${fmt(kids.length - TREE_CAP)} more`])]
+      ? [h.div([h.Class("py-1.5 text-[12px] text-fg-4"), h.Style({ paddingInlineStart: `${30 + n.depth * 14}px` })], [`+${fmt(kids.length - TREE_CAP)} more`])]
       : []),
   ];
 };
@@ -349,7 +346,7 @@ export const treeDrawer = (h: H, model: Model) => {
           [
             h.div(
               [h.Class("grid min-w-0 grow gap-0.5")],
-              [h.span([h.Class("u-label")], ["library"]), h.span([h.Class("truncate text-[13px] text-fg-strong")], [`${ix.rootName} · ${size(ix.total)}`])],
+              [h.span([h.Class("text-[12px] text-fg-3")], ["library"]), h.span([h.Class("truncate text-[13px] text-fg-strong")], [`${ix.rootName} · ${size(ix.total)}`])],
             ),
             h.button([h.Type("button"), h.Class("hit text-[13px] text-fg-2 hover:text-fg"), h.OnClick(Message.ClosedTree())], ["close"]),
           ],

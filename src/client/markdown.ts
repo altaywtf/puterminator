@@ -36,9 +36,10 @@ function render(node: Nodes): Child {
               ih.Target("_blank"),
               ih.Rel("noopener noreferrer"),
               ih.Title(`${hit.path} · open on put.io`),
-              ih.Class(`${chip} no-underline decoration-fg-4 underline-offset-3 transition-colors duration-160 hover:text-accent hover:underline`),
+              ih.Class(`${chip} inline-flex max-w-[min(100%,40ch)] align-bottom no-underline decoration-fg-4 underline-offset-3 transition-colors duration-160 hover:text-accent hover:underline`),
             ],
-            [ih.code([], [node.value]), ih.span([ih.Class("ms-1 text-[11px] text-fg-3"), ih.AriaHidden(true)], ["↗"])],
+            // The model often quotes whole paths; the chip shows the name and keeps the path in its title.
+            [ih.code([ih.Class("truncate")], [hit.name]), ih.span([ih.Class("ms-1 flex-none text-[12px] text-fg-3"), ih.AriaHidden(true)], ["↗"])],
           )
         : ih.code([ih.Class(chip)], [node.value]);
     }
@@ -107,7 +108,7 @@ function render(node: Nodes): Child {
                     [],
                     row.children.map((cell) =>
                       (r === 0 ? ih.th : ih.td)(
-                        [ih.Class(`border-b border-line py-1 pe-4 text-start ${r === 0 ? "text-[11px] uppercase tracking-[0.08em] font-normal text-fg-3" : ""}`)],
+                        [ih.Class(`border-b border-line py-1 pe-4 text-start ${r === 0 ? "text-[12px] font-normal text-fg-3" : ""}`)],
                         children(cell),
                       ),
                     ),
