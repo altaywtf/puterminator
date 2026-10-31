@@ -63,6 +63,10 @@ export const ClientEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("discard"), plan: Schema.String }),
   Schema.Struct({ type: Schema.Literal("stopRun"), plan: Schema.String }),
   Schema.Struct({ type: Schema.Literal("retry"), plan: Schema.String }),
+  /** Reverse a finished run's done steps. */
+  Schema.Struct({ type: Schema.Literal("undo"), plan: Schema.String }),
+  /** Archive the conversation and start an empty one. */
+  Schema.Struct({ type: Schema.Literal("newThread") }),
 ]);
 export type ClientEvent = typeof ClientEvent.Type;
 
@@ -111,9 +115,6 @@ export const ServerFrame = Schema.fromJsonString(ServerEvent);
 /** `GET /api/me`. `configured` is false when a required secret is missing. */
 export const Me = Schema.Struct({ configured: Schema.Boolean, signedIn: Schema.Boolean });
 export type Me = typeof Me.Type;
-
-/** `GET /api/folders`: top-level folders for the composer's target picker. */
-export const Folders = Schema.Array(Folder);
 
 /** HTTP and WebSocket paths the Worker handles before static assets. */
 export const WORKER_ROUTES = ["/agent", "/agent/*", "/auth/*", "/api/*"];

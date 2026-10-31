@@ -6,7 +6,7 @@ import { Library } from "../../shared/contract";
 import { planCard, questionCard, runCard } from "../actions";
 import { toolCard } from "../cards";
 import { Message } from "../main";
-import { audits, folders, library, plans, questions, runs, searches } from "./fixtures";
+import { audits, folders, library, plans, questions, runs, searches, undos } from "./fixtures";
 
 // Dev-only gallery: every tool card, in every fixture state, through the same toolCard the thread uses.
 // Served by `pnpm lab` (vite) at /lab.html; `vite build` only builds index.html, so this never ships.
@@ -44,7 +44,8 @@ const section = (h: H, title: string, children: Html[]) =>
 const actionSections = (h: H, model: Model) => [
   section(h, "plan", plans.map(([name, p]) => labelled(h, `propose_changes · ${name}`, planCard(h, model, p)))),
   section(h, "question", questions.map(([name, q]) => labelled(h, `ask_user · ${name}`, questionCard(h, model, q)))),
-  section(h, "run", runs.map(([name, r]) => labelled(h, `apply · ${name}`, runCard(h, model, r)))),
+  section(h, "run", runs.map(([name, r]) => labelled(h, `apply · ${name}`, runCard(h, model, r, false, { undoable: true })))),
+  section(h, "undo", undos.map(([name, r]) => labelled(h, `undo · ${name}`, runCard(h, model, r, false, { undo: true })))),
 ];
 
 const view = (model: Model, h: H): Document => ({

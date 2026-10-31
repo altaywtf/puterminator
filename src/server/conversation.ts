@@ -9,9 +9,9 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, type Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
-import type { Run } from "../shared/actions";
-import { AskInput, applyChange, folderIds, ProposeInput, validatePlan, validateQuestion } from "./changes";
-import { downloadToken, fileMedia, hlsUrl, listAll, type PutioError, putioLayer, rootFolders, trashEnabled } from "./putio";
+import type { PlanRecord, Run } from "../shared/actions";
+import { AskInput, applyChange, folderIds, ProposeInput, undoChanges, validatePlan, validateQuestion } from "./changes";
+import { downloadToken, fileMedia, hlsUrl, listAll, type PutioError, putioLayer, trashEnabled } from "./putio";
 import { type AnthropicClient, effectTool, runTurn, type TurnError, weightedTokens } from "./runner";
 import { month, type Store, type StoredRecord } from "./store";
 import { buildTree } from "./tree";
@@ -110,6 +110,15 @@ export const makeAgent = (deps: AgentDeps) =>
     let running = false;
     /** One question per turn: the model stops after asking, and a second ask in the same turn is refused. */
     let asked = false;
+    /** Read calls made this turn; an identical repeat gets a pointer to the first result instead. */
+    const calls = new Set<string>();
+    const once = <R>(name: string, input: unknown, run: Effect.Effect<string, PutioError, R>): Effect.Effect<string, PutioError, R> =>
+      Effect.suspend(() => {
+        const key = `${name}:${JSON.stringify(input)}`;
+        if (calls.has(key)) return Effect.succeed(JSON.stringify({ error: "You already made this exact call this turn. Use that result." }));
+        calls.add(key);
+        return run;
+      });
 
     const setState = (next: AgentState) => {
       state = next;
@@ -192,23 +201,33 @@ export const makeAgent = (deps: AgentDeps) =>
       broadcast({ type: "plan", record: p.record });
     };
 
+    const current = (r: PlanRecord) => r.undo ?? r.run;
+    const withCurrent = (r: PlanRecord, run: Run): PlanRecord => (r.undo ? { ...r, undo: run } : { ...r, run });
+    const failUnfinished = (run: Run, error: string): Run => ({
+      ...run,
+      steps: run.steps.map((s) => (s.state === "running" || s.state === "queued" ? { ...s, state: "failed", error } : s)),
+    });
+
     const stepError = (e: PutioError) =>
       e._tag === "PutioRateLimited" ? "put.io rate limit; retry in a minute" : e._tag === "PutioUnauthorized" ? "put.io signed you out" : e.message;
 
-    /** Runs the queued steps in order, one put.io change each, then rescans. Stopping fails what's left. */
+    /** Runs the current run's queued steps in order (the undo once there is one), one put.io change each,
+        then rescans. Stopping fails what's left. */
     const runSteps = (planId: string) => {
       const token = store.token();
       const first = plans.get(planId);
-      if (!token || !first?.record.run) return;
-      const update = (f: (run: Run) => Run, status: StoredRecord["record"]["status"] = "applying") => {
+      const run = first && current(first.record);
+      if (!token || !first || !run) return;
+      const undoing = !!first.record.undo;
+      const update = (f: (run: Run) => Run, status: StoredRecord["record"]["status"] = undoing ? "undoing" : "applying") => {
         const cur = plans.get(planId);
-        if (cur?.record.run) saveRecord({ ...cur, reported: false, record: { ...cur.record, status, run: f(cur.record.run) } });
+        const r = cur && current(cur.record);
+        if (cur && r) saveRecord({ ...cur, reported: false, record: withCurrent({ ...cur.record, status }, f(r)) });
       };
+      const finished = undoing ? "undone" : "done";
       const setStep = (change: string, state: Run["steps"][number]["state"], error: string | null = null) =>
         update((run) => ({ ...run, steps: run.steps.map((s) => (s.change === change ? { ...s, state, error } : s)) }));
       const work = Effect.gen(function* () {
-        const run = first.record.run;
-        if (!run) return;
         const folders = folderIds(store.snapshot(), state.folder.id);
         const queued = run.steps.filter((s) => s.state === "queued");
         const needsTrash = queued.some((s) => run.changes.find((c) => c.id === s.change)?.op === "trash");
@@ -229,7 +248,7 @@ export const makeAgent = (deps: AgentDeps) =>
             setStep(step.change, "failed", err._tag === "Some" ? stepError(err.value) : "didn’t finish");
           }
         }
-        update((r) => r, "done");
+        update((r) => r, finished);
         yield* scan.pipe(Effect.ignore);
       });
       deps.background(
@@ -242,14 +261,8 @@ export const makeAgent = (deps: AgentDeps) =>
               Effect.sync(() => {
                 runFibers.delete(planId);
                 // Stopped or crashed mid-run: whatever didn't finish is failed, so retry can pick it up.
-                if (plans.get(planId)?.record.status === "applying")
-                  update(
-                    (run) => ({
-                      ...run,
-                      steps: run.steps.map((s) => (s.state === "running" || s.state === "queued" ? { ...s, state: "failed", error: "stopped" } : s)),
-                    }),
-                    "done",
-                  );
+                const status = plans.get(planId)?.record.status;
+                if (status === "applying" || status === "undoing") update((r) => failUnfinished(r, "stopped"), finished);
               }),
             ),
           );
@@ -270,13 +283,22 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const retry = (planId: string) => {
       const p = plans.get(planId);
-      if (!p?.record.run || p.record.status !== "done" || runFibers.size > 0) return;
-      const run = p.record.run;
-      saveRecord({
-        ...p,
-        reported: false,
-        record: { ...p.record, status: "applying", run: { ...run, steps: run.steps.map((s) => (s.state === "failed" ? { ...s, state: "queued", error: null } : s)) } },
-      });
+      const run = p && current(p.record);
+      if (!p || !run || (p.record.status !== "done" && p.record.status !== "undone") || runFibers.size > 0) return;
+      const steps = run.steps.map((s) => (s.state === "failed" ? { ...s, state: "queued" as const, error: null } : s));
+      saveRecord({ ...p, reported: false, record: withCurrent({ ...p.record, status: p.record.undo ? "undoing" : "applying" }, { ...run, steps }) });
+      runSteps(planId);
+    };
+
+    /** Reverses the run's done steps, last first: trash comes back from put.io's trash, renames and moves go back. */
+    const undo = (planId: string) => {
+      const p = plans.get(planId);
+      const run = p?.record.run;
+      if (!p || !run || p.record.status !== "done" || runFibers.size > 0) return;
+      const changes = undoChanges(run);
+      if (changes.length === 0) return;
+      const back: Run = { id: planId, title: run.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
+      saveRecord({ ...p, reported: false, record: { ...p.record, status: "undoing", undo: back } });
       runSteps(planId);
     };
 
@@ -286,27 +308,24 @@ export const makeAgent = (deps: AgentDeps) =>
     };
 
     // An eviction mid-run leaves steps marked running; they never finished.
-    for (const p of plans.values())
-      if (p.record.status === "applying" && p.record.run)
-        saveRecord({
-          ...p,
-          record: {
-            ...p.record,
-            status: "done",
-            run: { ...p.record.run, steps: p.record.run.steps.map((s) => (s.state === "running" || s.state === "queued" ? { ...s, state: "failed", error: "interrupted" } : s)) },
-          },
-        });
+    for (const p of plans.values()) {
+      const run = current(p.record);
+      if (run && (p.record.status === "applying" || p.record.status === "undoing"))
+        saveRecord({ ...p, record: withCurrent({ ...p.record, status: p.record.undo ? "undone" : "done" }, failUnfinished(run, "interrupted")) });
+    }
 
     /** What happened to plans since the model last heard, for the next <context>. */
     const planNews = () =>
       [...plans.values()].flatMap((p) => {
-        if (p.reported || p.record.status === "proposed" || p.record.status === "applying") return [];
+        const { status } = p.record;
+        if (p.reported || status === "proposed" || status === "applying" || status === "undoing") return [];
         saveRecord({ ...p, reported: true });
-        if (p.record.status === "discarded") return [`The user discarded plan "${p.record.plan.title}".`];
-        const steps = p.record.run?.steps ?? [];
+        if (status === "discarded") return [`The user discarded plan "${p.record.plan.title}".`];
+        const steps = current(p.record)?.steps ?? [];
         const failed = steps.filter((s) => s.state === "failed");
+        const verb = status === "undone" ? "undid" : "applied";
         return [
-          `The user applied plan "${p.record.plan.title}": ${steps.length - failed.length} done, ${failed.length} failed${failed[0]?.error ? ` (${failed[0].error})` : ""}. The snapshot was rescanned.`,
+          `The user ${verb} plan "${p.record.plan.title}": ${steps.length - failed.length} done, ${failed.length} failed${failed[0]?.error ? ` (${failed[0].error})` : ""}. The snapshot was rescanned.`,
         ];
       });
 
@@ -317,18 +336,22 @@ export const makeAgent = (deps: AgentDeps) =>
         description:
           "Read the whole tree under the target folder from put.io, save a snapshot and score naming, structure, junk and duplicates. Takes a few seconds on big libraries.",
         input: Schema.Struct({}),
-        run: () =>
-          Effect.gen(function* () {
-            if (!store.token()) return JSON.stringify({ error: "Not signed in to put.io." });
-            return JSON.stringify(yield* scan);
-          }),
+        run: (input) =>
+          once(
+            "scan_library",
+            input,
+            Effect.gen(function* () {
+              if (!store.token()) return JSON.stringify({ error: "Not signed in to put.io." });
+              return JSON.stringify(yield* scan);
+            }),
+          ),
       }),
       effectTool({
         name: "list_folder",
         description: "List the direct children of a folder from the last snapshot. Path is relative to the target folder, '' for its root.",
         input: Schema.Struct({ path: Schema.String.annotate({ description: "e.g. '' or '/Movies'" }) }),
         run: ({ path }) =>
-          Effect.sync(() => {
+          once("list_folder", path, Effect.sync(() => {
             const clean = path.replace(/\/+$/, "");
             const all = store.snapshot();
             if (!all.length) return noSnapshot;
@@ -341,7 +364,7 @@ export const makeAgent = (deps: AgentDeps) =>
               count: rows.length,
               items: rows.slice(0, 200).map((f) => ({ name: f.name, type: f.file_type, size: gb(f.size), played: !!f.first_accessed_at })),
             } satisfies ListFolderOutput);
-          }),
+          })),
       }),
       effectTool({
         name: "search_files",
@@ -353,7 +376,7 @@ export const makeAgent = (deps: AgentDeps) =>
           limit: Schema.Finite.annotate({ description: "1 to 100" }),
         }),
         run: ({ query, category, limit }) =>
-          Effect.sync(() => {
+          once("search_files", { query, category, limit }, Effect.sync(() => {
             let rows = store.snapshot();
             if (!rows.length) return noSnapshot;
             const junkReason = junkFinder(rows);
@@ -376,7 +399,7 @@ export const makeAgent = (deps: AgentDeps) =>
                 junk: junkReason(f),
               })),
             } satisfies SearchFilesOutput);
-          }),
+          })),
       }),
       effectTool({
         name: "propose_changes",
@@ -492,6 +515,7 @@ export const makeAgent = (deps: AgentDeps) =>
     const start = (text: string, folder: Folder) => {
       running = true;
       asked = false;
+      calls.clear();
       if (folder.id !== state.folder.id) setState({ ...state, folder });
       deps.background(
         Effect.withFiber((fiber) => {
@@ -532,8 +556,18 @@ export const makeAgent = (deps: AgentDeps) =>
             case "retry":
               if (!running && !state.busy) retry(e.plan);
               return;
+            case "undo":
+              if (!running && !state.busy) undo(e.plan);
+              return;
             case "discard":
               discard(e.plan);
+              return;
+            case "newThread":
+              if (running || state.busy || runFibers.size > 0) return;
+              store.archiveHistory();
+              last = null;
+              for (const p of plans.values()) if (!p.reported) saveRecord({ ...p, reported: true });
+              broadcast({ type: "history", messages: [] });
               return;
             case "stopRun": {
               const f = runFibers.get(e.plan);
@@ -580,11 +614,6 @@ export const makeAgent = (deps: AgentDeps) =>
             Effect.provide(putioLayer(token, deps.putioFetch)),
           );
         }),
-      rootFolders: Effect.suspend(() => {
-        const token = store.token();
-        if (!token) return Effect.succeed<Array<Folder>>([]);
-        return rootFolders.pipe(Effect.provide(putioLayer(token, deps.putioFetch)));
-      }),
     };
   });
 

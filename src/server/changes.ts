@@ -1,8 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type { PutioSdkContext } from "@putdotio/sdk";
-import type { Change, Plan, Question } from "../shared/actions";
-import { createFolder, moveFile, type PutioError, renameFile, trashFile } from "./putio";
+import type { Change, Plan, Question, Run } from "../shared/actions";
+import { createFolder, moveFile, type PutioError, renameFile, restoreFile, trashFile } from "./putio";
 import type { WalkedFile } from "./tree";
 
 // What the model may propose and ask, checked against the snapshot before anything is shown,
@@ -87,6 +87,20 @@ export const validateQuestion = (input: AskInput, id: string): Question | { erro
   };
 };
 
+/** The reverse of a run's done steps, last first. Each keeps its change id, so it acts on the same file. */
+export const undoChanges = (run: Run): Change[] => {
+  const done = new Set(run.steps.filter((s) => s.state === "done").map((s) => s.change));
+  return run.changes
+    .filter((c) => done.has(c.id))
+    .reverse()
+    .map((c): Change => {
+      if (c.op === "trash") return { ...c, op: "restore", to: null };
+      if (c.op === "rename") return { ...c, path: `${parentOf(c.path).replace(/\/$/, "")}/${c.to ?? ""}`, to: nameOf(c.path), bytes: 0 };
+      if (c.op === "move") return { ...c, path: c.to ?? c.path, to: c.path, bytes: 0 };
+      return c;
+    });
+};
+
 /** Folder ids by path for one run: the snapshot's folders, plus any the run creates. */
 export const folderIds = (snapshot: ReadonlyArray<WalkedFile>, rootId: number) => {
   const ids = new Map<string, number>([["/", rootId]]);
@@ -108,6 +122,7 @@ const ensureFolder = (folders: Map<string, number>, path: string): Effect.Effect
 /** One approved change as put.io calls. A move that also changes the name renames after moving. */
 export const applyChange = (change: Change, fileId: number, folders: Map<string, number>): Effect.Effect<void, PutioError, PutioSdkContext> => {
   if (change.op === "trash") return trashFile(fileId).pipe(Effect.asVoid);
+  if (change.op === "restore") return restoreFile(fileId).pipe(Effect.asVoid);
   if (change.op === "rename") return renameFile(fileId, change.to ?? "").pipe(Effect.asVoid);
   const to = change.to ?? "";
   return Effect.gen(function* () {

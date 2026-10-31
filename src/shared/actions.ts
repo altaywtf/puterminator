@@ -4,10 +4,10 @@ import * as Schema from "effect/Schema";
 // `propose_changes` call; only the user's apply click, handled by the server, changes anything on put.io.
 
 /** One change to one file or folder. `to` is the new name (rename) or the new full path (move). Paths are
-    relative to the target folder, as the snapshot writes them. */
+    relative to the target folder, as the snapshot writes them. `restore` only appears when undoing a trash. */
 export const Change = Schema.Struct({
   id: Schema.String,
-  op: Schema.Literals(["trash", "rename", "move"]),
+  op: Schema.Literals(["trash", "rename", "move", "restore"]),
   path: Schema.String,
   to: Schema.NullOr(Schema.String),
   bytes: Schema.Finite,
@@ -38,10 +38,12 @@ export const Run = Schema.Struct({
 });
 export type Run = typeof Run.Type;
 
-/** A plan and where it stands. The browser reads it; only browser frames move it past `proposed`. */
+/** A plan and where it stands. The browser reads it; only browser frames move it past `proposed`.
+    `undo` is the reverse of the run's done steps, once the user asks for it. */
 export const PlanRecord = Schema.Struct({
   plan: Plan,
-  status: Schema.Literals(["proposed", "discarded", "applying", "done"]),
+  status: Schema.Literals(["proposed", "discarded", "applying", "done", "undoing", "undone"]),
   run: Schema.NullOr(Run),
+  undo: Schema.optionalKey(Run),
 });
 export type PlanRecord = typeof PlanRecord.Type;

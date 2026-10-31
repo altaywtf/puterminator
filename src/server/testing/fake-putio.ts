@@ -68,7 +68,7 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     if (url.pathname === "/v2/account/settings") return json(200, { settings: { trash_enabled: opts.trashEnabled ?? true }, status: "OK" });
     const target = Number(body.get("file_ids") ?? body.get("file_id") ?? NaN);
     const fails = (opts.failWrites ?? []).includes(target);
-    if (["/v2/files/delete", "/v2/files/rename", "/v2/files/move"].includes(url.pathname))
+    if (["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/trash/restore"].includes(url.pathname))
       return fails ? json(400, { status: "ERROR", error_type: "LOCKED", status_code: 400 }) : json(200, { status: "OK", errors: [] });
     if (url.pathname === "/v2/files/create-folder") return json(200, { file: { ...file(9000 + log.length, Number(body.get("parent_id")), body.get("name") ?? "", "FOLDER") }, status: "OK" });
     const one = url.pathname.match(/^\/v2\/files\/(\d+)$/);

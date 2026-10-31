@@ -108,6 +108,8 @@ export const Message = defineMessageUnion({
   ClickedDiscard: { plan: Schema.String },
   ClickedStopRun: { plan: Schema.String },
   ClickedRetryRun: { plan: Schema.String },
+  ClickedUndoRun: { plan: Schema.String },
+  ClickedNewThread: {},
   ToggledTree: {},
   ClosedTree: {},
   ToggledTreeNode: { id: Schema.Finite },
@@ -468,6 +470,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     ClickedDiscard: ({ plan }) => ({ model, commands: [SendFrame({ event: { type: "discard", plan } })] }),
     ClickedStopRun: ({ plan }) => ({ model, commands: [SendFrame({ event: { type: "stopRun", plan } })] }),
     ClickedRetryRun: ({ plan }) => ({ model, commands: [SendFrame({ event: { type: "retry", plan } })] }),
+    ClickedUndoRun: ({ plan }) => ({ model, commands: [SendFrame({ event: { type: "undo", plan } })] }),
+    ClickedNewThread: () => ({ model, commands: [SendFrame({ event: { type: "newThread" } })] }),
     ToggledTree: () => ({ model: modifyFields(model, { treeOpen: (open) => !open }) }),
     ClosedTree: () => ({ model: modifyFields(model, { treeOpen: () => false }) }),
     ToggledTreeNode: ({ id }) => ({

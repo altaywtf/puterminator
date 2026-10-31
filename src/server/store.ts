@@ -41,6 +41,7 @@ export const makeStore = (sql: Sql) => {
   sql.exec("CREATE TABLE IF NOT EXISTS secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   sql.exec("CREATE TABLE IF NOT EXISTS usage (month TEXT PRIMARY KEY, tokens INTEGER NOT NULL)");
   sql.exec("CREATE TABLE IF NOT EXISTS messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, json TEXT NOT NULL)");
+  sql.exec("CREATE TABLE IF NOT EXISTS archived_messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, json TEXT NOT NULL)");
   sql.exec(`CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT NOT NULL, path TEXT NOT NULL, depth INTEGER NOT NULL,
     size INTEGER NOT NULL, file_type TEXT NOT NULL, extension TEXT, crc32 TEXT, created_at TEXT NOT NULL, first_accessed_at TEXT)`);
@@ -77,6 +78,12 @@ export const makeStore = (sql: Sql) => {
     /** Append-only: thinking blocks stay valid and the cached prefix never changes. */
     append: (m: MessageParam) => {
       sql.exec("INSERT INTO messages (json) VALUES (?)", encodeMessage(m));
+    },
+
+    /** Moves the whole conversation to `archived_messages`; the next turn starts empty. */
+    archiveHistory: () => {
+      sql.exec("INSERT INTO archived_messages (json) SELECT json FROM messages ORDER BY seq");
+      sql.exec("DELETE FROM messages");
     },
 
     used: (m: string): number => num(sql.exec("SELECT tokens FROM usage WHERE month = ?", m)[0]?.tokens ?? 0),

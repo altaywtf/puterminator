@@ -54,7 +54,7 @@ describe("config", () => {
     expect(to.searchParams.get("redirect_uri")).toBe(`${PUBLIC_URL}/auth/callback`);
     const state = to.searchParams.get("state");
     expect(login.headers.getSetCookie().find((c) => c.startsWith("pt_oauth_state="))).toContain(`pt_oauth_state=${state}`);
-    expect((await call(valid, "/api/folders")).status).toBe(401);
+    expect((await call(valid, "/api/files/1/thumb")).status).toBe(401);
   });
 
   for (const [why, env, publicUrl] of [
@@ -68,7 +68,7 @@ describe("config", () => {
       const login = await call(env, "/auth/login", undefined, publicUrl);
       expect([login.status, login.headers.get("location")]).toEqual([302, "/"]);
       expect((await call(env, "/auth/callback?code=c&state=s", undefined, publicUrl)).headers.get("location")).toBe("/");
-      expect((await call(env, "/api/folders", undefined, publicUrl)).status).toBe(503);
+      expect((await call(env, "/api/files/1/thumb", undefined, publicUrl)).status).toBe(503);
       expect((await call(env, "/agent", { headers: { upgrade: "websocket" } }, publicUrl)).status).toBe(503);
     });
   }
@@ -98,7 +98,6 @@ describe("OAuth callback", () => {
     const agent = (uid: string): UserAgent => ({
       setAuth: (token, username, avatarUrl) => Effect.sync(() => void calls.push([uid, token, username, avatarUrl])),
       signOut: () => Effect.void,
-      rootFolders: () => Effect.succeed([]),
       thumbnail: () => Effect.succeed(null),
       stream: () => Effect.succeed(null),
       fetch: () => Effect.die("unused"),

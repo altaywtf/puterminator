@@ -3,7 +3,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
 import { describe, expect, it } from "vitest";
-import { listAll, PutioRateLimited, PutioUnauthorized, putioLayer, rootFolders } from "./putio";
+import { listAll, PutioRateLimited, PutioUnauthorized, putioLayer } from "./putio";
 import { file, makeFakePutio } from "./testing/fake-putio";
 
 const T0 = Date.UTC(2026, 9, 29);
@@ -72,16 +72,5 @@ describe("put.io 429", () => {
   it("maps 401 to PutioUnauthorized", async () => {
     const exit = await scan(makeFakePutio({ files: library, pageSize: 2, unauthorized: true }), 0);
     expect(exit).toEqual(Exit.fail(new PutioUnauthorized({ status: 401 })));
-  });
-});
-
-describe("folder picker", () => {
-  it("lists regular top-level folders and leaves out put.io's shared-items folder", async () => {
-    const fake = makeFakePutio({
-      files: [file(-2, 0, "Items shared with you", "FOLDER"), file(1, 0, "Movies", "FOLDER"), file(2, 0, "Alien.mkv", "VIDEO")],
-      pageSize: 10,
-    });
-    const folders = await Effect.runPromise(rootFolders.pipe(Effect.provide(putioLayer("tok", fake.fetch))));
-    expect(folders).toEqual([{ id: 1, name: "Movies" }]);
   });
 });

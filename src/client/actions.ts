@@ -215,7 +215,9 @@ const runChange = (h: H, c: Change, state: State, error: string | null) => {
       ? [runLine(h, state, "del", name, size(c.bytes))]
       : c.op === "rename"
         ? [runLine(h, state, "del", name, ""), runLine(h, state, "add", c.to ?? "", "")]
-        : [runLine(h, state, "del", `${c.path}/`, ""), runLine(h, state, "add", `${c.to ?? ""}/`, "")];
+        : c.op === "restore"
+          ? [runLine(h, state, "add", name, size(c.bytes))]
+          : [runLine(h, state, "del", `${c.path}/`, ""), runLine(h, state, "add", `${c.to ?? ""}/`, "")];
   return h.div(
     [h.Class("grid"), h.AriaLabel(`${c.op} ${name}: ${state}`)],
     [...lines, ...(error ? [h.span([h.Class("truncate ps-[3.75rem] pe-3 text-danger/80")], [`# ${error}`])] : [])],
@@ -232,12 +234,14 @@ const statLine = (changes: readonly Change[]) => {
     ...(n("trash") > 0 ? [`${fmt(n("trash"))} deleted`] : []),
     ...(n("rename") > 0 ? [`${fmt(n("rename"))} renamed`] : []),
     ...(n("move") > 0 ? [`${fmt(n("move"))} moved`] : []),
+    ...(n("restore") > 0 ? [`${fmt(n("restore"))} restored`] : []),
     ...(freed > 0 ? [`${size(freed)} freed`] : []),
   ].join(", ");
 };
 
-/** Running: the plan's diff with a status per line. Finished: a commit line, failures, and the diff on tap. */
-export const runCard = (h: H, ctx: Ctx, run: Run, live = false): Html => {
+/** Running: the plan's diff with a status per line. Finished: a commit line, failures, and the diff on tap.
+    `undoable`: the receipt offers undo. `undo`: this run reverses an earlier one. */
+export const runCard = (h: H, ctx: Ctx, run: Run, live = false, opts: { undoable?: boolean; undo?: boolean } = {}): Html => {
   const step = new Map(run.steps.map((s) => [s.change, s]));
   const stateOf = (c: Change): State => step.get(c.id)?.state ?? "queued";
   const settled = run.steps.filter((s) => s.state === "done" || s.state === "failed").length;
@@ -256,21 +260,21 @@ export const runCard = (h: H, ctx: Ctx, run: Run, live = false): Html => {
     });
 
   if (!finished)
-    return panel(h, "applying changes", live, [
-      cardHead(h, run.title, `${fmt(settled)}/${fmt(run.steps.length)}`),
+    return panel(h, opts.undo ? "undoing changes" : "applying changes", live, [
+      cardHead(h, opts.undo ? `undo ${run.title}` : run.title, `${fmt(settled)}/${fmt(run.steps.length)}`),
       shareBar(h, settled / Math.max(1, run.steps.length)),
       diffBlock(h, hunkLines(() => true)),
       h.div([h.Class("flex items-center justify-between gap-4")], [
-        h.span([h.Class("font-mono text-[12.5px] text-fg-3")], [`applying… ${fmt(done.length)} done${failed.length > 0 ? `, ${fmt(failed.length)} failed` : ""}`]),
+        h.span([h.Class("font-mono text-[12.5px] text-fg-3")], [`${opts.undo ? "undoing" : "applying"}… ${fmt(done.length)} done${failed.length > 0 ? `, ${fmt(failed.length)} failed` : ""}`]),
         h.button([h.Type("button"), h.Class("btn btn-sm"), h.OnClick(Message.ClickedStopRun({ plan: run.id }))], ["stop"]),
       ]),
     ]);
 
-  const openKey = `run.${run.id}.diff`;
+  const openKey = `run.${run.id}.${opts.undo ? "undo" : "diff"}`;
   const open = on(ctx, openKey);
   return panel(h, "receipt", live, [
     h.p([h.Class("m-0 font-mono text-[12.5px] leading-[1.7] text-fg-2")], [
-      h.span([h.Class("text-accent")], [`[${run.title}] `]),
+      h.span([h.Class("text-accent")], [opts.undo ? `[undo ${run.title}] ` : `[${run.title}] `]),
       statLine(done),
     ]),
     ...(failed.length > 0 ? [diffBlock(h, hunkLines((c) => stateOf(c) === "failed"))] : []),
@@ -283,6 +287,9 @@ export const runCard = (h: H, ctx: Ctx, run: Run, live = false): Html => {
       h.span([h.Class("flex items-center gap-2")], [
         ...(failed.length > 0
           ? [h.button([h.Type("button"), h.Class("btn btn-sm"), h.OnClick(Message.ClickedRetryRun({ plan: run.id }))], [`retry ${fmt(failed.length)}`])]
+          : []),
+        ...(opts.undoable && done.length > 0
+          ? [h.button([h.Type("button"), h.Class("btn btn-sm"), h.OnClick(Message.ClickedUndoRun({ plan: run.id }))], ["undo"])]
           : []),
       ]),
     ]),

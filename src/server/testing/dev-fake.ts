@@ -32,6 +32,7 @@ type File = {
 const MB = 2 ** 20;
 const GB = 2 ** 30;
 const files: Array<File> = [];
+const trash: Array<File> = [];
 let nextId = 1000;
 const add = (parent: number, name: string, type: File["file_type"], size = 0, played = false): number => {
   const id = nextId++;
@@ -166,9 +167,18 @@ const putio = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
   }
   if (route === "GET /v2/account/settings") return json(res, 200, { settings: { trash_enabled: true }, status: "OK" });
   // Writes change the fake library, so the rescan after an apply sees them. A name with "locked" fails.
-  if (method === "POST" && ["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/files/create-folder"].includes(url.pathname)) {
+  if (method === "POST" && ["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/files/create-folder", "/v2/trash/restore"].includes(url.pathname)) {
     const form = new URLSearchParams(await readBody(req));
     const id = Number(form.get("file_ids") ?? form.get("file_id"));
+    if (url.pathname === "/v2/trash/restore") {
+      const t = trash.find((x) => x.id === id);
+      await sleep(350);
+      log(`${url.pathname} file_ids=${id}`);
+      if (!t) return json(res, 404, { status: "ERROR", error_type: "NOT_FOUND", status_code: 404 });
+      trash.splice(trash.indexOf(t), 1);
+      files.push(t);
+      return json(res, 200, { status: "OK" });
+    }
     const f = files.find((x) => x.id === id);
     await sleep(350);
     log(`${url.pathname} ${[...form].map(([k, v]) => `${k}=${v}`).join(" ")}`);
@@ -178,7 +188,7 @@ const putio = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
     }
     if (!f) return json(res, 404, { status: "ERROR", error_type: "NOT_FOUND", status_code: 404 });
     if (f.name.toLowerCase().includes("locked")) return json(res, 400, { status: "ERROR", error_type: "LOCKED", status_code: 400 });
-    if (url.pathname === "/v2/files/delete") files.splice(files.indexOf(f), 1);
+    if (url.pathname === "/v2/files/delete") trash.push(...files.splice(files.indexOf(f), 1));
     if (url.pathname === "/v2/files/rename") f.name = form.get("name") ?? f.name;
     if (url.pathname === "/v2/files/move") f.parent_id = Number(form.get("parent_id"));
     return json(res, 200, { status: "OK", errors: [] });

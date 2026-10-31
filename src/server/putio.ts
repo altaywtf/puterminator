@@ -179,11 +179,6 @@ export const downloadToken = read(
 export const hlsUrl = (id: number, token: string, base: string = PUTIO_API) =>
   buildFileHlsStreamUrl(base, id, { downloadToken: token });
 
-/** Top-level folders for the composer's target picker; put.io's shared-items folders have negative ids and stay out. */
-export const rootFolders: Effect.Effect<Array<Folder>, PutioError, PutioSdkContext> = listPaged(0, 1000).pipe(
-  Effect.map((files) => files.filter((f) => f.file_type === "FOLDER" && f.id >= 0).map((f) => ({ id: f.id, name: f.name }))),
-);
-
 // ---------- writes ----------
 
 /**
@@ -212,6 +207,10 @@ export const trashEnabled = read(
 /** Moves one file to put.io's trash. Never passes skip_trash. */
 export const trashFile = (id: number) =>
   write("/files/delete", requestJson(Ok, { method: "POST", path: "/v2/files/delete", body: { type: "form", value: { file_ids: String(id) } } }));
+
+/** Puts one trashed file back where it was. */
+export const restoreFile = (id: number) =>
+  write("/trash/restore", requestJson(Ok, { method: "POST", path: "/v2/trash/restore", body: { type: "form", value: { file_ids: String(id) } } }));
 
 export const renameFile = (id: number, name: string) =>
   write("/files/rename", requestJson(Ok, { method: "POST", path: "/v2/files/rename", body: { type: "form", value: { file_id: id, name } } }));

@@ -21,7 +21,6 @@ import {
 export interface UserAgent {
   readonly setAuth: (token: string, username: string, avatarUrl: string | null) => Effect.Effect<void>;
   readonly signOut: () => Effect.Effect<void>;
-  readonly rootFolders: () => Effect.Effect<ReadonlyArray<Folder>>;
   readonly thumbnail: (id: number) => Effect.Effect<string | null>;
   readonly stream: (id: number) => Effect.Effect<string | null>;
   readonly fetch: (request: HttpServerRequest) => Effect.Effect<HttpServerResponse.HttpServerResponse, HttpServerError>;
@@ -101,8 +100,6 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
 
     if (Option.isNone(session)) return json({ error: "unauthorized" }, 401);
     const agent = deps.agentFor(session.value.uid);
-
-    if (path === "/api/folders") return json(yield* agent.rootFolders());
 
     const media = path.match(/^\/api\/files\/(\d{1,15})\/(thumb|stream)$/);
     if (media && request.method === "GET") {

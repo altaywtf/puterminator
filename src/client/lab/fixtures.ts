@@ -172,6 +172,27 @@ export const runs: Array<[string, Run, string[]]> = [
   ["done, one failed, opened", run("r4", steps([...Array(N - 1).fill("done"), "failed"], { [N - 1]: "the target folder already exists" })), ["run.r4.diff"]],
 ];
 
+const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+const back: Run["changes"] = [...cleanup].reverse().map((c) =>
+  c.op === "trash"
+    ? { ...c, op: "restore" as const }
+    : c.op === "rename"
+      ? { ...c, path: `${c.path.slice(0, c.path.lastIndexOf("/"))}/${c.to ?? ""}`, to: nameOf(c.path), bytes: 0 }
+      : { ...c, path: c.to ?? c.path, to: c.path, bytes: 0 },
+);
+const undoRun = (id: string, states: Array<Run["steps"][number]["state"]>, fail: Record<number, string> = {}): Run => ({
+  id,
+  title: "clean up Downloads",
+  changes: back,
+  steps: back.map((c, i) => ({ change: c.id, state: states[i] ?? "queued", error: fail[i] ?? null })),
+});
+
+export const undos: Array<[string, Run, string[]]> = [
+  ["undoing", undoRun("u1", [...Array(5).fill("done"), "running"]), []],
+  ["undone", undoRun("u2", Array(N).fill("done")), []],
+  ["undone, one failed", undoRun("u3", [...Array(N - 1).fill("done"), "failed"], { [N - 1]: "put.io: not in the trash any more" }), []],
+];
+
 export const plans: Array<[string, Plan, string[]]> = [
   ["proposed", { id: "d1", title: "clean up Downloads", changes: cleanup }, []],
   ["two lines and the moves left out", { id: "d2", title: "clean up Downloads", changes: cleanup }, ["plan.d2.off.t0c", "plan.d2.off.r1", "plan.d2.hunkoff.moves"]],

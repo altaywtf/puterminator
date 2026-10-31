@@ -290,7 +290,8 @@ type Card = (h: H, ctx: Ctx, key: string, output: string, live: boolean, settled
 const planOrRun = (h: H, ctx: Ctx, plan: Plan, live: boolean): Html => {
   const record = ctx.plans[plan.id];
   if (record?.status === "discarded") return discardedLine(h, plan);
-  if (record?.run) return runCard(h, ctx, record.run, live);
+  if (record?.undo) return runCard(h, ctx, record.undo, live, { undo: true });
+  if (record?.run) return runCard(h, ctx, record.run, live, { undoable: record.status === "done" });
   return planCard(h, ctx, plan, live);
 };
 

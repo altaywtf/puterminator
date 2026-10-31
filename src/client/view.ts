@@ -152,6 +152,7 @@ const accountMenu = (h: H, model: Model, username: string, url: string | null) =
     ],
     [
       h.p([h.Class("m-0 truncate px-3 pt-2 pb-1.5 text-[13px] text-fg-3")], [username]),
+      ...(model.history.length > 0 && !isBusy(model) ? [menuItem(h, "new thread", Message.ClickedNewThread())] : []),
       ...(model.library ? [menuItem(h, "browse library", Message.ToggledTree())] : []),
       menuItem(h, "sign out", Message.ClickedSignOut()),
     ],
