@@ -17,62 +17,56 @@ const toggle = (key: string) => Message.ToggledStep({ key });
 const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf("/")) || "/";
 
-/** A square tick box; `mixed` when only part of a group is selected. */
-const box = (h: H, state: boolean | "mixed") =>
-  h.span(
-    [
-      h.Class(
-        `grid size-4 flex-none place-items-center rounded-[4px] border transition-colors duration-160 ${state === false ? "border-line-hover" : "border-accent bg-accent"}`,
-      ),
-      h.AriaHidden(true),
-    ],
-    state === false ? [] : [h.span([h.Class(`block bg-bg ${state === "mixed" ? "h-0.5 w-2" : "size-1.5"}`)], [])],
-  );
-
 // ---------- question ----------
 
 const answerKey = (q: Question, id: string) => `question.${q.id}.${id}`;
 const sentKey = (q: Question) => `question.${q.id}.sent`;
 
-/** One answer sends at once; several get ticks and a send. Answered, it folds into one line. */
+/** A terminal prompt, not a card: `?` and the question, then the choices under a `❯` pointer. One answer
+    sends on click; several toggle `◉`/`◯` and send with enter. Answered, it folds to `✓ question › answer`. */
 export const questionCard = (h: H, ctx: Ctx, q: Question, live = false): Html => {
   const chosen = q.options.filter((o) => on(ctx, answerKey(q, o.id)));
   const answered = q.multi ? on(ctx, sentKey(q)) && chosen.length > 0 : chosen.length > 0;
+  const mono = "font-mono text-[13px] leading-[1.7]";
   if (answered)
-    return h.div([h.Class("flex min-w-0 items-baseline gap-2 text-[14px]")], [
+    return h.p([h.Class(`m-0 flex min-w-0 gap-2 ${mono}`)], [
+      h.span([h.Class("flex-none text-ok"), h.AriaHidden(true)], ["✓"]),
       h.span([h.Class("flex-none text-fg-3")], [q.prompt]),
-      h.span([h.Class("truncate text-fg")], [chosen.map((o) => o.label).join(", ")]),
+      h.span([h.Class("flex-none text-fg-4"), h.AriaHidden(true)], ["›"]),
+      h.span([h.Class("truncate text-accent")], [chosen.map((o) => o.label).join(", ")]),
     ]);
-  return panel(h, "question", live, [
-    h.p([h.Class("m-0 text-[15px] text-fg-strong")], [q.prompt]),
+  return h.div([h.Class(`${live ? "enter" : ""} grid gap-1 ${mono}`)], [
+    h.p([h.Class("m-0 flex gap-2")], [h.span([h.Class("text-accent"), h.AriaHidden(true)], ["?"]), h.span([h.Class("text-fg-strong")], [q.prompt])]),
     h.div(
-      [h.Class("grid gap-2"), h.Role(q.multi ? "group" : "radiogroup"), h.AriaLabel(q.prompt)],
-      q.options.map((o) =>
-        h.button(
+      [h.Class("grid"), h.Role(q.multi ? "group" : "radiogroup"), h.AriaLabel(q.prompt)],
+      q.options.map((o) => {
+        const picked = on(ctx, answerKey(q, o.id));
+        return h.button(
           [
             h.Type("button"),
             h.Role(q.multi ? "checkbox" : "radio"),
-            h.AriaChecked(on(ctx, answerKey(q, o.id))),
-            h.Class(
-              "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 rounded-xl border border-line px-4 py-3 text-start transition-colors duration-160 hover:border-line-hover hover:bg-hover aria-checked:border-accent/60",
-            ),
+            h.AriaChecked(picked),
+            h.Class("group -mx-2 grid grid-cols-[1rem_minmax(0,auto)_minmax(0,1fr)] items-baseline gap-x-2 rounded-md px-2 text-start transition-colors duration-160 hover:bg-hover focus-visible:bg-hover"),
             h.OnClick(toggle(answerKey(q, o.id))),
           ],
           [
-            h.span([h.Class("grid min-w-0")], [
-              h.span([h.Class("truncate text-[14px] text-fg")], [o.label]),
-              ...(o.detail ? [h.span([h.Class("truncate text-[13px] text-fg-3")], [o.detail])] : []),
-            ]),
-            q.multi ? box(h, on(ctx, answerKey(q, o.id))) : h.span([h.Class("text-fg-4"), h.AriaHidden(true)], ["→"]),
+            h.span([h.Class("text-accent opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"), h.AriaHidden(true)], ["❯"]),
+            h.span([h.Class(`truncate ${picked ? "text-accent" : "text-fg group-hover:text-fg-strong"}`)], [`${q.multi ? (picked ? "◉ " : "◯ ") : ""}${o.label}`]),
+            h.span([h.Class("truncate text-fg-4")], [o.detail ? `  ${o.detail}` : ""]),
           ],
-        ),
-      ),
+        );
+      }),
     ),
-    h.div([h.Class("flex items-center justify-between gap-4")], [
-      h.button([h.Type("button"), h.Class("hit text-[13px] text-fg-3 transition-colors duration-160 hover:text-fg")], ["something else"]),
+    h.div([h.Class("flex items-center gap-4 ps-6 pt-1 text-fg-4")], [
       ...(q.multi
-        ? [h.button([h.Type("button"), h.Disabled(chosen.length === 0), h.Class("btn btn-sm btn-primary"), h.OnClick(toggle(sentKey(q)))], [chosen.length === 0 ? "pick one or more" : `send ${fmt(chosen.length)}`])]
+        ? [
+            h.button(
+              [h.Type("button"), h.Disabled(chosen.length === 0), h.Class("hit transition-colors duration-160 enabled:text-accent enabled:hover:text-accent-bright"), h.OnClick(toggle(sentKey(q)))],
+              [chosen.length === 0 ? "pick one or more" : `↵ send ${fmt(chosen.length)}`],
+            ),
+          ]
         : []),
+      h.button([h.Type("button"), h.Class("hit transition-colors duration-160 hover:text-fg")], ["or type something else"]),
     ]),
   ]);
 };
