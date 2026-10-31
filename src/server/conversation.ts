@@ -8,7 +8,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, type Library } from "../shared/contract";
-import { audit, isMessyName, junkReason } from "./audit";
+import { audit, isMessyName, junkFinder } from "./audit";
 import type { Run } from "../shared/actions";
 import { AskInput, applyChange, folderIds, ProposeInput, validatePlan, validateQuestion } from "./changes";
 import { downloadToken, fileMedia, hlsUrl, listAll, type PutioError, putioLayer, rootFolders, trashEnabled } from "./putio";
@@ -150,6 +150,7 @@ export const makeAgent = (deps: AgentDeps) =>
       const files = store.snapshot();
       const top = files.find((f) => f.depth === 1);
       if (!top || top.parent_id == null) return null;
+      const junk = junkFinder(files);
       return {
         rootId: top.parent_id,
         rootName: state.lastAudit?.rootName ?? state.folder.name,
@@ -161,7 +162,7 @@ export const makeAgent = (deps: AgentDeps) =>
           (f.file_type === "FOLDER" ? FileFlag.folder : 0) |
             (f.file_type === "VIDEO" ? FileFlag.video : 0) |
             (f.first_accessed_at ? FileFlag.played : 0) |
-            (junkReason(f) ? FileFlag.junk : 0) |
+            (junk(f) ? FileFlag.junk : 0) |
             (f.file_type === "VIDEO" && isMessyName(f.name) ? FileFlag.messy : 0),
         ]),
       };
@@ -355,6 +356,7 @@ export const makeAgent = (deps: AgentDeps) =>
           Effect.sync(() => {
             let rows = store.snapshot();
             if (!rows.length) return noSnapshot;
+            const junkReason = junkFinder(rows);
             const q = query.trim().toLowerCase();
             if (q) rows = rows.filter((f) => f.path.toLowerCase().includes(q));
             if (category === "junk") rows = rows.filter((f) => junkReason(f));

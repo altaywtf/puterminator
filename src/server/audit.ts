@@ -3,7 +3,8 @@ import type { WalkedFile } from "./tree";
 const RELEASE_TAG =
   /\b(2160p|1080p|720p|480p|x26[45]|h\.?26[45]|hevc|web-?dl|webrip|bluray|brrip|bdrip|hdtv|dvdrip|hdrip|aac|ac3|ddp?5\.1|10bit|yify|yts|rarbg|eztv|ettv|proper|repack)\b/i;
 const BRACKET_GROUP = /\[[^\]]{2,}\]|-[A-Za-z0-9]{2,12}$/;
-const JUNK_NAME = /(^|[\s._-])(sample|rarbg|www\.|torrent downloaded from)|RARBG_DO_NOT_MIRROR|^\.DS_Store$|^Thumbs\.db$/i;
+const JUNK_NAME = /(^|[\s._-])(sample|rarbg|www\.|torrent downloaded from)|RARBG_DO_NOT_MIRROR|^Thumbs\.db$/i;
+const OS_DEBRIS = /^\._|^\.DS_Store$|^desktop\.ini$/i;
 const JUNK_EXT = new Set(["nfo", "txt", "url", "exe", "lnk", "sfv", "md5", "torrent", "website", "db"]);
 const IMAGE_EXT = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
 const MB = 2 ** 20;
@@ -34,14 +35,19 @@ export function isMessyName(name: string) {
   return RELEASE_TAG.test(stem) || dotted || BRACKET_GROUP.test(stem);
 }
 
-export function junkReason(f: WalkedFile): string | null {
-  if (isFolder(f)) return null;
-  if (JUNK_NAME.test(f.name)) return /sample/i.test(f.name) ? "sample clip" : "tracker filler";
-  const e = ext(f);
-  if (JUNK_EXT.has(e)) return `.${e} file`;
-  if (IMAGE_EXT.has(e) && f.size < 2 * MB) return "cover or logo image";
-  if (isVideo(f) && f.size < 50 * MB && /sample|trailer/i.test(f.path)) return "sample clip";
-  return null;
+/** Junk by name, plus small images that sit beside a video (posters, tracker logos). Images elsewhere are content. */
+export function junkFinder(files: ReadonlyArray<WalkedFile>) {
+  const withVideo = new Set(files.flatMap((f) => (isVideo(f) && f.parent_id != null ? [f.parent_id] : [])));
+  return (f: WalkedFile): string | null => {
+    if (isFolder(f)) return null;
+    if (OS_DEBRIS.test(f.name) || f.path.includes("/__MACOSX/")) return "macOS debris";
+    if (JUNK_NAME.test(f.name)) return /sample/i.test(f.name) ? "sample clip" : "tracker filler";
+    const e = ext(f);
+    if (JUNK_EXT.has(e)) return `.${e} file`;
+    if (IMAGE_EXT.has(e) && f.size < 2 * MB && f.parent_id != null && withVideo.has(f.parent_id)) return "cover or logo image";
+    if (isVideo(f) && f.size < 50 * MB && /sample|trailer/i.test(f.path)) return "sample clip";
+    return null;
+  };
 }
 
 /** Normalised identity for duplicate detection: title + episode or year, no release noise. */
@@ -78,6 +84,7 @@ export function audit(files: WalkedFile[], rootName: string, truncated: boolean,
   const rootFiles = files.filter((f) => f.depth === 1 && !isFolder(f));
   const deepest = files.reduce((a, f) => Math.max(a, f.depth), 0);
 
+  const junkReason = junkFinder(files);
   const junk = files
     .map((f) => ({ f, why: junkReason(f) }))
     .filter((x): x is { f: WalkedFile; why: string } => x.why !== null);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { audit, isMessyName, junkReason, mediaKey } from "./audit";
+import { audit, isMessyName, junkFinder, mediaKey } from "./audit";
 import { buildTree, type WalkedFile } from "./tree";
 
 let id = 1;
@@ -32,11 +32,28 @@ describe("naming", () => {
 
 describe("junk", () => {
   it("catches tracker filler, info files and samples", () => {
+    const junkReason = junkFinder([]);
     expect(junkReason(file("/Movies/X/RARBG_DO_NOT_MIRROR.exe"))).toBe("tracker filler");
     expect(junkReason(file("/Movies/X/movie.nfo"))).toBe(".nfo file");
     expect(junkReason(file("/Movies/X/Sample/x-sample.mkv", { size: 20 * 2 ** 20 }))).toBe("sample clip");
     expect(junkReason(file("/Movies/X/WWW.YTS.MX.jpg", { size: 50_000 }))).not.toBeNull();
     expect(junkReason(file("/Movies/X/Dune (2024).mkv"))).toBeNull();
+  });
+
+  it("calls a small image junk only beside a video", () => {
+    const movie = file("/Movies/Dune/Dune (2024).mkv", { parent_id: 10 });
+    const poster = file("/Movies/Dune/poster.jpg", { parent_id: 10, size: 300_000 });
+    const screenshot = file("/Courses/Habits/Screenshot 10.png", { parent_id: 20, size: 300_000 });
+    const junkReason = junkFinder([movie, poster, screenshot]);
+    expect(junkReason(poster)).toBe("cover or logo image");
+    expect(junkReason(screenshot)).toBeNull();
+  });
+
+  it("catches macOS debris anywhere", () => {
+    const junkReason = junkFinder([]);
+    expect(junkReason(file("/Docs/x/._notes.pdf", { size: 4096 }))).toBe("macOS debris");
+    expect(junkReason(file("/Docs/x/__MACOSX/notes.pdf", { size: 4096 }))).toBe("macOS debris");
+    expect(junkReason(file("/Docs/.DS_Store", { size: 6148 }))).toBe("macOS debris");
   });
 });
 
