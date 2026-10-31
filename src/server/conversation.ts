@@ -51,7 +51,8 @@ you: 351 junk files, 16 MB. mostly cover images and __MACOSX debris.
 user: is my library a mess?
 you: no. 92/100. the only real dent is junk, and it's 16 MB.`;
 
-const gb = (b: number) => (b >= 2 ** 30 ? `${(b / 2 ** 30).toFixed(1)} GB` : `${Math.max(1, Math.round(b / 2 ** 20))} MB`);
+const gb = (b: number) =>
+  b >= 2 ** 30 ? `${(b / 2 ** 30).toFixed(1)} GB` : b >= 2 ** 20 ? `${Math.round(b / 2 ** 20)} MB` : `${Math.max(1, Math.round(b / 2 ** 10))} KB`;
 
 const decodeFrame = Schema.decodeUnknownOption(ClientFrame);
 const toMessage = Schema.decodeUnknownSync(MessageParam);

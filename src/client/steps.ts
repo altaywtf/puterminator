@@ -47,7 +47,7 @@ export function describeStep(name: string, inputValue: unknown, output: string |
       onNone: () => ({ title: "read the library", detail: null, lines: [] }),
       onSome: (a) => ({
         title: "read the library",
-        detail: `${fmt(a.totals.items)} items · ${size(a.totals.bytes)}`,
+        detail: `${fmt(a.totals.items)} ${a.totals.items === 1 ? "item" : "items"} · ${size(a.totals.bytes)}`,
         lines: [
           `release names   ${fmt(a.naming.messy)} videos`,
           `wrapper folders   ${fmt(a.structure.wrapperFolders)}`,
@@ -59,7 +59,7 @@ export function describeStep(name: string, inputValue: unknown, output: string |
   }
   if (name === "list_folder") {
     const path = typeof input.path === "string" && input.path ? input.path : "/";
-    return { title: `open ${path}`, detail: out ? `${fmt(num(out.count))} items` : null, lines: [] };
+    return { title: `open ${path}`, detail: out ? `${fmt(num(out.count))} ${num(out.count) === 1 ? "item" : "items"}` : null, lines: [] };
   }
   if (name === "search_files") {
     const category = typeof input.category === "string" && input.category !== "any" ? input.category.replace("_", " ") : null;
