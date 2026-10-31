@@ -1,6 +1,6 @@
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Change, Plan, Question, Run } from "../shared/actions";
-import { cardHead, panel, shareBar } from "./cards";
+import { cardHead, panel, shareBar, term } from "./cards";
 import { Message } from "./main";
 import { fmt, size } from "./steps";
 
@@ -137,8 +137,8 @@ export const planCard = (h: H, ctx: Ctx, plan: Plan, live = false): Html => {
   const stat = statLine(picked);
   return panel(h, "plan", live, [
     cardHead(h, plan.title, `${fmt(hs.length)} ${hs.length === 1 ? "hunk" : "hunks"}`),
-    h.div(
-      [h.Class("-mx-5 grid overflow-x-auto border-y border-line bg-sunk py-2 font-mono text-[12.5px] leading-[1.7] max-[480px]:-mx-4")],
+    term(
+      h,
       hs.map((hk) => {
         const off = on(ctx, hunkOffKey(plan, hk));
         return h.div([h.Class("grid")], [
@@ -210,8 +210,7 @@ const runChange = (h: H, c: Change, state: State, error: string | null) => {
   );
 };
 
-const diffBlock = (h: H, children: Html[]) =>
-  h.div([h.Class("-mx-5 grid overflow-x-auto border-y border-line bg-sunk py-2 font-mono text-[12.5px] leading-[1.7] max-[480px]:-mx-4")], children);
+const diffBlock = (h: H, children: Html[]) => term(h, children);
 
 const statLine = (changes: readonly Change[]) => {
   const n = (op: Change["op"]) => changes.filter((c) => c.op === op).length;

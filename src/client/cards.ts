@@ -4,7 +4,7 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Audit } from "../shared/audit";
 import { FileFlag } from "../shared/contract";
 import { ListFolderOutput, SearchFilesOutput } from "../shared/tools";
-import { art, type Mood, moodOf, pixels } from "./art";
+import { art, type Mood, moodOf } from "./art";
 import { has, type Index, indexOf, isFolder, isRegular, type Node, putioUrl, resolve } from "./library";
 import { Message, type Model } from "./main";
 import { auditOf, fmt, size } from "./steps";
@@ -27,80 +27,37 @@ const parentPath = (n: Node) => n.path.slice(0, n.path.length - n.name.length - 
 
 export const isPlayable = (n: Node) => has(n, FileFlag.video) && isRegular(n);
 
-export type Kind = "folder" | "video" | "audio" | "image" | "archive" | "subtitle" | "text" | "file";
-
-// Pixel file icons on an 8×8 grid, drawn at 2× in the text colour.
-const ICONS: Record<Kind, readonly string[]> = {
-  folder: ["###.....", "########", "#......#", "#......#", "#......#", "#......#", "#......#", "########"],
-  video: ["########", "#......#", "#.##...#", "#.####.#", "#.####.#", "#.##...#", "#......#", "########"],
-  audio: ["..######", "..#....#", "..#....#", "..#....#", ".##...##", "###..###", "###..###", ".#....#."],
-  image: ["########", "#......#", "#....#.#", "#......#", "#..#...#", "#.###..#", "########"],
-  archive: ["####.###", "#..#...#", "#.#....#", "#..#...#", "#.#....#", "#..#...#", "#.##...#", "########"],
-  subtitle: ["########", "#......#", "#......#", "#.##.###", "#......#", "#.####.#", "#......#", "########"],
-  text: ["######..", "#....##.", "#.##..##", "#......#", "#.####.#", "#......#", "#.####.#", "########"],
-  file: ["######..", "#....##.", "#.....##", "#......#", "#......#", "#......#", "#......#", "########"],
-};
-
-const EXT: Array<[Kind, RegExp]> = [
-  ["video", /^(mkv|mp4|m4v|avi|mov|webm|wmv|ts|flv|mpe?g)$/],
-  ["audio", /^(mp3|flac|m4a|aac|ogg|opus|wav)$/],
-  ["image", /^(jpe?g|png|gif|webp|bmp|heic)$/],
-  ["archive", /^(zip|rar|7z|tar|gz|bz2|xz|r\d\d)$/],
-  ["subtitle", /^(srt|ass|ssa|vtt|sub|idx)$/],
-  ["text", /^(txt|nfo|md|pdf|epub|docx?|log|sfv)$/],
-];
-
-/** A kind from the name alone, for paths that aren't in the snapshot (a plan's targets). */
-export const kindOfName = (name: string, folder = false): Kind => {
-  if (folder) return "folder";
-  const ext = name.match(/\.([a-z0-9]{1,5})$/i)?.[1]?.toLowerCase() ?? "";
-  return EXT.find(([, re]) => re.test(ext))?.[0] ?? "file";
-};
-
-const kindOf = (n: Node): Kind => (has(n, FileFlag.video) && !isFolder(n) ? "video" : kindOfName(n.name, isFolder(n)));
-
-export const icon = (h: H, kind: Kind) => {
-  const rows = ICONS[kind];
-  return pixels(h, rows, { "#": "currentColor" }, rows.length * 2, "");
-};
-
-/** The file's icon, centred on the title's first line; a video's icon is also its play button. */
-const fileIcon = (h: H, n: Node) => {
-  const slot = "grid h-[22px] w-4 flex-none place-items-center text-fg-3";
-  if (!isPlayable(n)) return h.span([h.Class(slot), h.AriaHidden(true)], [icon(h, kindOf(n))]);
-  return h.button(
-    [
-      h.Type("button"),
-      h.Class(`hit ${slot} transition-colors duration-160 hover:text-accent focus-visible:text-accent`),
-      h.AriaLabel(`play ${n.name}`),
-      h.Title("play"),
-      h.OnClick(Message.OpenedPlayer({ id: n.id, name: n.name })),
-    ],
-    [icon(h, "video")],
+/** A sunk mono block, like terminal output; diffs, listings and the score report all sit in one.
+    `last` ends the card with it, so a card with nothing under its output has no empty strip. */
+export const term = (h: H, children: Html[], last = false) =>
+  h.div(
+    [h.Class(`-mx-5 grid overflow-x-auto border-t border-line bg-sunk py-2 font-mono text-[12.5px] leading-[1.7] max-[480px]:-mx-4 ${last ? "-mb-4" : "border-b"}`)],
+    children,
   );
+
+const nameLink = (h: H, n: Node, cls = "") => {
+  const text = isFolder(n) ? `${n.name}/` : n.name;
+  return isRegular(n)
+    ? h.a(
+        [h.Href(putioUrl(n.id)), h.Target("_blank"), h.Rel("noopener noreferrer"), h.Title(`${n.path} · open on put.io`), h.Class(`truncate no-underline transition-colors duration-160 hover:text-accent ${cls}`)],
+        [text],
+      )
+    : h.span([h.Class(`truncate ${cls}`), h.Title(n.path)], [text]);
 };
 
-/** Icon, name and size; the reason sits under the name only when there is one. The row itself opens
-    the file on put.io, and the path lives in its tooltip. */
-const fileRow = (h: H, n: Node, note: string | null = null) => {
-  const body = [
-    h.span([h.Class("grid min-w-0")], [
-      h.span([h.Class("truncate text-[14px] text-fg transition-colors duration-160 group-hover:text-fg-strong")], [isFolder(n) ? `${n.name}/` : n.name]),
-      ...(note ? [h.span([h.Class("truncate text-[13px] text-fg-3")], [note])] : []),
-    ]),
-    h.span([h.Class("text-[13px] leading-[22px] text-fg-3 tabular-nums")], [bytes(n)]),
-  ];
-  const cls = "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 no-underline";
-  return h.li(
-    [h.Class("group -mx-2 grid grid-cols-[16px_minmax(0,1fr)] items-start gap-x-3 rounded-lg px-2 py-2 transition-colors duration-160 hover:bg-hover")],
-    [
-      fileIcon(h, n),
-      isRegular(n)
-        ? h.a([h.Href(putioUrl(n.id)), h.Target("_blank"), h.Rel("noopener noreferrer"), h.Title(`${n.path} · open on put.io`), h.Class(cls)], body)
-        : h.span([h.Class(cls), h.Title(n.path)], body),
-    ],
-  );
-};
+/** `ls -lh`, one line: size, a ▶ for videos (plays in place), the name (opens on put.io), why it's listed. */
+const lsRow = (h: H, n: Node, note: string | null = null) =>
+  h.li([h.Class("grid grid-cols-[7ch_1.5ch_minmax(0,1fr)_auto] items-baseline gap-x-2 px-3 hover:bg-hover")], [
+    h.span([h.Class("text-end text-fg-3 tabular-nums")], [bytes(n)]),
+    isPlayable(n)
+      ? h.button(
+          [h.Type("button"), h.Class("hit text-fg-4 transition-colors duration-160 hover:text-accent focus-visible:text-accent"), h.AriaLabel(`play ${n.name}`), h.Title("play"), h.OnClick(Message.OpenedPlayer({ id: n.id, name: n.name }))],
+          ["▶"],
+        )
+      : h.span([], []),
+    nameLink(h, n, isFolder(n) ? "text-fg-2" : "text-fg"),
+    h.span([h.Class("max-w-[24ch] truncate text-fg-4 max-[520px]:hidden")], [note ?? ""]),
+  ]);
 
 export const showMore = (h: H, key: string, open: boolean, hidden: number) =>
   hidden <= 0
@@ -109,93 +66,94 @@ export const showMore = (h: H, key: string, open: boolean, hidden: number) =>
         h.button(
           [
             h.Type("button"),
-            h.Class("hit w-fit text-start text-[13px] text-fg-3 transition-colors duration-160 hover:text-fg"),
+            h.Class("hit w-fit px-3 text-start text-fg-3 transition-colors duration-160 hover:text-fg"),
             h.AriaExpanded(open),
             h.OnClick(Message.ToggledStep({ key })),
           ],
-          [open ? "show fewer" : "show all"],
+          [open ? "show fewer" : `… ${fmt(hidden)} more`],
         ),
       ];
 
-/** Files a tool returned, as rows with put.io links; the first few, then a toggle. */
-const fileList = (h: H, ctx: Ctx, ix: Index, key: string, nodes: Node[], total: number) => {
-  const moreKey = `files.${key}`;
-  const open = ctx.expanded.includes(moreKey);
-  const shown = open ? nodes : nodes.slice(0, ROWS);
-  return h.keyed("div")(moreKey, [h.Class("grid min-w-0 gap-1")], [
-    h.ul([h.Class("m-0 grid list-none p-0")], shown.map((n) => fileRow(h, n))),
-    ...showMore(h, moreKey, open, nodes.length - ROWS),
-  ]);
+/** Files a tool returned: the first few, then a toggle. */
+const lsList = (h: H, ctx: Ctx, key: string, rows: Array<[Node, string | null]>) => {
+  const open = ctx.expanded.includes(key);
+  return [
+    h.ul([h.Class("m-0 grid list-none p-0")], (open ? rows : rows.slice(0, ROWS)).map(([n, note]) => lsRow(h, n, note))),
+    ...showMore(h, key, open, rows.length - ROWS),
+  ];
 };
 
 type Tab = "junk" | "duplicates" | "unplayed";
 
-/** Junk, duplicates and never-played as up to three rows: what, how much, and the files on tap. */
 /** A 2px track: how much of the whole one thing is. */
 export const shareBar = (h: H, share: number, tone = "bg-accent/70") =>
   h.span([h.Class("block h-0.5 w-full overflow-hidden rounded-full bg-line"), h.AriaHidden(true)], [
     h.i([h.Class(`block h-full rounded-full ${tone}`), h.Style({ width: `${Math.min(100, Math.max(1.5, share * 100))}%` })], []),
   ]);
 
-const auditDetails = (h: H, ctx: Ctx, ix: Index | null, key: string, a: Audit) => {
-  const tabs: Array<[Tab, string, number, number]> = [
-    ["junk", `${fmt(a.junk.count)} junk ${a.junk.count === 1 ? "file" : "files"}`, a.junk.count, a.junk.bytes],
-    ["duplicates", `${fmt(a.duplicates.groups)} duplicate ${a.duplicates.groups === 1 ? "group" : "groups"}`, a.duplicates.groups, a.duplicates.wastedBytes],
-    ["unplayed", `${fmt(a.neverPlayed.count)} never played`, a.neverPlayed.count, a.neverPlayed.bytes],
+/** A bar in block characters: filled ▇ up to the share, faint ░ for the rest. */
+const blocks = (h: H, share: number, width: number, tone = "text-accent/80") => {
+  const full = Math.max(share > 0 ? 1 : 0, Math.round(Math.min(1, share) * width));
+  return h.span([h.Class("whitespace-pre"), h.AriaHidden(true)], [
+    h.span([h.Class(tone)], ["▇".repeat(full)]),
+    h.span([h.Class("text-fg-4/40")], ["░".repeat(width - full)]),
+  ]);
+};
+
+/** Junk, duplicates and never-played as report lines; each opens its files underneath. */
+const auditLines = (h: H, ctx: Ctx, ix: Index | null, key: string, a: Audit) => {
+  const lines: Array<[Tab, string, string, number]> = [
+    ["junk", "junk", `${fmt(a.junk.count)} ${a.junk.count === 1 ? "file" : "files"}`, a.junk.bytes],
+    ["duplicates", "duplicates", `${fmt(a.duplicates.groups)} ${a.duplicates.groups === 1 ? "group" : "groups"}`, a.duplicates.wastedBytes],
+    ["unplayed", "never played", `${fmt(a.neverPlayed.count)} ${a.neverPlayed.count === 1 ? "file" : "files"}`, a.neverPlayed.bytes],
   ];
   const tabKey = (t: Tab) => `audit.${key}.${t}`;
-  const body = (t: Tab): Html[] => {
-    if (!ix) return [h.p([h.Class("m-0 py-1 text-[13px] text-fg-3")], ["scan again to get links for these files"])];
+  const rows = (t: Tab): Array<[Node, string | null]> => {
+    if (!ix) return [];
     if (t === "duplicates")
-      return a.duplicates.examples.map((d) => {
+      return a.duplicates.examples.flatMap((d) => {
         const keep = resolve(ix, d.keep);
-        const drops = d.drop.map((p) => resolve(ix, p));
-        return h.li([h.Class("grid")], [
-          ...(keep ? [fileRow(h, keep, `keep · ${parentPath(keep)}`)] : []),
-          ...drops.flatMap((n) => (n ? [fileRow(h, n, `drop · ${parentPath(n)}`)] : [])),
-        ]);
+        return [
+          ...(keep ? [[keep, `keep · ${parentPath(keep)}`] as [Node, string]] : []),
+          ...d.drop.flatMap((p) => {
+            const n = resolve(ix, p);
+            return n ? [[n, `drop · ${parentPath(n)}`] as [Node, string]] : [];
+          }),
+        ];
       });
-    const list = t === "junk" ? a.junk.examples : a.neverPlayed.examples;
-    return list.flatMap((f) => {
+    return (t === "junk" ? a.junk.examples : a.neverPlayed.examples).flatMap((f) => {
       const n = resolve(ix, f.path);
-      return n ? [fileRow(h, n, f.why)] : [];
+      return n ? [[n, f.why] as [Node, string]] : [];
     });
   };
-  const rows = tabs.filter(([, , n]) => n > 0);
-  return rows.length === 0
+  const shown = lines.filter(([t]) => (t === "junk" ? a.junk.count : t === "duplicates" ? a.duplicates.groups : a.neverPlayed.count) > 0);
+  return shown.length === 0
     ? []
     : [
-        h.div(
-          [h.Class("grid border-t border-line pt-2")],
-          rows.flatMap(([t, phrase, , bytes]) => {
-            const on = ctx.expanded.includes(tabKey(t));
+        term(
+          h,
+          shown.flatMap(([t, label, count, bytes]) => {
+            const open = ctx.expanded.includes(tabKey(t));
             return [
               h.button(
                 [
                   h.Type("button"),
-                  h.Class("group -mx-2 grid grid-cols-[minmax(0,1fr)_auto_12px] items-center gap-x-3 rounded-lg px-2 py-2 text-start transition-colors duration-160 hover:bg-hover"),
-                  h.AriaExpanded(on),
+                  h.AriaExpanded(open),
+                  h.Class("grid grid-cols-[1.5ch_13ch_9ch_8ch_minmax(0,1fr)] items-baseline gap-x-2 px-3 text-start hover:bg-hover max-[520px]:grid-cols-[1.5ch_minmax(0,1fr)_auto_auto]"),
                   h.OnClick(Message.ToggledStep({ key: tabKey(t) })),
                 ],
                 [
-                  h.span([h.Class("grid min-w-0 gap-1.5")], [h.span([h.Class("truncate text-[14px] text-fg")], [phrase]), shareBar(h, bytes / Math.max(1, a.totals.bytes))]),
-                  h.span([h.Class("text-[13px] text-fg-3 tabular-nums")], [size(bytes)]),
-                  h.span([h.Class(`text-fg-4 transition-transform duration-160 ${on ? "rotate-90" : ""}`), h.AriaHidden(true)], ["›"]),
+                  h.span([h.Class("text-fg-4"), h.AriaHidden(true)], [open ? "▾" : "▸"]),
+                  h.span([h.Class("truncate text-fg")], [label]),
+                  h.span([h.Class("text-end text-fg-3 tabular-nums")], [count]),
+                  h.span([h.Class("text-end text-fg-3 tabular-nums")], [size(bytes)]),
+                  h.span([h.Class("overflow-hidden ps-2 max-[520px]:hidden")], [blocks(h, bytes / Math.max(1, a.totals.bytes), 20)]),
                 ],
               ),
-              ...(on
-                ? (() => {
-                    const items = body(t);
-                    const allKey = `${tabKey(t)}.all`;
-                    const all = ctx.expanded.includes(allKey);
-                    return [
-                      h.ul([h.Class("m-0 grid list-none p-0 ps-2"), h.AriaLabel(phrase)], all ? items : items.slice(0, ROWS)),
-                      ...showMore(h, allKey, all, items.length - ROWS).map((b) => h.div([h.Class("mb-1 ps-2")], [b])),
-                    ];
-                  })()
-                : []),
+              ...(open ? [h.div([h.Class("grid ps-[3ch] pb-1")], lsList(h, ctx, `${tabKey(t)}.all`, rows(t)))] : []),
             ];
           }),
+          true,
         ),
       ];
 };
@@ -225,7 +183,7 @@ const scoreCard = (h: H, ctx: Ctx, a: Audit, uid: string, live: boolean) => {
   const verdict = [MOOD_LINE[mood], ...(worstName ? [`${worstName} needs the most work.`] : []), ...(a.truncated ? ["partial scan."] : [])].join(" ");
   return h.section(
     [
-      h.Class(`${live ? "enter" : ""} grid gap-5 rounded-2xl border border-line bg-raised p-6 max-[480px]:p-5`),
+      h.Class(`${live ? "enter" : ""} grid gap-4 overflow-hidden rounded-xl border border-line bg-raised px-5 pt-4 pb-4 max-[480px]:px-4`),
       h.AriaLabel("library score"),
       h.DataAttribute("testid", "score-card"),
     ],
@@ -235,22 +193,22 @@ const scoreCard = (h: H, ctx: Ctx, a: Audit, uid: string, live: boolean) => {
         [h.Class("grid grid-cols-[minmax(0,1fr)_auto] items-start gap-6")],
         [
           h.div(
-            [h.Class("grid min-w-0 gap-3")],
+            [h.Class("grid min-w-0 gap-2")],
             [
               h.span(
                 [h.Class("flex items-baseline gap-2"), h.Role("img"), h.AriaLabel(`library score ${a.score} out of 100`)],
                 [
-                  h.span([h.Class("font-display text-[64px] leading-[0.8] font-medium text-accent tabular-nums")], [`${a.score}`]),
-                  h.span([h.Class("font-display text-[20px] leading-none text-fg-3")], ["/100"]),
+                  h.span([h.Class("font-display text-[40px] leading-[0.8] font-medium text-accent tabular-nums")], [`${a.score}`]),
+                  h.span([h.Class("font-display text-[16px] leading-none text-fg-3")], ["/100"]),
                 ],
               ),
-              h.p([h.Class("m-0 max-w-[40ch] text-[15px] text-fg-2")], [verdict]),
+              h.p([h.Class("m-0 max-w-[48ch] text-[14px] text-fg-2")], [verdict]),
             ],
           ),
-          art(h, mood, 52),
+          art(h, mood, 40),
         ],
       ),
-      ...auditDetails(h, ctx, indexOfCtx(ctx), uid, a),
+      ...auditLines(h, ctx, indexOfCtx(ctx), uid, a),
     ],
   );
 };
@@ -259,32 +217,21 @@ const scoreCard = (h: H, ctx: Ctx, a: Audit, uid: string, live: boolean) => {
 // ---------- folder ----------
 
 export const panel = (h: H, label: string, live: boolean, children: Html[]) =>
-  h.section([h.Class(`${live ? "enter" : ""} grid gap-3 rounded-2xl border border-line bg-raised p-5 max-[480px]:p-4`), h.AriaLabel(label)], children);
+  h.section([h.Class(`${live ? "enter" : ""} grid gap-3 overflow-hidden rounded-xl border border-line bg-raised px-5 pt-3 pb-4 max-[480px]:px-4`), h.AriaLabel(label)], children);
 
+/** A terminal window's title line: small, mono, quiet; the output below carries the weight. */
 export const cardHead = (h: H, title: string, meta: string) =>
-  h.div([h.Class("flex min-w-0 items-baseline justify-between gap-4")], [
-    h.span([h.Class("truncate text-[15px] text-fg-strong")], [title]),
-    h.span([h.Class("flex-none text-[13px] text-fg-3 tabular-nums")], [meta]),
+  h.div([h.Class("flex min-w-0 items-baseline justify-between gap-4 font-mono text-[12.5px]")], [
+    h.span([h.Class("truncate text-fg-2")], [title]),
+    h.span([h.Class("flex-none text-fg-4 tabular-nums")], [meta]),
   ]);
 
-/** A child of the listed folder: name over a bar sized against the biggest sibling. */
-const sizeRow = (h: H, n: Node, max: number) =>
-  h.li([h.Class("group -mx-2 grid grid-cols-[16px_minmax(0,1fr)] items-start gap-x-3 rounded-lg px-2 py-2 transition-colors duration-160 hover:bg-hover")], [
-    h.span([h.Class("grid h-[22px] w-4 place-items-center text-fg-3"), h.AriaHidden(true)], [icon(h, kindOf(n))]),
-    h.a(
-      [
-        h.Href(putioUrl(n.id)),
-        h.Target("_blank"),
-        h.Rel("noopener noreferrer"),
-        h.Title(`${n.path} · open on put.io`),
-        h.Class("grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-1.5 no-underline"),
-      ],
-      [
-        h.span([h.Class("truncate text-[14px] text-fg transition-colors duration-160 group-hover:text-fg-strong")], [isFolder(n) ? `${n.name}/` : n.name]),
-        h.span([h.Class("text-[13px] leading-[22px] text-fg-3 tabular-nums")], [bytes(n)]),
-        h.span([h.Class("col-span-2")], [shareBar(h, max > 0 ? n.size / max : 0, isFolder(n) ? "bg-fg-3" : "bg-accent/70")]),
-      ],
-    ),
+/** `du -sh`: size, a block bar against the biggest sibling, the name. */
+const duRow = (h: H, n: Node, max: number) =>
+  h.li([h.Class("grid grid-cols-[7ch_16ch_minmax(0,1fr)] items-baseline gap-x-3 px-3 hover:bg-hover max-[480px]:grid-cols-[7ch_8ch_minmax(0,1fr)]")], [
+    h.span([h.Class("text-end text-fg-3 tabular-nums")], [bytes(n)]),
+    h.span([h.Class("overflow-hidden")], [blocks(h, max > 0 ? n.size / max : 0, 16, isFolder(n) ? "text-fg-3" : "text-accent/80")]),
+    nameLink(h, n, isFolder(n) ? "text-fg" : "text-fg-2"),
   ]);
 
 const folderCard = (h: H, ctx: Ctx, key: string, out: ListFolderOutput, live: boolean): Html | null => {
@@ -303,8 +250,10 @@ const folderCard = (h: H, ctx: Ctx, key: string, out: ListFolderOutput, live: bo
   const all = ctx.expanded.includes(moreKey);
   return panel(h, "folder", live, [
     cardHead(h, folder ? `${folder.name}/` : ix.rootName, `${fmt(out.count)} ${out.count === 1 ? "item" : "items"} · ${size(total)}`),
-    h.ul([h.Class("m-0 grid list-none p-0")], (all ? nodes : nodes.slice(0, ROWS)).map((n) => sizeRow(h, n, nodes[0]?.size ?? 0))),
-    ...showMore(h, moreKey, all, nodes.length - ROWS),
+    term(h, [
+      h.ul([h.Class("m-0 grid list-none p-0")], (all ? nodes : nodes.slice(0, ROWS)).map((n) => duRow(h, n, nodes[0]?.size ?? 0))),
+      ...showMore(h, moreKey, all, nodes.length - ROWS),
+    ], true),
   ]);
 };
 
@@ -320,7 +269,7 @@ const searchCard = (h: H, ctx: Ctx, key: string, out: SearchFilesOutput, live: b
   if (nodes.length === 0) return null;
   return panel(h, "files", live, [
     cardHead(h, `${fmt(out.total)} ${out.total === 1 ? "file" : "files"}`, out.bytes),
-    fileList(h, ctx, ix, key, nodes, out.total),
+    term(h, lsList(h, ctx, `files.${key}`, nodes.map((n): [Node, string | null] => [n, isFolder(n) ? null : parentPath(n)])), true),
   ]);
 };
 

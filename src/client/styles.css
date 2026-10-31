@@ -222,6 +222,7 @@
     animation: blink 1s steps(1) infinite;
   }
 
+  /* Step rows read like shell output. */
   .step-head {
     display: flex;
     align-items: center;
@@ -230,7 +231,16 @@
     width: fit-content;
     max-width: 100%;
     color: var(--fg-subtle);
-    font-size: 13px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  /* A block cursor for the step that's running. */
+  .cursor {
+    display: inline-block;
+    width: 0.6em;
+    height: 1.1em;
+    background: var(--accent);
+    animation: blink 1s steps(1) infinite;
   }
   .step-head .chev {
     display: inline-block;
@@ -344,7 +354,8 @@
     animation-name: fade;
   }
   .live .grow-bar,
-  .caret {
+  .caret,
+  .cursor {
     animation: none;
   }
   .step-head .chev,

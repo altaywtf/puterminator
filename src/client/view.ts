@@ -237,7 +237,7 @@ const detailSpan = (h: H, detail: string | null) =>
   detail === null ? [] : [h.span([h.Class("min-w-0 truncate text-fg-4 tabular-nums")], [`· ${detail}`])];
 
 const liveRow = (h: H, text: string, detail: string | null = null) =>
-  h.div([h.Class("step-head")], [slot(h, dot(h, "live")), h.span([h.Class("text-fg")], [text]), ...detailSpan(h, detail)]);
+  h.div([h.Class("step-head")], [slot(h, h.span([h.Class("cursor"), h.AriaHidden(true)], [])), h.span([h.Class("text-fg")], [text]), ...detailSpan(h, detail)]);
 
 const thinkingRow = (h: H, item: ThinkingItem, model: Model) => {
   const bodyId = `step-${item.key}`;
@@ -293,16 +293,19 @@ const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live
   let rows: Html[] = [];
   let logKey = "";
   let running = false;
-  let titles: string[] = [];
+  let calls: string[] = [];
+  let detail: string | null = null;
   let failed = 0;
   const flush = () => {
     if (rows.length > 0) {
-      const summary = [titles.length > 0 ? titles.join(" · ") : "thought", ...(failed > 0 ? ["didn’t finish"] : [])].join(" · ");
+      // Reads like the shell line that ran: the tools, then what the last one found.
+      const summary = `$ ${calls.length > 0 ? calls.join(" && ") : "think"}${failed > 0 ? "  # didn’t finish" : detail ? `  # ${detail}` : ""}`;
       out.push(running ? runLog(h, logKey, rows) : doneLog(h, model, logKey, summary, rows));
     }
     rows = [];
     running = false;
-    titles = [];
+    calls = [];
+    detail = null;
     failed = 0;
   };
   for (const item of turn.items) {
@@ -321,7 +324,8 @@ const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live
       case "tool": {
         if (rows.length === 0) logKey = item.key;
         running ||= item.state === "running";
-        titles.push(describeStep(item.name, item.input, item.output).title);
+        calls.push(item.name);
+        detail = describeStep(item.name, item.input, item.output).detail;
         if (item.state === "error") failed++;
         rows.push(toolRow(h, item, model));
         const card = item.state === "done" ? toolCard(h, model, item, live) : null;
