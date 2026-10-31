@@ -85,7 +85,7 @@ const isPlayable = (n: Node) => has(n, FileFlag.video) && isRegular(n);
 
 /** A 16:9 tile: the put.io screenshot for videos (and the play button), the extension otherwise. */
 const tile = (h: H, n: Node) => {
-  const box = "relative grid h-9 w-16 flex-none place-items-center overflow-hidden rounded-xs bg-raised";
+  const box = "relative grid h-9 w-16 flex-none place-items-center overflow-hidden rounded-md bg-raised";
   if (!isPlayable(n)) {
     const ext = isFolder(n) ? "dir" : (n.name.match(/\.([a-z0-9]{1,5})$/i)?.[1] ?? "file");
     return h.span([h.Class(`${box} text-[12px] text-fg-4`), h.AriaHidden(true)], [ext.toLowerCase()]);
@@ -121,7 +121,7 @@ const tile = (h: H, n: Node) => {
 
 const fileRow = (h: H, ix: Index, n: Node, note: string | null = null) =>
   h.li(
-    [h.Class("group -mx-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 rounded-xs px-2 py-1.5 transition-colors duration-160 hover:bg-raised")],
+    [h.Class("group -mx-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 rounded-lg px-2 py-1.5 transition-colors duration-160 hover:bg-raised")],
     [
       tile(h, n),
       h.div(
@@ -336,7 +336,7 @@ export const treeDrawer = (h: H, model: Model) => {
         h.AriaHidden(!open),
         ...(open ? [] : [h.Inert(true)]),
         h.Class(
-          `fixed top-[57px] right-0 bottom-0 z-30 flex w-[420px] max-w-full flex-col border-s border-line bg-bg transition-transform duration-220 ease-snappy ${open ? "translate-x-0" : "translate-x-full"}`,
+          `fixed top-14 right-0 bottom-0 z-30 flex w-[420px] max-w-full flex-col border-s border-t border-line bg-bg shadow-[-16px_0_40px_rgb(0_0_0/0.35)] transition-transform duration-220 ease-snappy ${open ? "translate-x-0" : "translate-x-full"}`,
         ),
         h.OnKeyDownPreventDefault((key) => (key === "Escape" && open ? Option.some(Message.ClosedTree()) : Option.none())),
       ],
@@ -375,7 +375,7 @@ export const playerView = (h: H, model: Model) => {
       [
         h.button([h.Type("button"), h.Tabindex(-1), h.AriaLabel("close player"), h.Class("absolute inset-0 cursor-default"), h.OnClick(Message.ClosedPlayer())], []),
         h.div(
-          [h.Class("pop relative grid w-full max-w-[960px] border border-line bg-bg")],
+          [h.Class("pop relative grid w-full max-w-[960px] overflow-hidden rounded-2xl border border-line bg-bg")],
           [
             h.div(
               [h.Class("flex items-center gap-3 border-b border-line px-4 py-2.5")],

@@ -57,19 +57,19 @@ const mark = (h: H, px: number) =>
   ]);
 
 const dot = (h: H, tone: "live" | "ok" | "warn" | "error" | null = null) =>
-  h.span([h.Class(`u-dot ${tone ? `u-dot--${tone}` : ""}`), h.AriaHidden(true)], []);
+  h.span([h.Class(`dot ${tone ? `dot-${tone}` : ""}`), h.AriaHidden(true)], []);
 
-/** Lowercase meta text; uinaf's uppercase micro-label belongs on dashboards, not in a conversation. */
-const label = (h: H, text: string, extra = "") => h.span([h.Class(`text-[12px] text-fg-3 ${extra}`)], [text]);
+/** Lowercase meta text. */
+const label = (h: H, text: string, extra = "") => h.span([h.Class(`text-[13px] text-fg-3 ${extra}`)], [text]);
 
 // ---------- shell ----------
 
 const status = (h: H, model: Model) =>
   model.connection._tag === "Connected"
-    ? h.span([h.Class("flex items-center gap-2 text-[12px] text-fg-3")], [dot(h, "live"), "online"])
+    ? h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-3 max-[480px]:sr-only")], [dot(h, "live"), "online"])
     : model.connection._tag === "Lost"
-      ? h.span([h.Class("flex items-center gap-2 text-[12px] text-fg-3")], [dot(h, "warn"), "reconnecting"])
-      : h.span([h.Class("flex items-center gap-2 text-[12px] text-fg-3")], [dot(h), "connecting"]);
+      ? h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-3 max-[480px]:sr-only")], [dot(h, "warn"), "reconnecting"])
+      : h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-3 max-[480px]:sr-only")], [dot(h), "connecting"]);
 
 /** One 56px topbar row over the content; no inset panel, no shadow. */
 const frame = (h: H, topbarEnd: Html[], children: Html[], busy = false) =>
@@ -77,11 +77,14 @@ const frame = (h: H, topbarEnd: Html[], children: Html[], busy = false) =>
     [h.Class("grid h-dvh grid-rows-[auto_minmax(0,1fr)] bg-bg text-fg"), ...(busy ? [h.AriaBusy(true)] : [])],
     [
       h.header(
-        [h.Class("u-topbar")],
+        [h.Class("flex-none")],
         [
           h.div(
-            [h.Class(`${COLUMN} u-topbar-row flex! gap-4`)],
-            [h.span([h.Class("u-topbar-mark")], [mark(h, 24), h.span([h.Class("text-fg-strong")], ["puterminator"])]), ...topbarEnd],
+            [h.Class(`${COLUMN} flex! h-14 items-center gap-4`)],
+            [
+              h.span([h.Class("flex items-center gap-2.5 text-[15px] font-medium tracking-[-0.01em] text-fg-strong")], [mark(h, 22), "puterminator"]),
+              ...topbarEnd,
+            ],
           ),
         ],
       ),
@@ -110,15 +113,15 @@ const avatar = (h: H, username: string, url: string | null) =>
     ? h.img([
         h.Src(url),
         h.Alt(""),
-        h.Width("20"),
-        h.Height("20"),
+        h.Width("24"),
+        h.Height("24"),
         h.Referrerpolicy("no-referrer"),
         h.Draggable(false),
         h.OnError(Message.FailedAvatar()),
-        h.Class("block size-5 flex-none rounded-xs bg-raised object-cover select-none"),
+        h.Class("block size-6 flex-none rounded-full bg-raised object-cover select-none"),
       ])
     : h.span(
-        [h.Class("grid size-5 flex-none place-items-center rounded-xs bg-raised text-[12px] text-fg-2 select-none"), h.AriaHidden(true)],
+        [h.Class("grid size-6 flex-none place-items-center rounded-full bg-raised text-[12px] font-medium text-fg-2 select-none"), h.AriaHidden(true)],
         [username.slice(0, 1)],
       );
 
@@ -156,12 +159,12 @@ type SignIn = "ready" | "unconfigured" | "failed";
 
 const signInAction = (h: H, kind: SignIn) =>
   kind === "ready"
-    ? h.a([h.Href("/auth/login"), h.Class("u-btn u-btn--primary justify-self-start")], ["continue with put.io ↗"])
+    ? h.a([h.Href("/auth/login"), h.Class("btn btn-primary justify-self-start")], ["continue with put.io ↗"])
     : kind === "unconfigured"
       ? h.div(
           [h.Class("grid justify-items-start gap-3")],
           [
-            h.button([h.Type("button"), h.Disabled(true), h.Class("u-btn")], ["continue with put.io"]),
+            h.button([h.Type("button"), h.Disabled(true), h.Class("btn")], ["continue with put.io"]),
             h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-2")], [dot(h, "warn"), "sign-in isn’t wired up yet."]),
           ],
         )
@@ -169,7 +172,7 @@ const signInAction = (h: H, kind: SignIn) =>
           [h.Class("grid justify-items-start gap-3")],
           [
             h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-2"), h.Role("alert")], [dot(h, "error"), "couldn’t reach puterminator."]),
-            h.button([h.Type("button"), h.Class("u-btn"), h.OnClick(Message.ClickedRetryMe())], ["try again"]),
+            h.button([h.Type("button"), h.Class("btn"), h.OnClick(Message.ClickedRetryMe())], ["try again"]),
           ],
         );
 
@@ -181,14 +184,14 @@ const signInView = (h: H, kind: SignIn) =>
         [h.Class("enter w-full max-w-[360px]")],
         [
           h.div(
-            [h.Class("u-panel grid gap-6 p-8!")],
+            [h.Class("grid gap-6 rounded-2xl border border-line bg-raised p-8")],
             [
               art(h, kind === "ready" ? "asleep" : "unplugged", 72),
               h.div(
                 [h.Class("grid gap-2")],
                 [
-                  h.h1([h.Class("m-0 text-base font-normal text-fg-strong")], ["puterminator"]),
-                  h.p([h.Class("m-0 text-[13px] text-fg-2")], ["reads your put.io, scores the mess and says what to fix. changes nothing."]),
+                  h.h1([h.Class("m-0 text-[18px] font-semibold tracking-[-0.01em] text-fg-strong")], ["puterminator"]),
+                  h.p([h.Class("m-0 text-fg-2")], ["reads your put.io, scores the mess and says what to fix. changes nothing."]),
                 ],
               ),
               signInAction(h, kind),
@@ -209,7 +212,7 @@ const stepBody = (h: H, id: string, children: Html[]) =>
   h.div([h.Id(id), h.Class("ms-1 mb-1 grid min-w-0 gap-0.5 border-s border-line py-1 ps-4 text-fg-3")], children);
 
 const mono = (h: H, text: string, extra = "") =>
-  h.div([h.Class(`min-w-0 truncate text-[12px] text-fg-2 ${extra}`), h.Title(text)], [text]);
+  h.div([h.Class(`min-w-0 truncate font-mono text-[12px] text-fg-2 ${extra}`), h.Title(text)], [text]);
 
 const toggle = (h: H, key: string, open: boolean, bodyId: string, children: Html[]) =>
   h.button(
@@ -268,8 +271,8 @@ const MOOD_LINE: Record<Mood, string> = {
 
 /** One thin bar per subscore; the worst one is the only accent on the card. */
 const bar = (h: H, value: number, worst: boolean) =>
-  h.span([h.Class("block h-0.5 w-full bg-line"), h.AriaHidden(true)], [
-    h.i([h.Class(`grow-bar block h-full ${worst ? "bg-accent" : "bg-fg-3"}`), h.Style({ width: `${Math.min(100, Math.max(0, value))}%` })], []),
+  h.span([h.Class("block h-1 w-full overflow-hidden rounded-full bg-line"), h.AriaHidden(true)], [
+    h.i([h.Class(`grow-bar block h-full rounded-full ${worst ? "bg-accent" : "bg-fg-3"}`), h.Style({ width: `${Math.min(100, Math.max(0, value))}%` })], []),
   ]);
 
 const subScore = (h: H, name: string, value: number, worst: boolean) =>
@@ -278,7 +281,7 @@ const subScore = (h: H, name: string, value: number, worst: boolean) =>
     [
       h.span([h.Class("flex items-baseline justify-between gap-2")], [
         label(h, name, worst ? "text-accent!" : ""),
-        h.span([h.Class("text-[13px] text-fg-strong tabular-nums")], [`${value}`]),
+        h.span([h.Class("text-[14px] font-medium text-fg-strong tabular-nums")], [`${value}`]),
       ]),
       bar(h, value, worst),
     ],
@@ -311,7 +314,7 @@ const scoreCard = (h: H, model: Model, a: Audit, uid: string, live: boolean) => 
                 [
                   h.span(
                     [h.Class("flex items-baseline gap-1.5"), h.Role("img"), h.AriaLabel(`library score ${a.score} out of 100`)],
-                    [h.span([h.Class("text-[40px] leading-none text-fg-strong tabular-nums")], [`${a.score}`]), h.span([h.Class("text-[13px] text-fg-3")], ["/100"])],
+                    [h.span([h.Class("text-[40px] leading-none font-semibold tracking-[-0.03em] text-fg-strong tabular-nums")], [`${a.score}`]), h.span([h.Class("text-[13px] text-fg-3")], ["/100"])],
                   ),
                   h.span([h.Class("text-[13px] text-fg-2")], [MOOD_LINE[mood]]),
                 ],
@@ -325,7 +328,7 @@ const scoreCard = (h: H, model: Model, a: Audit, uid: string, live: boolean) => 
         [h.Class("grid gap-2")],
         [
           h.div(
-            [h.Class("flex flex-wrap items-center gap-x-2 text-[12px] text-fg-3 tabular-nums")],
+            [h.Class("flex flex-wrap items-center gap-x-2 text-[13px] text-fg-3 tabular-nums")],
             [
               ...facts.flatMap((f, i) => (i === 0 ? [h.span([], [f])] : [h.span([h.Class("text-fg-4")], ["·"]), h.span([], [f])])),
               ...(a.truncated
@@ -408,7 +411,7 @@ const userView = (h: H, turn: Turn, live: boolean) =>
     [h.Class(`grid justify-items-end ${live ? "enter-soft" : ""}`), h.DataAttribute("role", "user"), h.AriaLabel("you")],
     [
       h.div(
-        [h.Class("max-w-[80%] rounded-xs bg-raised px-4 py-2.5 break-words whitespace-pre-wrap text-fg-strong")],
+        [h.Class("max-w-[80%] rounded-2xl bg-raised px-4 py-2.5 break-words whitespace-pre-wrap text-fg-strong")],
         [turn.items[0]?.kind === "user" ? turn.items[0].text : ""],
       ),
     ],
@@ -416,16 +419,18 @@ const userView = (h: H, turn: Turn, live: boolean) =>
 
 const followUps = (h: H, items: readonly string[], enabled: boolean) =>
   h.div(
-    [h.Class("flex flex-wrap gap-x-5 gap-y-2 ps-8 max-[480px]:ps-0")],
+    [h.Class("flex flex-wrap gap-2 ps-8 max-[480px]:ps-0")],
     items.map((s) =>
       h.button(
         [
           h.Type("button"),
           h.Disabled(!enabled),
-          h.Class("hit text-[13px] text-fg-3 transition-colors duration-160 hover:text-fg active:text-fg disabled:opacity-40"),
+          h.Class(
+            "rounded-full border border-line px-3 py-1.5 text-[13px] text-fg-2 transition-colors duration-160 hover:border-line-hover hover:text-fg active:text-fg disabled:opacity-40",
+          ),
           h.OnClick(Message.ClickedStarter({ text: s })),
         ],
-        [`${s} →`],
+        [s],
       ),
     ),
   );
@@ -440,12 +445,12 @@ const starterRows = (h: H, enabled: boolean) =>
           [
             h.Type("button"),
             h.Disabled(!enabled),
-            h.Class("group -mx-3 grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 rounded-xs px-3 py-2 text-start transition-colors duration-160 hover:bg-raised active:bg-raised disabled:opacity-40"),
+            h.Class("group -mx-3 grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 rounded-lg px-3 py-2.5 text-start transition-colors duration-160 hover:bg-raised active:bg-raised disabled:opacity-40"),
             h.OnClick(Message.ClickedStarter({ text: s })),
           ],
           [
             h.span([h.Class("flex min-w-0 items-baseline gap-3")], [
-              h.span([h.Class("text-fg-strong transition-colors duration-160 group-hover:text-accent group-active:text-accent")], [s]),
+              h.span([h.Class("text-fg transition-colors duration-160 group-hover:text-fg-strong group-active:text-fg-strong")], [s]),
               h.span([h.Class("truncate text-[13px] text-fg-3 max-[520px]:hidden")], [STARTER_NOTES[s] ?? ""]),
             ]),
             h.span([h.Class("text-[13px] text-fg-4 transition-transform duration-160 group-hover:text-fg-2 motion-safe:group-hover:translate-x-0.5")], ["→"]),
@@ -458,12 +463,12 @@ const starterRows = (h: H, enabled: boolean) =>
 /** The library tree opens from where the library's numbers are, not from the topbar. */
 const browseButton = (h: H) =>
   h.button(
-    [h.Type("button"), h.Class("hit ms-auto flex-none text-[12px] text-fg-2 transition-colors duration-160 hover:text-fg active:text-fg"), h.OnClick(Message.ToggledTree())],
+    [h.Type("button"), h.Class("hit ms-auto flex-none text-[13px] text-fg-2 transition-colors duration-160 hover:text-fg active:text-fg"), h.OnClick(Message.ToggledTree())],
     ["browse →"],
   );
 
 const stat = (h: H, name: string, value: string, note: Array<Html | string>) =>
-  h.div([h.Class("grid min-w-0 gap-1")], [label(h, name), h.span([h.Class("text-xl leading-none text-fg-strong tabular-nums")], [value]), h.span([h.Class("flex min-w-0 items-center gap-2 text-[12px] text-fg-3")], note)]);
+  h.div([h.Class("grid min-w-0 gap-1")], [label(h, name), h.span([h.Class("text-[22px] leading-none font-semibold tracking-[-0.02em] text-fg-strong tabular-nums")], [value]), h.span([h.Class("flex min-w-0 items-center gap-2 text-[13px] text-fg-3")], note)]);
 
 const lastScanStrip = (h: H, last: LastAudit, credits: Credits, browsable: boolean) =>
   h.div(
@@ -481,12 +486,12 @@ const connectionNotice = (h: H, model: Model) =>
     ? []
     : [
         h.div(
-          [h.Class("u-notice items-center!"), h.Role("status")],
+          [h.Class("notice"), h.Role("status")],
           [
             dot(h, "warn"),
             h.span([h.Class("grow")], ["can’t reach the agent. retrying…"]),
             ...(model.connection._tag === "Lost"
-              ? [h.button([h.Type("button"), h.Class("hit u-btn u-btn--sm"), h.OnClick(Message.RetriedConnect({ attempts: model.attempts }))], ["retry now"])]
+              ? [h.button([h.Type("button"), h.Class("hit btn btn-sm"), h.OnClick(Message.RetriedConnect({ attempts: model.attempts }))], ["retry now"])]
               : []),
           ],
         ),
@@ -497,7 +502,7 @@ const statusRows = (h: H, model: Model) => [
   ...connectionNotice(h, model),
   ...(model.error === null || model.error === LENGTH_ERROR
     ? []
-    : [h.div([h.Class("u-notice items-center!"), h.Role("alert")], [dot(h, "error"), h.span([], [model.error])])]),
+    : [h.div([h.Class("notice"), h.Role("alert")], [dot(h, "error"), h.span([], [model.error])])]),
 ];
 
 // ---------- composer ----------
@@ -544,7 +549,7 @@ const folderMenu = (h: H, model: Model, below: boolean) => {
                 h.AriaLabel("target folder"),
                 h.OnKeyDown((key) => (key === "Tab" ? Message.LeftFolderMenu() : Message.CompletedEffect())),
                 h.Class(
-                  `pop absolute start-0 z-20 grid max-h-72 w-max max-w-[min(300px,calc(100vw-48px))] min-w-52 overflow-y-auto overscroll-contain border border-line bg-raised py-1 ${below ? "top-full mt-1 origin-top-left" : "bottom-full mb-1 origin-bottom-left"}`,
+                  `pop absolute start-0 z-20 grid max-h-72 w-max max-w-[min(300px,calc(100vw-48px))] min-w-52 overflow-y-auto overscroll-contain rounded-xl border border-line-strong bg-raised p-1 shadow-[0_12px_32px_rgb(0_0_0/0.45)] ${below ? "top-full mt-1 origin-top-left" : "bottom-full mb-1 origin-bottom-left"}`,
                 ),
               ],
               options.map((f, i) =>
@@ -556,7 +561,7 @@ const folderMenu = (h: H, model: Model, below: boolean) => {
                     h.AriaChecked(f.id === target.id),
                     h.Tabindex(i === active ? 0 : -1),
                     h.Class(
-                      "flex h-8 min-w-0 items-center gap-2.5 px-3 text-start text-[13px] text-fg-2 transition-colors duration-160 hover:bg-bg hover:text-fg focus-visible:bg-bg focus-visible:text-fg focus-visible:outline-offset-[-1px] active:bg-bg active:text-fg aria-checked:text-fg",
+                      "flex h-8 min-w-0 items-center gap-2.5 rounded-md px-3 text-start text-[13px] text-fg-2 transition-colors duration-160 hover:bg-hover hover:text-fg focus-visible:bg-hover focus-visible:text-fg focus-visible:outline-offset-[-2px] active:bg-hover active:text-fg aria-checked:text-fg",
                     ),
                     h.OnKeyDownFocus(moveFrom(i)),
                     h.OnClick(Message.PickedFolder({ folder: f })),
@@ -584,7 +589,7 @@ const composer = (h: H, model: Model, placeholder: string, floating: boolean) =>
   return h.form(
     [
       h.Class(
-        `pointer-events-auto grid w-full gap-3 rounded-xs border bg-raised px-4 pt-3.5 pb-3 transition-colors duration-160 ${tooLong ? "border-danger/60!" : "border-line-strong hover:border-line-hover focus-within:border-fg-3!"}`,
+        `pointer-events-auto grid w-full gap-3 rounded-2xl border bg-raised px-4 pt-3.5 pb-3 shadow-[0_8px_24px_rgb(0_0_0/0.25)] transition-colors duration-160 ${tooLong ? "border-danger/60!" : "border-line-strong hover:border-line-hover focus-within:border-line-hover!"}`,
       ),
       h.OnSubmit(Message.SubmittedDraft()),
     ],
@@ -599,7 +604,7 @@ const composer = (h: H, model: Model, placeholder: string, floating: boolean) =>
         h.EnterKeyHint(COARSE ? "enter" : "send"),
         ...(tooLong ? [h.AriaInvalid(true), h.AriaDescribedBy(errorId)] : []),
         h.Class(
-          "block max-h-[160px] min-h-[24px] w-full resize-none border-0 bg-transparent p-0 text-[16px] leading-normal text-fg-strong caret-accent outline-none [field-sizing:content] placeholder:text-fg-3 focus-visible:outline-none pointer-fine:text-[14px]",
+          "block max-h-[160px] min-h-[24px] w-full resize-none border-0 bg-transparent p-0 text-[16px] leading-normal text-fg-strong caret-accent outline-none [field-sizing:content] placeholder:text-fg-3 focus-visible:outline-none pointer-fine:text-[15px]",
         ),
         h.OnInput((value) => Message.UpdatedDraft({ value })),
         h.OnKeyDownPreventDefault((key, mods) => (key === "Enter" && !COARSE && !mods.shiftKey && !mods.altKey ? Option.some(Message.SubmittedDraft()) : Option.none())),
@@ -608,9 +613,9 @@ const composer = (h: H, model: Model, placeholder: string, floating: boolean) =>
         ? [h.p([h.Id(errorId), h.Class("m-0 flex items-center gap-2 text-[12px] text-fg-2"), h.Role("alert")], [dot(h, "error"), LENGTH_ERROR])]
         : []),
       h.div(
-        [h.Class("flex min-w-0 items-center gap-2 text-[12px] text-fg-3")],
+        [h.Class("flex min-w-0 items-center gap-2 text-[13px] text-fg-3")],
         [
-          h.span([h.Class("-ms-1.5")], [folderMenu(h, model, !floating)]),
+          h.span([h.Class("-ms-2")], [folderMenu(h, model, !floating)]),
           sep,
           h.span([h.Class("max-[400px]:hidden"), h.Title("model")], ["sonnet 5.5"]),
           h.span([h.Class("grow")], []),
@@ -625,15 +630,21 @@ const composer = (h: H, model: Model, placeholder: string, floating: boolean) =>
                   h.Type("button"),
                   h.Disabled(model.stopping),
                   h.AriaLabel(model.stopping ? "stopping reply" : "stop reply"),
-                  h.Class("hit u-btn u-btn--sm"),
+                  h.Class("hit btn btn-sm"),
                   h.OnClick(Message.ClickedStop()),
                 ],
                 [dot(h, "live"), model.stopping ? "stopping…" : "stop"],
               )
             : h.keyed("button")(
                 "send",
-                [h.Type("submit"), h.Disabled(!canSend), h.Class("hit u-btn u-btn--sm u-btn--primary disabled:opacity-30 disabled:active:scale-100")],
-                ["send"],
+                [
+                  h.Type("submit"),
+                  h.Disabled(!canSend),
+                  h.AriaLabel("send"),
+                  h.Title("send"),
+                  h.Class("hit btn btn-icon btn-primary text-[16px] disabled:opacity-30"),
+                ],
+                [h.span([h.AriaHidden(true)], ["↑"])],
               ),
         ],
       ),
@@ -658,8 +669,8 @@ const emptyThread = (h: H, model: Model) => {
                 [h.Class("grid gap-3")],
                 [
                   label(h, "library agent for put.io · read-only"),
-                  h.h1([h.Class("m-0 max-w-[22ch] text-[32px] leading-[1.15] font-normal tracking-[-0.01em] text-balance text-fg-strong")], ["what should i do with your put.io?"]),
-                  h.p([h.Class("m-0 max-w-[46ch] text-fg-2")], ["i read your files, score the library and answer questions. i change nothing."]),
+                  h.h1([h.Class("m-0 max-w-[22ch] text-[32px] leading-[1.15] font-semibold tracking-[-0.025em] text-balance text-fg-strong")], ["what should i do with your put.io?"]),
+                  h.p([h.Class("m-0 max-w-[46ch] text-[15px] text-fg-2")], ["i read your files, score the library and answer questions. i change nothing."]),
                 ],
               ),
               h.span([h.Class("pointer-events-none select-none max-[520px]:hidden")], [art(h, "idle", 112)]),

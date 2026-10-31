@@ -1,8 +1,8 @@
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Audit } from "../shared/audit";
 
-// Product spot art per uinaf DESIGN.md: 48 grid, stroke 1.5, square caps, currentColor,
-// one slime-gradient shape per frame. A CRT with a skull on the screen; props carry the joke.
+// Spot art: 48 grid, stroke 1.5, square caps, currentColor, one slime-gradient shape per frame.
+// A CRT with a skull on the screen; props carry the joke.
 
 export type Mood = "asleep" | "unplugged" | "idle" | "shades" | "dust" | "mop" | "wading" | "flood" | "jar";
 
