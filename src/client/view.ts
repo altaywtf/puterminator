@@ -15,7 +15,13 @@ type H = HtmlBuilder<Message>;
 type ToolItem = Extract<Item, { kind: "tool" }>;
 type ThinkingItem = Extract<Item, { kind: "thinking" }>;
 
-export const STARTERS = ["audit my library", "what did i never play?", "find junk files"];
+/** First-run commands: what to type, and what it does. Each line sends its prompt. */
+export const STARTERS: Array<[prompt: string, does: string]> = [
+  ["audit my library", "score naming, junk, duplicates"],
+  ["find junk files", "tracker filler, samples, .nfo"],
+  ["what did i never play?", "the biggest files nobody opened"],
+  ["clean up my downloads", "a diff you approve before anything moves"],
+];
 
 /** Credits left at which the composer starts showing the count. */
 const LOW_CREDITS = 100;
@@ -354,18 +360,23 @@ const userView = (h: H, turn: Turn, live: boolean) =>
     ],
   );
 
+/** The starters as a terminal listing: `$ prompt` and a `# what it does` comment, one per line. */
 const starterRows = (h: H, enabled: boolean) =>
   h.div(
-    [h.Class("grid")],
-    STARTERS.map((s) =>
+    [h.Class("grid overflow-hidden rounded-xl border border-line bg-sunk py-2 font-mono text-[12.5px] leading-[1.7]")],
+    STARTERS.map(([prompt, does]) =>
       h.button(
         [
           h.Type("button"),
           h.Disabled(!enabled),
-          h.Class("-mx-3 rounded-lg px-3 py-2.5 text-start text-fg-2 transition-colors duration-160 hover:bg-raised hover:text-fg active:bg-raised disabled:opacity-40"),
-          h.OnClick(Message.ClickedStarter({ text: s })),
+          h.Class("group grid grid-cols-[1.5ch_minmax(0,auto)_minmax(0,1fr)] items-baseline gap-x-2 px-4 py-0.5 text-start transition-colors duration-160 hover:bg-hover disabled:opacity-40"),
+          h.OnClick(Message.ClickedStarter({ text: prompt })),
         ],
-        [s],
+        [
+          h.span([h.Class("text-fg-4 group-hover:text-accent"), h.AriaHidden(true)], ["$"]),
+          h.span([h.Class("truncate text-fg group-hover:text-fg-strong")], [prompt]),
+          h.span([h.Class("truncate ps-3 text-fg-4 max-[520px]:hidden")], [`# ${does}`]),
+        ],
       ),
     ),
   );
@@ -477,14 +488,18 @@ const emptyThread = (h: H, model: Model) => {
       h.div(
         [h.Class(`${COLUMN} enter gap-8 pt-[16svh] pb-16`)],
         [
+          // First run: the agent says who it is and what it does, then offers the commands to start with.
           h.div(
-            [h.Class("grid justify-items-start gap-5")],
+            [h.Class("grid justify-items-start gap-4")],
             [
               art(h, "idle", 56),
-              h.h1([h.Class("m-0 max-w-[22ch] font-display text-[36px] leading-[1.1] font-medium text-balance text-fg-strong")], ["what should i do with your put.io?"]),
+              h.h1([h.Class("m-0 font-display text-[36px] leading-[1.1] font-medium text-fg-strong")], [model.agent?.username ? `hi ${model.agent.username}.` : "hi."]),
+              h.p([h.Class("m-0 max-w-[52ch] text-[15px] text-fg-2")], [
+                "i’m puterminator. i read your put.io library, score the mess and tell you what to fix. ask me anything about your files, or start with one of these:",
+              ]),
             ],
           ),
-          h.div([h.Class("grid gap-3")], [composer(h, model, "ask puterminator…"), starterRows(h, enabled)]),
+          h.div([h.Class("grid gap-3")], [starterRows(h, enabled), composer(h, model, "or ask puterminator…")]),
           ...statusRows(h, model),
         ],
       ),
