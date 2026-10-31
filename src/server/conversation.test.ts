@@ -324,6 +324,20 @@ describe("plans", () => {
     expect(context).toContain('applied plan \\"clean up Movies\\": 2 done, 0 failed');
   });
 
+  it("refuses a second question in the same turn", async () => {
+    const ask = JSON.stringify({ prompt: "which copy?", multi: false, options: [{ label: "a", detail: null }, { label: "b", detail: null }] });
+    const t = await setup([
+      { kind: "sse", events: toolUseTurn({ id: "toolu_a1", name: "ask_user", inputJsonChunks: [ask] }, { input: 10, output: 5 }) },
+      { kind: "sse", events: toolUseTurn({ id: "toolu_a2", name: "ask_user", inputJsonChunks: [ask] }, { input: 10, output: 5 }) },
+      { kind: "sse", events: textTurn("waiting.", { input: 10, output: 5 }) },
+    ]);
+    await Effect.runPromise(t.agent.receive(send("which one?")));
+    await t.settle();
+    const results = t.store.history().flatMap((m) => (typeof m.content === "string" ? [] : m.content)).filter((b) => b.type === "tool_result");
+    expect(String(results[0]?.content)).toContain('"prompt":"which copy?"');
+    expect(String(results[1]?.content)).toContain("already asked");
+  });
+
   it("ignores apply for a discarded plan or an unknown id", async () => {
     const t = await setup(proposeTurn());
     await Effect.runPromise(t.agent.receive(send("clean up")));

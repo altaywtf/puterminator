@@ -108,6 +108,8 @@ export const makeAgent = (deps: AgentDeps) =>
     let turnFiber: Fiber.Fiber<unknown, unknown> | null = null;
     const thumbs = new Map<number, string | null>();
     let running = false;
+    /** One question per turn: the model stops after asking, and a second ask in the same turn is refused. */
+    let asked = false;
 
     const setState = (next: AgentState) => {
       state = next;
@@ -393,7 +395,14 @@ export const makeAgent = (deps: AgentDeps) =>
         name: "ask_user",
         description: "Ask the user to pick between 2 to 6 options when you can't decide alone. Then stop; the answer comes as the next message.",
         input: AskInput,
-        run: (input) => Effect.sync(() => JSON.stringify(validateQuestion(input, newId()))),
+        run: (input) =>
+          Effect.sync(() => {
+            if (asked) return JSON.stringify({ error: "You already asked this turn. Stop now; the answer arrives as the next message." });
+            const q = validateQuestion(input, newId());
+            if ("error" in q) return JSON.stringify(q);
+            asked = true;
+            return JSON.stringify({ ...q, next: "Asked. End your turn now without repeating the question; the answer arrives as the user's next message." });
+          }),
       }),
     ];
 
@@ -480,6 +489,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const start = (text: string, folder: Folder) => {
       running = true;
+      asked = false;
       if (folder.id !== state.folder.id) setState({ ...state, folder });
       deps.background(
         Effect.withFiber((fiber) => {
