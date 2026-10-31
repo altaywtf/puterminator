@@ -2,25 +2,37 @@
 @import "@fontsource-variable/geist/wght.css";
 @import "@fontsource-variable/geist-mono/wght.css";
 
-/* puterminator's own look: neutral dark, one sans, soft corners, one periwinkle accent. */
+@font-face {
+  font-family: "Geist Pixel Grid";
+  src: url("./fonts/GeistPixel-Grid.woff2") format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+
+/* puterminator's look: an amber phosphor screen. Warm blacks, Geist for reading, Geist Pixel for the few
+   words that carry the brand, one amber accent, a red eye. */
 :root {
-  --bg: #0b0b0c;
-  --bg-raised: #161618;
-  --bg-sunk: #08080a;
-  --bg-hover: #1e1e21;
-  --border: rgb(255 255 255 / 0.08);
-  --border-strong: rgb(255 255 255 / 0.12);
-  --border-hover: rgb(255 255 255 / 0.2);
-  --fg-strong: #fafafa;
-  --fg: #e6e6e8;
-  --fg-muted: #a7a7b0;
+  --bg: #0d0b08;
+  --bg-raised: #17140f;
+  --bg-sunk: #090806;
+  --bg-hover: #211c15;
+  --border: rgb(255 214 150 / 0.09);
+  --border-strong: rgb(255 214 150 / 0.14);
+  --border-hover: rgb(255 214 150 / 0.24);
+  --fg-strong: #fff4e0;
+  --fg: #ede2cf;
+  --fg-muted: #bfb29a;
   /* At least 4.5:1 on --bg-raised: labels and meta still read. */
-  --fg-subtle: #8d8d96;
-  --fg-faint: #5d5d65;
-  --accent: #8b9dff;
-  --ok: #4ade80;
-  --warn: #fbbf24;
-  --error: #f87171;
+  --fg-subtle: #a3967d;
+  --fg-faint: #6e6452;
+  --accent: #ffb547;
+  --accent-bright: #ffe0a3;
+  --accent-dim: #6b4a1a;
+  --eye: #ff4655;
+  --slime: #3fffe6;
+  --ok: #8fd47e;
+  --warn: #ffb547;
+  --error: #ff6b6b;
   --duration-fast: 160ms;
   --duration-base: 220ms;
 }
@@ -28,6 +40,7 @@
 @theme inline {
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", monospace;
+  --font-display: "Geist Pixel Grid", "Geist Mono Variable", ui-monospace, monospace;
   --color-bg: var(--bg);
   --color-raised: var(--bg-raised);
   --color-sunk: var(--bg-sunk);
@@ -69,7 +82,7 @@
     background: var(--bg);
     color: var(--fg);
     font-family: var(--font-sans);
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.6;
     font-feature-settings: "ss01", "cv11";
   }
@@ -77,11 +90,11 @@
     border-color: var(--border);
   }
   ::selection {
-    background: rgb(139 157 255 / 0.32);
+    background: rgb(255 181 71 / 0.3);
     color: var(--fg-strong);
   }
   :focus-visible {
-    outline: 2px solid rgb(139 157 255 / 0.6);
+    outline: 2px solid rgb(255 181 71 / 0.6);
     outline-offset: 2px;
     border-radius: 6px;
   }
@@ -137,8 +150,8 @@
     opacity: 0.45;
   }
   .btn-primary {
-    border-color: var(--fg-strong);
-    background: var(--fg-strong);
+    border-color: var(--accent);
+    background: var(--accent);
     color: var(--bg);
   }
   .btn-sm {
@@ -160,8 +173,8 @@
       background: var(--bg-hover);
     }
     .btn-primary:hover:not(:disabled) {
-      border-color: #d4d4d8;
-      background: #d4d4d8;
+      border-color: var(--accent-bright);
+      background: var(--accent-bright);
     }
   }
 
@@ -316,21 +329,10 @@
   }
 }
 
-/* Only a score card that arrives live animates: bars fill in turn, then the slime oozes once.
-   Cards replayed from history render settled. */
+/* Only a score card that arrives live animates its bars; cards replayed from history render settled. */
 .live .grow-bar {
   transform-origin: left;
   animation: grow var(--duration-base) var(--ease-snappy) both;
-}
-.live .art .slime {
-  transform-box: fill-box;
-  transform-origin: top;
-  animation: ooze var(--duration-base) var(--ease-snappy) 60ms both;
-}
-@keyframes ooze {
-  from {
-    transform: scaleY(0.05);
-  }
 }
 
 /* Reduced motion drops movement, not feedback: reveals still fade, colors still change. */
@@ -341,7 +343,6 @@
     animation-name: fade;
   }
   .live .grow-bar,
-  .live .art .slime,
   .caret {
     animation: none;
   }

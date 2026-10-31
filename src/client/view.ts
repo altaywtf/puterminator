@@ -52,7 +52,7 @@ const mark = (h: H, px: number) =>
     h.Width(`${px}`),
     h.Height(`${px}`),
     h.Draggable(false),
-    h.Class("block flex-none select-none"),
+    h.Class("block flex-none select-none [image-rendering:pixelated]"),
     h.Style({ width: `${px}px`, height: `${px}px` }),
   ]);
 
@@ -82,7 +82,7 @@ const frame = (h: H, topbarEnd: Html[], children: Html[], busy = false) =>
           h.div(
             [h.Class(`${COLUMN} flex! h-14 items-center gap-4`)],
             [
-              h.span([h.Class("flex items-center gap-2.5 text-[15px] font-medium tracking-[-0.01em] text-fg-strong")], [mark(h, 22), "puterminator"]),
+              h.span([h.Class("flex items-center gap-2.5 font-display text-[16px] text-accent")], [mark(h, 22), "puterminator"]),
               ...topbarEnd,
             ],
           ),
@@ -186,12 +186,12 @@ const signInView = (h: H, kind: SignIn) =>
           h.div(
             [h.Class("grid gap-6 rounded-2xl border border-line bg-raised p-8")],
             [
-              art(h, kind === "ready" ? "asleep" : "unplugged", 72),
+              art(h, kind === "ready" ? "asleep" : "unplugged", 64),
               h.div(
                 [h.Class("grid gap-2")],
                 [
-                  h.h1([h.Class("m-0 text-[18px] font-semibold tracking-[-0.01em] text-fg-strong")], ["puterminator"]),
-                  h.p([h.Class("m-0 text-fg-2")], ["reads your put.io, scores the mess and says what to fix. changes nothing."]),
+                  h.h1([h.Class("m-0 font-display text-[22px] font-medium text-accent")], ["puterminator"]),
+                  h.p([h.Class("m-0 text-fg-2")], ["terminates the mess in your put.io."]),
                 ],
               ),
               signInAction(h, kind),
@@ -299,12 +299,16 @@ const scoreCard = (h: H, model: Model, a: Audit, uid: string, live: boolean) => 
   const worstName = worst < 100 ? subs.find((s) => s[1] === worst)?.[0] : undefined;
   const facts = [`${fmt(a.totals.items)} items`, size(a.totals.bytes)];
   return h.section(
-    [h.Class(`${live ? "enter live" : ""} my-3 grid gap-6`), h.AriaLabel("library score"), h.DataAttribute("testid", "score-card")],
+    [
+      h.Class(`${live ? "enter live" : ""} my-1 grid gap-6 rounded-2xl border border-line bg-raised p-6 max-[480px]:p-4`),
+      h.AriaLabel("library score"),
+      h.DataAttribute("testid", "score-card"),
+    ],
     [
       h.div(
         [h.Class("flex items-center gap-5")],
         [
-          art(h, mood, 72, uid),
+          art(h, mood, 72),
           h.div(
             [h.Class("grid min-w-0 gap-1")],
             [
@@ -314,9 +318,9 @@ const scoreCard = (h: H, model: Model, a: Audit, uid: string, live: boolean) => 
                 [
                   h.span(
                     [h.Class("flex items-baseline gap-1.5"), h.Role("img"), h.AriaLabel(`library score ${a.score} out of 100`)],
-                    [h.span([h.Class("text-[40px] leading-none font-semibold tracking-[-0.03em] text-fg-strong tabular-nums")], [`${a.score}`]), h.span([h.Class("text-[13px] text-fg-3")], ["/100"])],
+                    [h.span([h.Class("font-display text-[56px] leading-none font-medium text-accent tabular-nums")], [`${a.score}`]), h.span([h.Class("text-[14px] text-fg-3")], ["/100"])],
                   ),
-                  h.span([h.Class("text-[13px] text-fg-2")], [MOOD_LINE[mood]]),
+                  h.span([h.Class("text-[15px] text-fg")], [MOOD_LINE[mood]]),
                 ],
               ),
             ],
@@ -468,7 +472,7 @@ const browseButton = (h: H) =>
   );
 
 const stat = (h: H, name: string, value: string, note: Array<Html | string>) =>
-  h.div([h.Class("grid min-w-0 gap-1")], [label(h, name), h.span([h.Class("text-[22px] leading-none font-semibold tracking-[-0.02em] text-fg-strong tabular-nums")], [value]), h.span([h.Class("flex min-w-0 items-center gap-2 text-[13px] text-fg-3")], note)]);
+  h.div([h.Class("grid min-w-0 gap-1")], [label(h, name), h.span([h.Class("font-display text-[26px] leading-none font-medium text-fg-strong tabular-nums")], [value]), h.span([h.Class("flex min-w-0 items-center gap-2 text-[13px] text-fg-3")], note)]);
 
 const lastScanStrip = (h: H, last: LastAudit, credits: Credits, browsable: boolean) =>
   h.div(
@@ -668,12 +672,12 @@ const emptyThread = (h: H, model: Model) => {
               h.div(
                 [h.Class("grid gap-3")],
                 [
-                  label(h, "library agent for put.io · read-only"),
-                  h.h1([h.Class("m-0 max-w-[22ch] text-[32px] leading-[1.15] font-semibold tracking-[-0.025em] text-balance text-fg-strong")], ["what should i do with your put.io?"]),
-                  h.p([h.Class("m-0 max-w-[46ch] text-[15px] text-fg-2")], ["i read your files, score the library and answer questions. i change nothing."]),
+                  label(h, "library agent for put.io"),
+                  h.h1([h.Class("m-0 max-w-[22ch] font-display text-[36px] leading-[1.1] font-medium text-balance text-fg-strong")], ["what should i do with your put.io?"]),
+                  h.p([h.Class("m-0 max-w-[46ch] text-[15px] text-fg-2")], ["i scan your library, score the mess and hunt down junk, duplicates and bad names."]),
                 ],
               ),
-              h.span([h.Class("pointer-events-none select-none max-[520px]:hidden")], [art(h, "idle", 112)]),
+              h.span([h.Class("max-[520px]:hidden")], [art(h, "idle", 96)]),
             ],
           ),
           ...(model.agent?.lastAudit ? [lastScanStrip(h, model.agent.lastAudit, model.agent.credits, model.library !== null)] : []),
