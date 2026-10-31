@@ -2,6 +2,7 @@ import * as Option from "effect/Option";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Audit } from "../shared/audit";
 import { FileFlag } from "../shared/contract";
+import { pixels } from "./art";
 import { ancestors, has, type Index, indexOf, isFolder, isRegular, type Node, putioUrl, resolve } from "./library";
 import { Message, type Model, PLAYER_ID, treeNodeId } from "./main";
 import { fmt, size } from "./steps";
@@ -83,39 +84,55 @@ const revealButton = (h: H, ix: Index, n: Node) =>
 
 const isPlayable = (n: Node) => has(n, FileFlag.video) && isRegular(n);
 
-/** A 16:9 tile: the put.io screenshot for videos (and the play button), the extension otherwise. */
+type Kind = "folder" | "video" | "audio" | "image" | "archive" | "subtitle" | "text" | "file";
+
+// Pixel file icons on the same grid as the mascot, drawn at 2× in the tile's text colour.
+const ICONS: Record<Kind, readonly string[]> = {
+  folder: ["#####.......", "############", "############", "############", "############", "############", "############", "############"],
+  video: ["############", "#..........#", "#...#......#", "#...###....#", "#...#####..#", "#...###....#", "#...#......#", "#..........#", "############"],
+  audio: ["....######", "....######", "....#....#", "....#....#", "....#....#", "..###..###", ".####.####", ".####.####", "..##...##."],
+  image: ["############", "#..........#", "#.......##.#", "#.......##.#", "#...#......#", "#..###...#.#", "#.#####.####", "############"],
+  archive: ["####.#####", "#...#.#..#", "#....#...#", "#...#....#", "#....#...#", "#...#....#", "#...##...#", "#...##...#", "#........#", "##########"],
+  subtitle: ["############", "#..........#", "#..........#", "#.###.####.#", "#..........#", "#.#####.##.#", "#..........#", "############"],
+  text: ["#######...", "#.....##..", "#.....#.#.", "#.....####", "#........#", "#.######.#", "#........#", "#.######.#", "#........#", "#.####...#", "#........#", "##########"],
+  file: ["#######...", "#.....##..", "#.....#.#.", "#.....####", "#........#", "#........#", "#........#", "#........#", "#........#", "#........#", "#........#", "##########"],
+};
+
+const EXT: Array<[Kind, RegExp]> = [
+  ["video", /^(mkv|mp4|m4v|avi|mov|webm|wmv|ts|flv|mpe?g)$/],
+  ["audio", /^(mp3|flac|m4a|aac|ogg|opus|wav)$/],
+  ["image", /^(jpe?g|png|gif|webp|bmp|heic)$/],
+  ["archive", /^(zip|rar|7z|tar|gz|bz2|xz|r\d\d)$/],
+  ["subtitle", /^(srt|ass|ssa|vtt|sub|idx)$/],
+  ["text", /^(txt|nfo|md|pdf|epub|docx?|log|sfv)$/],
+];
+
+const kindOf = (n: Node): Kind => {
+  if (isFolder(n)) return "folder";
+  if (has(n, FileFlag.video)) return "video";
+  const ext = n.name.match(/\.([a-z0-9]{1,5})$/i)?.[1]?.toLowerCase() ?? "";
+  return EXT.find(([, re]) => re.test(ext))?.[0] ?? "file";
+};
+
+const icon = (h: H, kind: Kind) => {
+  const rows = ICONS[kind];
+  return pixels(h, rows, { "#": "currentColor" }, rows.length * 2, "");
+};
+
+/** A square tile with the file's pixel icon; a video's tile also opens the player. */
 const tile = (h: H, n: Node) => {
-  const box = "relative grid h-9 w-16 flex-none place-items-center overflow-hidden rounded-md bg-raised";
-  if (!isPlayable(n)) {
-    const ext = isFolder(n) ? "dir" : (n.name.match(/\.([a-z0-9]{1,5})$/i)?.[1] ?? "file");
-    return h.span([h.Class(`${box} text-[12px] text-fg-4`), h.AriaHidden(true)], [ext.toLowerCase()]);
-  }
+  const box = "grid size-9 flex-none place-items-center rounded-md bg-raised";
+  const kind = kindOf(n);
+  if (!isPlayable(n)) return h.span([h.Class(`${box} ${kind === "folder" ? "text-fg-2" : "text-fg-3"}`), h.AriaHidden(true)], [icon(h, kind)]);
   return h.button(
     [
       h.Type("button"),
-      h.Class(`${box} group/tile`),
+      h.Class(`${box} text-accent transition-colors duration-160 hover:bg-hover hover:text-accent-bright`),
       h.AriaLabel(`play ${n.name}`),
+      h.Title("play"),
       h.OnClick(Message.OpenedPlayer({ id: n.id, name: n.name })),
     ],
-    [
-      h.img([
-        h.Src(`/api/files/${n.id}/thumb`),
-        h.Alt(""),
-        h.Loading("lazy"),
-        h.Decoding("async"),
-        h.Width("64"),
-        h.Height("36"),
-        h.Draggable(false),
-        h.Class("absolute inset-0 size-full object-cover select-none"),
-      ]),
-      h.span(
-        [
-          h.Class("relative text-[12px] text-fg-strong opacity-70 transition-opacity duration-160 group-hover/tile:opacity-100 [text-shadow:0_0_4px_#000]"),
-          h.AriaHidden(true),
-        ],
-        ["▶"],
-      ),
-    ],
+    [icon(h, "video")],
   );
 };
 
@@ -391,7 +408,7 @@ export const playerView = (h: H, model: Model) => {
             h.div(
               [h.Class("relative aspect-video bg-black")],
               p.failed
-                ? [h.p([h.Class("absolute inset-0 m-0 grid place-items-center text-[13px] text-fg-2")], ["couldn’t load this stream. try it on put.io."])]
+                ? [h.p([h.Class("absolute inset-0 m-0 grid place-items-center text-[13px] text-fg-2")], ["couldn’t load this stream. open it on put.io"])]
                 : [
                     h.video([h.Id(PLAYER_ID), h.Controls(true), h.Playsinline(true), h.Class("absolute inset-0 size-full")], []),
                     ...(p.src === null ? [h.span([h.Class("absolute inset-0 grid place-items-center text-[13px] text-fg-3")], ["loading…"])] : []),

@@ -54,6 +54,7 @@
   --color-fg-3: var(--fg-subtle);
   --color-fg-4: var(--fg-faint);
   --color-accent: var(--accent);
+  --color-accent-bright: var(--accent-bright);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-danger: var(--error);

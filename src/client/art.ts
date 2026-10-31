@@ -87,9 +87,8 @@ export const moodOf = (a: Audit): Mood =>
             ? "wading"
             : "flood";
 
-/** `px` is the height; the width follows the sprite, so props never shrink the face. Runs merge per row. */
-export const art = <M>(h: HtmlBuilder<M>, mood: Mood, px: number): Html => {
-  const rows = SPRITES[mood];
+/** Pixel rows to crisp SVG rects, one rect per same-colour run. `fills` maps a row character to a paint. */
+export const pixels = <M>(h: HtmlBuilder<M>, rows: readonly string[], fills: Record<string, string>, height: number, cls: string): Html => {
   const w = Math.max(...rows.map((r) => r.length));
   const rects: Html[] = [];
   rows.forEach((row, y) => {
@@ -97,7 +96,7 @@ export const art = <M>(h: HtmlBuilder<M>, mood: Mood, px: number): Html => {
       const c = row[x] ?? ".";
       let end = x + 1;
       while (row[end] === c) end++;
-      const fill = FILL[c];
+      const fill = fills[c];
       if (fill) rects.push(h.rect([h.X(`${x}`), h.Y(`${y}`), h.Width(`${end - x}`), h.Height("1"), h.Fill(fill)], []));
       x = end;
     }
@@ -106,11 +105,14 @@ export const art = <M>(h: HtmlBuilder<M>, mood: Mood, px: number): Html => {
     [
       h.ViewBox(`0 0 ${w} ${rows.length}`),
       h.AriaHidden(true),
-      h.Class("art pointer-events-none block flex-none select-none"),
-      h.Height(`${px}`),
-      h.Width(`${Math.round((px * w) / rows.length)}`),
+      h.Class(`pointer-events-none block flex-none select-none ${cls}`),
+      h.Height(`${height}`),
+      h.Width(`${Math.round((height * w) / rows.length)}`),
       h.ShapeRendering("crispEdges"),
     ],
     rects,
   );
 };
+
+/** `px` is the height; the width follows the sprite, so props never shrink the face. */
+export const art = <M>(h: HtmlBuilder<M>, mood: Mood, px: number): Html => pixels(h, SPRITES[mood], FILL, px, "art");

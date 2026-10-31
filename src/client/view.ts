@@ -191,7 +191,7 @@ const signInView = (h: H, kind: SignIn) =>
                 [h.Class("grid gap-2")],
                 [
                   h.h1([h.Class("m-0 font-display text-[22px] font-medium text-accent")], ["puterminator"]),
-                  h.p([h.Class("m-0 text-fg-2")], ["terminates the mess in your put.io."]),
+                  h.p([h.Class("m-0 text-fg-2")], ["terminates the mess in your put.io"]),
                 ],
               ),
               signInAction(h, kind),
