@@ -34,7 +34,15 @@ export const Run = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   changes: Schema.Array(Change),
-  steps: Schema.Array(Schema.Struct({ change: Schema.String, state: StepState, error: Schema.NullOr(Schema.String) })),
+  /** `maybeApplied`: a failed step whose write may still have reached put.io (stopped mid-write, no answer, 5xx). */
+  steps: Schema.Array(
+    Schema.Struct({
+      change: Schema.String,
+      state: StepState,
+      error: Schema.NullOr(Schema.String),
+      maybeApplied: Schema.optionalKey(Schema.Boolean),
+    }),
+  ),
 });
 export type Run = typeof Run.Type;
 

@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import { PlanRecord } from "../shared/actions";
-import { AgentState, initialAgentState, MessageParam } from "../shared/contract";
+import { AgentState, Folder, initialAgentState, MessageParam } from "../shared/contract";
 import type { WalkedFile } from "./tree";
 
 export type SqlValue = string | number | null;
@@ -22,9 +22,15 @@ const encodeState = Schema.encodeSync(Schema.fromJsonString(AgentState));
 const decodeMessage = Schema.decodeUnknownOption(Schema.fromJsonString(MessageParam));
 const encodeMessage = Schema.encodeSync(Schema.fromJsonString(MessageParam));
 
-/** A plan as the server keeps it: the record the browser sees, the put.io ids it acts on, and whether
-    the model has been told how its run went. */
-export const StoredRecord = Schema.Struct({ record: PlanRecord, ids: Schema.Record(Schema.String, Schema.Finite), reported: Schema.Boolean });
+/** A plan as the server keeps it: the record the browser sees, the put.io ids it acts on, each file's folder
+    id when proposed, the target folder it was made in, and whether the model has been told how its run went. */
+export const StoredRecord = Schema.Struct({
+  record: PlanRecord,
+  ids: Schema.Record(Schema.String, Schema.Finite),
+  parents: Schema.optionalKey(Schema.Record(Schema.String, Schema.Finite)),
+  folder: Schema.optionalKey(Folder),
+  reported: Schema.Boolean,
+});
 export type StoredRecord = typeof StoredRecord.Type;
 const decodeRecord = Schema.decodeUnknownOption(Schema.fromJsonString(StoredRecord));
 const encodeRecord = Schema.encodeSync(Schema.fromJsonString(StoredRecord));

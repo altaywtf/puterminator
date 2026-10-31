@@ -10,9 +10,9 @@ import * as Stream from "effect/Stream";
 import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, type Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { PlanRecord, Run } from "../shared/actions";
-import { AskInput, applyChange, folderIds, ProposeInput, undoChanges, validatePlan, validateQuestion } from "./changes";
-import { downloadToken, fileMedia, hlsUrl, listAll, type PutioError, putioLayer, trashEnabled } from "./putio";
-import { type AnthropicClient, effectTool, runTurn, type TurnError, weightedTokens } from "./runner";
+import { AskInput, applyChange, folderIds, ProposeInput, parentOf, undoChanges, validatePlan, validateQuestion } from "./changes";
+import { downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
+import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
 import { month, type Store, type StoredRecord } from "./store";
 import { buildTree } from "./tree";
 import type { ListFolderOutput, SearchFilesOutput } from "../shared/tools";
@@ -207,11 +207,10 @@ export const makeAgent = (deps: AgentDeps) =>
     const withCurrent = (r: PlanRecord, run: Run): PlanRecord => (r.undo ? { ...r, undo: run } : { ...r, run });
     const failUnfinished = (run: Run, error: string): Run => ({
       ...run,
-      steps: run.steps.map((s) => (s.state === "running" || s.state === "queued" ? { ...s, state: "failed", error } : s)),
+      steps: run.steps.map((s) =>
+        s.state === "running" ? { ...s, state: "failed", error, maybeApplied: true } : s.state === "queued" ? { ...s, state: "failed", error } : s,
+      ),
     });
-
-    const stepError = (e: PutioError) =>
-      e._tag === "PutioRateLimited" ? "put.io rate limit; retry in a minute" : e._tag === "PutioUnauthorized" ? "put.io signed you out" : e.message;
 
     /** Runs the current run's queued steps in order (the undo once there is one), one put.io change each,
         then rescans. Stopping fails what's left. */
@@ -219,7 +218,7 @@ export const makeAgent = (deps: AgentDeps) =>
       const token = store.token();
       const first = plans.get(planId);
       const run = first && current(first.record);
-      if (!token || !first || !run) return;
+      if (!first || !run) return;
       const undoing = !!first.record.undo;
       const update = (f: (run: Run) => Run, status: StoredRecord["record"]["status"] = undoing ? "undoing" : "applying") => {
         const cur = plans.get(planId);
@@ -227,10 +226,25 @@ export const makeAgent = (deps: AgentDeps) =>
         if (cur && r) saveRecord({ ...cur, reported: false, record: withCurrent({ ...cur.record, status }, f(r)) });
       };
       const finished = undoing ? "undone" : "done";
-      const setStep = (change: string, state: Run["steps"][number]["state"], error: string | null = null) =>
-        update((run) => ({ ...run, steps: run.steps.map((s) => (s.change === change ? { ...s, state, error } : s)) }));
+      const setStep = (change: string, state: Run["steps"][number]["state"], error: string | null = null, maybe = false) =>
+        update((run) => ({
+          ...run,
+          steps: run.steps.map((s) => (s.change === change ? { change, state, error, ...(maybe ? { maybeApplied: true } : {}) } : s)),
+        }));
+      const refused =
+        !token ? "put.io signed you out; sign in again"
+        : first.folder && first.folder.id !== state.folder.id ? `made in ${first.folder.name}; switch back to it first`
+        : null;
+      if (!token || refused) return update((r) => failUnfinished(r, refused ?? ""), finished);
+      const parents = first.parents ?? {};
+      const original = undoing
+        ? run.changes.flatMap((c): Array<[string, number]> => {
+            const id = parents[c.id];
+            return c.op === "move" && c.to && id !== undefined ? [[parentOf(c.to), id]] : [];
+          })
+        : [];
       const work = Effect.gen(function* () {
-        const folders = folderIds(store.snapshot(), state.folder.id);
+        const folders = folderIds(store.snapshot(), state.folder.id, original);
         const queued = run.steps.filter((s) => s.state === "queued");
         const needsTrash = queued.some((s) => run.changes.find((c) => c.id === s.change)?.op === "trash");
         const trashOn = needsTrash ? yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)) : true;
@@ -247,7 +261,7 @@ export const makeAgent = (deps: AgentDeps) =>
           if (Exit.isSuccess(exit)) setStep(step.change, "done");
           else {
             const err = Exit.findErrorOption(exit);
-            setStep(step.change, "failed", err._tag === "Some" ? stepError(err.value) : "didn’t finish");
+            setStep(step.change, "failed", err._tag === "Some" ? stepMessage(err.value) : "didn’t finish", err._tag === "None" || maybeApplied(err.value));
           }
         }
         update((r) => r, finished);
@@ -428,7 +442,7 @@ export const makeAgent = (deps: AgentDeps) =>
             if (!all.length) return noSnapshot;
             const out = validatePlan(all, input, newId());
             if ("error" in out) return JSON.stringify(out);
-            saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, reported: true });
+            saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true });
             return JSON.stringify(out.plan);
           }),
       }),
@@ -473,12 +487,15 @@ export const makeAgent = (deps: AgentDeps) =>
         }
 
         setState({ ...state, busy: true });
+        const m = credits.month;
         const events = runTurn({
           model: deps.model,
           system: SYSTEM,
           messages: store.history().map(toAnthropic),
           tools,
           partialEveryMs: deps.partialEveryMs ?? 60,
+          onUsage: (tokens) => store.charge(m, tokens),
+          canContinue: () => store.used(m) < credits.cap,
         });
         yield* Stream.runForEach(events, (event) =>
           Effect.gen(function* () {
@@ -487,8 +504,6 @@ export const makeAgent = (deps: AgentDeps) =>
                 broadcast({ type: "partial", content: toBlocks(event.content) });
                 return;
               case "assistant": {
-                const m = month(yield* Clock.currentTimeMillis);
-                store.charge(m, weightedTokens(event.message.usage));
                 yield* refreshCredits;
                 append(toMessage({ role: "assistant", content: event.message.content }));
                 broadcast({ type: "partial", content: null });
@@ -524,7 +539,7 @@ export const makeAgent = (deps: AgentDeps) =>
             running = false;
             broadcast({ type: "partial", content: null });
             if (state.busy) setState({ ...state, busy: false });
-          }),
+          }).pipe(Effect.andThen(refreshCredits)),
         ),
       );
 

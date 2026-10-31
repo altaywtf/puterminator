@@ -4,9 +4,10 @@ const RELEASE_TAG =
   /\b(2160p|1080p|720p|480p|x26[45]|h\.?26[45]|hevc|web-?dl|webrip|bluray|brrip|bdrip|hdtv|dvdrip|hdrip|aac|ac3|ddp?5\.1|10bit|yify|yts|rarbg|eztv|ettv|proper|repack)\b/i;
 const BRACKET_GROUP = /\[[^\]]{2,}\]/;
 const GROUP_SUFFIX = /-[A-Za-z0-9]{2,12}$/;
-const JUNK_NAME = /(^|[\s._-])(sample|rarbg|www\.|torrent downloaded from)|RARBG_DO_NOT_MIRROR|^Thumbs\.db$/i;
+const JUNK_NAME = /(^|[\s._-])(rarbg|www\.|torrent downloaded from)|RARBG_DO_NOT_MIRROR|^Thumbs\.db$/i;
+const SAMPLE = /(^|[\s._-])sample([\s._-]|$)/i;
 const OS_DEBRIS = /^\._|^\.DS_Store$|^desktop\.ini$/i;
-const JUNK_EXT = new Set(["nfo", "txt", "url", "exe", "lnk", "sfv", "md5", "torrent", "website", "db"]);
+const JUNK_EXT = new Set(["nfo", "url", "lnk", "sfv", "md5", "torrent", "website"]);
 const IMAGE_EXT = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
 const MB = 2 ** 20;
 
@@ -30,8 +31,10 @@ const ext = (f: WalkedFile) => (f.extension ?? f.name.split(".").pop() ?? "").to
 const isVideo = (f: WalkedFile) => f.file_type === "VIDEO";
 const isFolder = (f: WalkedFile) => f.file_type === "FOLDER";
 
+const stemOf = (name: string) => name.replace(/\.[a-z0-9]{2,4}$/i, "");
+
 export function isMessyName(name: string) {
-  const stem = name.replace(/\.[a-z0-9]{2,4}$/i, "");
+  const stem = stemOf(name);
   const dotted = (stem.match(/\./g) ?? []).length >= 3 && !stem.includes(" ");
   return RELEASE_TAG.test(stem) || dotted || BRACKET_GROUP.test(stem) || (GROUP_SUFFIX.test(stem) && !stem.includes(" "));
 }
@@ -42,11 +45,15 @@ export function junkFinder(files: ReadonlyArray<WalkedFile>) {
   return (f: WalkedFile): string | null => {
     if (isFolder(f)) return null;
     if (OS_DEBRIS.test(f.name) || f.path.includes("/__MACOSX/")) return "macOS debris";
-    if (JUNK_NAME.test(f.name)) return /sample/i.test(f.name) ? "sample clip" : "tracker filler";
+    if (isVideo(f)) {
+      if (f.size >= 50 * MB) return null;
+      if (SAMPLE.test(stemOf(f.name)) || /\/sample\//i.test(f.path)) return "sample clip";
+      return JUNK_NAME.test(f.name) ? "tracker filler" : null;
+    }
+    if (JUNK_NAME.test(f.name) && f.size < 2 * MB) return "tracker filler";
     const e = ext(f);
     if (JUNK_EXT.has(e)) return `.${e} file`;
     if (IMAGE_EXT.has(e) && f.size < 2 * MB && f.parent_id != null && withVideo.has(f.parent_id)) return "cover or logo image";
-    if (isVideo(f) && f.size < 50 * MB && /sample|trailer/i.test(f.path)) return "sample clip";
     return null;
   };
 }

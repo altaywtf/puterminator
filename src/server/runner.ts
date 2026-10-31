@@ -172,6 +172,10 @@ export interface TurnInput<T extends EffectTool<any>> {
   readonly messages: ReadonlyArray<BetaMessageParam>;
   readonly tools: ReadonlyArray<T>;
   readonly partialEveryMs: number;
+  /** Weighted tokens as each request streams in, so a stopped or failed turn is still paid for. */
+  readonly onUsage?: (weightedTokens: number) => void;
+  /** Checked before each follow-up request; false ends the turn with its tool calls unanswered. */
+  readonly canContinue?: () => boolean;
 }
 
 /**
@@ -217,14 +221,23 @@ export const runTurn = <T extends EffectTool<any>>(
           );
           for await (const stream of runner) {
             let sent = 0;
-            stream.on("streamEvent", (_e, snapshot) => {
+            let charged = 0;
+            const charge = (usage: BetaUsage) => {
+              const total = weightedTokens(usage);
+              if (total > charged) input.onUsage?.(total - charged);
+              charged = Math.max(charged, total);
+            };
+            stream.on("streamEvent", (e, snapshot) => {
+              if (e.type === "message_start" || e.type === "message_delta") charge(snapshot.usage);
               if (Date.now() - sent < input.partialEveryMs) return;
               sent = Date.now();
               Queue.offerUnsafe(queue, { type: "partial", content: snapshot.content });
             });
             const message = await stream.finalMessage();
+            charge(message.usage);
             Queue.offerUnsafe(queue, { type: "assistant", message });
             if (message.stop_reason === "refusal") break;
+            if (message.stop_reason === "tool_use" && input.canContinue && !input.canContinue()) break;
             // Cached by the runner, so the next iteration reuses these results instead of running tools again.
             const results = await runner.generateToolResponse();
             if (fatal) throw fatal;

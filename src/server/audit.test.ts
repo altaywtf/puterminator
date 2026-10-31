@@ -36,11 +36,21 @@ describe("naming", () => {
 describe("junk", () => {
   it("catches tracker filler, info files and samples", () => {
     const junkReason = junkFinder([]);
-    expect(junkReason(file("/Movies/X/RARBG_DO_NOT_MIRROR.exe"))).toBe("tracker filler");
-    expect(junkReason(file("/Movies/X/movie.nfo"))).toBe(".nfo file");
+    expect(junkReason(file("/Movies/X/RARBG_DO_NOT_MIRROR.exe", { size: 100 }))).toBe("tracker filler");
+    expect(junkReason(file("/Movies/X/movie.nfo", { size: 4096 }))).toBe(".nfo file");
     expect(junkReason(file("/Movies/X/Sample/x-sample.mkv", { size: 20 * 2 ** 20 }))).toBe("sample clip");
     expect(junkReason(file("/Movies/X/WWW.YTS.MX.jpg", { size: 50_000 }))).not.toBeNull();
     expect(junkReason(file("/Movies/X/Dune (2024).mkv"))).toBeNull();
+  });
+
+  it("never calls a real movie, episode or program junk", () => {
+    const junkReason = junkFinder([]);
+    expect(junkReason(file("/Movies/Heat.1995.1080p.BluRay.x264-RARBG/Heat.1995.1080p.BluRay.x264-RARBG.mkv"))).toBeNull();
+    expect(junkReason(file("/Movies/www.UIndex.org - Dune.2021.1080p.mkv"))).toBeNull();
+    expect(junkReason(file("/Movies/Free Samples (2012).mkv", { size: 30 * 2 ** 20 }))).toBeNull();
+    expect(junkReason(file("/Series/Trailer Park Boys/Season 1/Trailer Park Boys - S01E01.mkv", { size: 40 * 2 ** 20 }))).toBeNull();
+    expect(junkReason(file("/Software/App/setup.exe", { size: 2 * 2 ** 30 }))).toBeNull();
+    expect(junkReason(file("/Courses/Habits/notes.txt", { size: 2048 }))).toBeNull();
   });
 
   it("calls a small image junk only beside a video", () => {

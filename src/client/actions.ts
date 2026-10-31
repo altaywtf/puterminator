@@ -288,7 +288,7 @@ export const runCard = (h: H, ctx: Ctx, run: Run, live = false, opts: { undoable
         ...(failed.length > 0
           ? [h.button([h.Type("button"), h.Class("btn btn-sm"), h.OnClick(Message.ClickedRetryRun({ plan: run.id }))], [`retry ${fmt(failed.length)}`])]
           : []),
-        ...(opts.undoable && done.length > 0
+        ...(opts.undoable && run.steps.some((s) => s.state === "done" || s.maybeApplied)
           ? [h.button([h.Type("button"), h.Class("btn btn-sm"), h.OnClick(Message.ClickedUndoRun({ plan: run.id }))], ["undo"])]
           : []),
       ]),

@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import type { PutioSdkContext } from "@putdotio/sdk";
 import type { Change, Plan, Question, Run } from "../shared/actions";
-import { createFolder, moveFile, type PutioError, renameFile, restoreFile, trashFile } from "./putio";
+import { createFolder, moveFile, type PutioError, PutioFailed, renameFile, restoreFile, stepMessage, trashFile } from "./putio";
 import type { WalkedFile } from "./tree";
 
 // What the model may propose and ask, checked against the snapshot before anything is shown,
@@ -29,8 +29,9 @@ export const AskInput = Schema.Struct({
 });
 export type AskInput = typeof AskInput.Type;
 
-/** A plan as the server keeps it: what the card shows, plus the put.io ids it acts on. */
-export type StoredPlan = { plan: Plan; ids: Record<string, number> };
+/** A plan as the server keeps it: what the card shows, the put.io ids it acts on, and each file's folder id
+    when it was proposed, so undo can put it back. */
+export type StoredPlan = { plan: Plan; ids: Record<string, number>; parents: Record<string, number> };
 
 const clean = (path: string) => `/${path.trim().replace(/^\/+|\/+$/g, "")}`;
 const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
@@ -45,6 +46,7 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
   const seen = new Set<number>();
   const changes: Change[] = [];
   const ids: Record<string, number> = {};
+  const parents: Record<string, number> = {};
   const problems: string[] = [];
   input.changes.forEach((c, i) => {
     const path = clean(c.path);
@@ -70,11 +72,12 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
     }
     const changeId = `c${i + 1}`;
     ids[changeId] = f.id;
+    if (f.parent_id != null) parents[changeId] = f.parent_id;
     changes.push({ id: changeId, op: c.op, path, to, bytes: c.op === "trash" ? f.size : 0 });
   });
   if (problems.length > 0) return { error: `Fix these and propose again: ${problems.slice(0, 10).join("; ")}` };
-  const withSubtitles = changes.flatMap((c) => [c, ...subtitlesFor(snapshot, byPath, c, seen, ids)]);
-  return { plan: { id, title: input.title.trim().slice(0, 80) || "changes", changes: withSubtitles }, ids };
+  const withSubtitles = changes.flatMap((c) => [c, ...subtitlesFor(snapshot, byPath, c, seen, ids, parents)]);
+  return { plan: { id, title: input.title.trim().slice(0, 80) || "changes", changes: withSubtitles }, ids, parents };
 };
 
 const SUBTITLE = /^((?:[._ -][a-z]{2,8})*\.(?:srt|sub|idx|ass|ssa|vtt))$/i;
@@ -87,6 +90,7 @@ const subtitlesFor = (
   c: Change,
   seen: Set<number>,
   ids: Record<string, number>,
+  parents: Record<string, number>,
 ): Change[] => {
   const video = byPath.get(c.path);
   if (!video || video.file_type !== "VIDEO" || c.op === "trash" || !c.to) return [];
@@ -102,6 +106,7 @@ const subtitlesFor = (
       seen.add(f.id);
       const id = `${c.id}s${k + 1}`;
       ids[id] = f.id;
+      if (f.parent_id != null) parents[id] = f.parent_id;
       return [{ id, op: c.op, path: f.path, to: c.op === "rename" ? name : `${folder}/${name}`, bytes: 0 }];
     });
 };
@@ -117,9 +122,9 @@ export const validateQuestion = (input: AskInput, id: string): Question | { erro
   };
 };
 
-/** The reverse of a run's done steps, last first. Each keeps its change id, so it acts on the same file. */
+/** The reverse of every step that may have reached put.io, last first. Each keeps its change id, so it acts on the same file. */
 export const undoChanges = (run: Run): Change[] => {
-  const done = new Set(run.steps.filter((s) => s.state === "done").map((s) => s.change));
+  const done = new Set(run.steps.filter((s) => s.state === "done" || (s.state === "failed" && s.maybeApplied)).map((s) => s.change));
   return run.changes
     .filter((c) => done.has(c.id))
     .reverse()
@@ -131,11 +136,21 @@ export const undoChanges = (run: Run): Change[] => {
     });
 };
 
-/** Folder ids by path for one run: the snapshot's folders, plus any the run creates. */
-export const folderIds = (snapshot: ReadonlyArray<WalkedFile>, rootId: number) => {
+/** Folder ids by path for one run: the snapshot's folders, then `known` (undo's original folders), plus any the run creates. */
+export const folderIds = (snapshot: ReadonlyArray<WalkedFile>, rootId: number, known: ReadonlyArray<[string, number]> = []) => {
   const ids = new Map<string, number>([["/", rootId]]);
   for (const f of snapshot) if (f.file_type === "FOLDER") ids.set(f.path, f.id);
+  for (const [path, id] of known) ids.set(path, id);
   return ids;
+};
+
+/** A folder renamed or moved takes everything under it along. */
+const repath = (folders: Map<string, number>, from: string, to: string) => {
+  for (const [path, id] of [...folders]) {
+    if (path !== from && !path.startsWith(`${from}/`)) continue;
+    folders.delete(path);
+    folders.set(to + path.slice(from.length), id);
+  }
 };
 
 /** The folder at `path`, creating any missing ones on the way down. */
@@ -153,15 +168,17 @@ const ensureFolder = (folders: Map<string, number>, path: string): Effect.Effect
 export const applyChange = (change: Change, fileId: number, folders: Map<string, number>): Effect.Effect<void, PutioError, PutioSdkContext> => {
   if (change.op === "trash") return trashFile(fileId).pipe(Effect.asVoid);
   if (change.op === "restore") return restoreFile(fileId).pipe(Effect.asVoid);
-  if (change.op === "rename") return renameFile(fileId, change.to ?? "").pipe(Effect.asVoid);
+  if (change.op === "rename")
+    return renameFile(fileId, change.to ?? "").pipe(
+      Effect.tap(() => Effect.sync(() => repath(folders, change.path, `${parentOf(change.path).replace(/\/$/, "")}/${change.to ?? ""}`))),
+      Effect.asVoid,
+    );
   const to = change.to ?? "";
   return Effect.gen(function* () {
     const parent = yield* ensureFolder(folders, parentOf(to));
     yield* moveFile(fileId, parent);
-    if (nameOf(to) !== nameOf(change.path)) yield* renameFile(fileId, nameOf(to));
-    if (folders.has(change.path)) {
-      folders.delete(change.path);
-      folders.set(to, fileId);
-    }
+    if (nameOf(to) !== nameOf(change.path))
+      yield* renameFile(fileId, nameOf(to)).pipe(Effect.mapError((e) => new PutioFailed({ message: `moved, but the rename failed: ${stepMessage(e)}` })));
+    repath(folders, change.path, to);
   });
 };

@@ -34,6 +34,8 @@ export class PutioRateLimited extends Schema.TaggedError<PutioRateLimited>()("Pu
 /** Any other put.io failure: transport, status or decoding. */
 export class PutioFailed extends Schema.TaggedError<PutioFailed>()("PutioFailed", {
   message: Schema.String,
+  /** put.io answered and refused, so nothing changed. Absent when the write may have gone through. */
+  refused: Schema.optionalKey(Schema.Boolean),
 }) {}
 
 export type PutioError = PutioUnauthorized | PutioRateLimited | PutioFailed;
@@ -192,9 +194,19 @@ const write = <A, R>(label: string, effect: Effect.Effect<A, PutioSdkError, R>):
         ? new PutioUnauthorized({ status: err.status })
         : isPutioRateLimitError(err)
           ? new PutioRateLimited({ retryAfterMs: 60_000 })
-          : new PutioFailed({ message: `put.io ${label}${"status" in err ? ` → ${err.status}` : ""}` }),
+          : new PutioFailed({
+              message: `put.io ${label}${"status" in err ? ` → ${err.status}` : ""}`,
+              ...("status" in err && typeof err.status === "number" && err.status >= 400 && err.status < 500 ? { refused: true } : {}),
+            }),
     ),
   );
+
+/** How a failed write reads on its step. */
+export const stepMessage = (e: PutioError) =>
+  e._tag === "PutioRateLimited" ? "put.io rate limit; retry in a minute" : e._tag === "PutioUnauthorized" ? "put.io signed you out" : e.message;
+
+/** Whether a failed write may still have changed put.io. */
+export const maybeApplied = (e: PutioError) => e._tag === "PutioFailed" && !e.refused;
 
 const Ok = Schema.Struct({ status: Schema.String });
 
@@ -222,7 +234,7 @@ export const moveFile = (id: number, parentId: number) =>
   write(
     "/files/move",
     requestJson(MoveResult, { method: "POST", path: "/v2/files/move", body: { type: "form", value: { file_ids: String(id), parent_id: parentId } } }),
-  ).pipe(Effect.flatMap((r) => ((r.errors ?? []).length > 0 ? Effect.fail(new PutioFailed({ message: "put.io /files/move → refused" })) : Effect.void)));
+  ).pipe(Effect.flatMap((r) => ((r.errors ?? []).length > 0 ? Effect.fail(new PutioFailed({ message: "put.io /files/move → refused", refused: true })) : Effect.void)));
 
 const Created = Schema.Struct({ file: Schema.Struct({ id: Schema.Finite }) });
 

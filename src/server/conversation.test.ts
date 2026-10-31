@@ -27,6 +27,7 @@ const setup = async (
     history?: Array<MessageParam>;
     trashEnabled?: boolean;
     failWrites?: Array<number>;
+    dropWrites?: Array<number>;
     restoreLag?: number;
     files?: typeof library;
   } = {},
@@ -41,6 +42,7 @@ const setup = async (
     unauthorized: opts.putioUnauthorized ?? false,
     trashEnabled: opts.trashEnabled ?? true,
     failWrites: opts.failWrites ?? [],
+    dropWrites: opts.dropWrites ?? [],
     restoreLag: opts.restoreLag ?? 0,
   });
   const events: Array<ServerEvent> = [];
@@ -176,6 +178,31 @@ describe("a turn", () => {
     expect(sent[2]?.content).toEqual([
       { type: "tool_result", tool_use_id: "toolu_old", content: "Stopped before this tool finished.", is_error: true },
     ]);
+  });
+
+  it("pays for a stopped turn's streamed tokens", async () => {
+    const t = await setup([{ kind: "hang" }]);
+    await Effect.runPromise(t.agent.receive(send("Audit my library")));
+    await t.anthropic.hanging;
+    await new Promise((r) => setTimeout(r, 20));
+    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "stop" })));
+    await t.settle();
+    expect(t.store.used(month(Date.now()))).toBe(1 + 1 * 5);
+    expect(t.agent.state().credits.used).toBe(6);
+  });
+
+  it("makes no follow-up request once a turn spends the month's credits", async () => {
+    const t = await setup(
+      [
+        { kind: "sse", events: toolUseTurn({ id: "toolu_1", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 200, output: 5 }) },
+        { kind: "sse", events: textTurn("done.", { input: 10, output: 5 }) },
+      ],
+      { cap: 100 },
+    );
+    await Effect.runPromise(t.agent.receive(send("Audit my library")));
+    await t.settle();
+    expect(t.anthropic.requests).toHaveLength(1);
+    expect(t.agent.state().busy).toBe(false);
   });
 
   it("answers from the app without calling Claude once the month's credits are spent", async () => {
@@ -394,6 +421,84 @@ describe("plans", () => {
       ["/v2/files/rename", { file_id: "2", name: "Heat (1995).mkv" }],
       ["/v2/files/rename", { file_id: "2", name: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }],
     ]);
+  });
+
+  const applied = async (input: string, opts: Parameters<typeof setup>[1] = {}) => {
+    const t = await setup(proposeTurn(input), opts);
+    await Effect.runPromise(t.agent.receive(send("go")));
+    await t.settle();
+    const id = planOf(t).plan.id;
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
+    await t.settle();
+    return { t, id };
+  };
+
+  it("moves into a folder the same plan renamed, without making a second one", async () => {
+    const { t } = await applied(
+      JSON.stringify({
+        title: "films",
+        changes: [
+          { op: "rename", path: "/Movies", to: "Films" },
+          { op: "move", path: "/Alien (1979).mkv", to: "/Films/Alien (1979).mkv" },
+        ],
+      }),
+    );
+    expect(writes(t)).toEqual([
+      ["/v2/files/rename", { file_id: "1", name: "Films" }],
+      ["/v2/files/move", { file_ids: "4", parent_id: "1" }],
+    ]);
+  });
+
+  it("undoes into the folders files came from, even after those folders moved", async () => {
+    const { t, id } = await applied(
+      JSON.stringify({
+        title: "archive",
+        changes: [
+          { op: "move", path: "/Movies", to: "/Old/Movies" },
+          { op: "move", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "/Heat.mkv" },
+        ],
+      }),
+    );
+    const before = writes(t).length;
+    await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
+    await t.settle();
+    expect(writes(t).slice(before)).toEqual([
+      ["/v2/files/move", { file_ids: "2", parent_id: "1" }],
+      ["/v2/files/rename", { file_id: "2", name: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }],
+      ["/v2/files/move", { file_ids: "1", parent_id: "0" }],
+    ]);
+  });
+
+  it("undoes a write whose answer was lost, since put.io may have done it", async () => {
+    const { t, id } = await applied(proposal, { dropWrites: [3] });
+    expect(planOf(t).run?.steps[0]).toMatchObject({ change: "c1", state: "failed", maybeApplied: true });
+    await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
+    await t.settle();
+    expect(writes(t).at(-1)).toEqual(["/v2/trash/restore", { file_ids: "3" }]);
+  });
+
+  it("fails a run when the put.io sign-in is gone, instead of leaving it applying", async () => {
+    const t = await setup(proposeTurn());
+    await Effect.runPromise(t.agent.receive(send("go")));
+    await t.settle();
+    t.store.deleteToken();
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: planOf(t).plan.id, exclude: [] })));
+    await t.settle();
+    expect(writes(t)).toEqual([]);
+    expect(planOf(t).status).toBe("done");
+    expect(planOf(t).run?.steps.map((s) => s.error)).toEqual(Array(3).fill("put.io signed you out; sign in again"));
+  });
+
+  it("refuses to apply a plan in another target folder than the one it was made in", async () => {
+    const t = await setup([...proposeTurn(), { kind: "sse", events: textTurn("ok.", { input: 10, output: 5 }) }]);
+    await Effect.runPromise(t.agent.receive(send("go")));
+    await t.settle();
+    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "send", text: "now Movies", folder: { id: 1, name: "Movies" } })));
+    await t.settle();
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: planOf(t).plan.id, exclude: [] })));
+    await t.settle();
+    expect(writes(t)).toEqual([]);
+    expect(planOf(t).run?.steps.every((s) => s.state === "failed" && s.error === "made in Your Files; switch back to it first")).toBe(true);
   });
 
   it("rejects a proposal naming files outside the snapshot, and stores nothing", async () => {
