@@ -31,6 +31,8 @@ export type FakePutioOptions = {
   trashEnabled?: boolean;
   /** File ids whose writes fail with a 400. */
   failWrites?: ReadonlyArray<number>;
+  /** A restored file stays out of this many following listings, as put.io restores in the background. */
+  restoreLag?: number;
 };
 
 export type PutioRequest = { method: string; url: URL; body: URLSearchParams };
@@ -40,9 +42,11 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
   let limited = opts.rateLimitContinue?.times ?? 0;
   const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
+  const lagging = new Map<number, number>();
+  let listing = opts.files;
   const page = (offset: number) => {
     const next = offset + opts.pageSize;
-    return { files: opts.files.slice(offset, next), cursor: next < opts.files.length ? `c${next}` : null };
+    return { files: listing.slice(offset, next), cursor: next < listing.length ? `c${next}` : null };
   };
 
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -51,7 +55,11 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     log.push({ method: init?.method ?? "GET", url, body });
     if (opts.unauthorized) return json(401, { status: "ERROR", error_type: "invalid_grant", status_code: 401 });
 
-    if (url.pathname === "/v2/files/list") return json(200, { ...page(0), parent: null, status: "OK" });
+    if (url.pathname === "/v2/files/list") {
+      listing = opts.files.filter((f) => !lagging.has(f.id));
+      for (const [id, n] of lagging) n <= 1 ? lagging.delete(id) : lagging.set(id, n - 1);
+      return json(200, { ...page(0), parent: null, status: "OK" });
+    }
     if (url.pathname === "/v2/files/list/continue") {
       if (limited > 0 && opts.rateLimitContinue) {
         limited--;
@@ -68,6 +76,7 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     if (url.pathname === "/v2/account/settings") return json(200, { settings: { trash_enabled: opts.trashEnabled ?? true }, status: "OK" });
     const target = Number(body.get("file_ids") ?? body.get("file_id") ?? NaN);
     const fails = (opts.failWrites ?? []).includes(target);
+    if (url.pathname === "/v2/trash/restore" && !fails && opts.restoreLag) lagging.set(target, opts.restoreLag);
     if (["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/trash/restore"].includes(url.pathname))
       return fails ? json(400, { status: "ERROR", error_type: "LOCKED", status_code: 400 }) : json(200, { status: "OK", errors: [] });
     if (url.pathname === "/v2/files/create-folder") return json(200, { file: { ...file(9000 + log.length, Number(body.get("parent_id")), body.get("name") ?? "", "FOLDER") }, status: "OK" });

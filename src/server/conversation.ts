@@ -95,6 +95,8 @@ export interface AgentDeps {
   /** put.io's API origin for URLs handed to the browser; the dev fake overrides it. */
   readonly putioBase?: string;
   readonly partialEveryMs?: number;
+  /** put.io restores trash in the background; wait this long before rescanning for files still missing. */
+  readonly restoreRecheckMs?: number;
 }
 
 /**
@@ -250,6 +252,20 @@ export const makeAgent = (deps: AgentDeps) =>
         }
         update((r) => r, finished);
         yield* scan.pipe(Effect.ignore);
+        const restored = new Set(
+          (current(plans.get(planId)?.record ?? first.record)?.steps ?? []).flatMap((s) => {
+            const id = first.ids[s.change];
+            return s.state === "done" && id !== undefined && run.changes.find((c) => c.id === s.change)?.op === "restore" ? [id] : [];
+          }),
+        );
+        const missing = () => {
+          const have = new Set(store.snapshot().map((f) => f.id));
+          return [...restored].some((id) => !have.has(id));
+        };
+        for (let i = 0; i < 3 && missing(); i++) {
+          yield* Effect.sleep(deps.restoreRecheckMs ?? 5000);
+          yield* scan.pipe(Effect.ignore);
+        }
       });
       deps.background(
         Effect.withFiber((fiber) => {

@@ -20,7 +20,15 @@ const send = (text: string) => JSON.stringify({ type: "send", text, folder: { id
 
 const setup = async (
   replies: Array<Reply>,
-  opts: { cap?: number; token?: string | null; putioUnauthorized?: boolean; history?: Array<MessageParam>; trashEnabled?: boolean; failWrites?: Array<number> } = {},
+  opts: {
+    cap?: number;
+    token?: string | null;
+    putioUnauthorized?: boolean;
+    history?: Array<MessageParam>;
+    trashEnabled?: boolean;
+    failWrites?: Array<number>;
+    restoreLag?: number;
+  } = {},
 ) => {
   const sql = memorySql();
   const store = makeStore(sql);
@@ -32,6 +40,7 @@ const setup = async (
     unauthorized: opts.putioUnauthorized ?? false,
     trashEnabled: opts.trashEnabled ?? true,
     failWrites: opts.failWrites ?? [],
+    restoreLag: opts.restoreLag ?? 0,
   });
   const events: Array<ServerEvent> = [];
   const turns: Array<Promise<unknown>> = [];
@@ -45,6 +54,7 @@ const setup = async (
       broadcast: (e) => events.push(e),
       background: (effect) => turns.push(Effect.runPromiseExit(effect)),
       partialEveryMs: 0,
+      restoreRecheckMs: 0,
     }),
   );
   if (opts.token !== null) await Effect.runPromise(agent.setAuth(opts.token ?? "putio-token", "altay", null));
@@ -320,6 +330,21 @@ describe("plans", () => {
     const record = planOf(t);
     expect(record.status).toBe("undone");
     expect(record.run?.steps.map((s) => s.state)).toEqual(["done", "failed", "done"]);
+  });
+
+  it("rescans until put.io's background restore shows the file again", async () => {
+    const trash = JSON.stringify({ title: "junk", changes: [{ op: "trash", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: null }] });
+    const t = await setup(proposeTurn(trash), { restoreLag: 2 });
+    await Effect.runPromise(t.agent.receive(send("trash it")));
+    await t.settle();
+    const id = planOf(t).plan.id;
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
+    await t.settle();
+    const before = t.putio.log.length;
+    await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
+    await t.settle();
+    expect(t.putio.log.slice(before).filter((r) => r.url.pathname === "/v2/files/list")).toHaveLength(3);
+    expect(t.store.snapshot().some((f) => f.id === 3)).toBe(true);
   });
 
   it("undoes a rename back to the old name", async () => {
