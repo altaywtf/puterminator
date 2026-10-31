@@ -12,6 +12,7 @@ import { downloadToken, fileMedia, hlsUrl, listAll, putioLayer, rootFolders } fr
 import { type AnthropicClient, effectTool, runTurn, type TurnError, weightedTokens } from "./runner";
 import { month, type Store } from "./store";
 import { buildTree } from "./tree";
+import type { ListFolderOutput, SearchFilesOutput } from "../shared/tools";
 
 const SYSTEM = `You are puterminator, an agent that helps one person understand and tidy their put.io library.
 
@@ -25,7 +26,7 @@ This version is read-only. You can scan the library, score it, list folders and 
 
 How to work:
 - Scan before you judge. Call scan_library when there is no snapshot, when the user asks for a fresh audit, or when the target folder changed.
-- After a scan, the UI already shows the score card. Do not repeat every number. Lead with the score and the one or two problems that matter most, with real file names as examples.
+- After a scan, the UI shows a score card with the score, the weakest area, and the junk, duplicate and never-played counts and sizes. Never restate those. Add only what the card cannot say: the one problem that matters most, with one or two real file names.
 - put.io only records first_accessed_at. "Never played" is knowable; "not watched recently" is not. Say so if asked about stale files.
 - Each user message ends with a <context> block from the app (target folder, last scan, credits). Use it; don't quote it.
 
@@ -34,7 +35,7 @@ How to write:
 - Line one answers. The other lines are proof: at most 3 items, by size.
 - Name files by their file name only, not the full path, unless two share a name or the user asks where. Wrap every file and folder name in backticks; the app turns them into links.
 - No bold, no labels like "junk:", no headings, no sections, no caveats, no "+N more", no follow-up questions.
-- After a scan: one line. The score card already shows the numbers; name only the biggest problem.
+- After a scan: one line, no numbers from the card.
 - All lowercase, like the app: "no." not "No.". File names and abbreviations (GB, HDR) keep their case.
 - Mention read-only only when the user asks for a change. Then give the plan as at most 3 bullets.
 - Duplicates: which copy to keep, and why, in one line each. A clean library gets one line, then stop.
@@ -193,7 +194,7 @@ export const makeAgent = (deps: AgentDeps) =>
               path: clean || "/",
               count: rows.length,
               items: rows.slice(0, 200).map((f) => ({ name: f.name, type: f.file_type, size: gb(f.size), played: !!f.first_accessed_at })),
-            });
+            } satisfies ListFolderOutput);
           }),
       }),
       effectTool({
@@ -227,7 +228,7 @@ export const makeAgent = (deps: AgentDeps) =>
                 firstPlayed: f.first_accessed_at?.slice(0, 10) ?? null,
                 junk: junkReason(f),
               })),
-            });
+            } satisfies SearchFilesOutput);
           }),
       }),
     ];

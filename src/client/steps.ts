@@ -9,7 +9,9 @@ export const size = (b: number) =>
     ? `${(b / 2 ** 40).toFixed(1)} TB`
     : b >= 2 ** 30
       ? `${(b / 2 ** 30).toFixed(1)} GB`
-      : `${Math.max(1, Math.round(b / 2 ** 20))} MB`;
+      : b >= 2 ** 20
+        ? `${Math.round(b / 2 ** 20)} MB`
+        : `${Math.max(1, Math.round(b / 2 ** 10))} KB`;
 
 const decodeAudit = Schema.decodeUnknownOption(Schema.fromJsonString(Audit));
 

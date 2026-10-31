@@ -10,6 +10,7 @@
     "dev": "vite build && DO_NOT_TRACK=1 alchemy dev --stage dev",
     "dev:fake": "vite build && node src/server/testing/dev-fake.ts",
     "dev:client": "vite",
+    "lab": "vite --port 5174 --strictPort",
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
