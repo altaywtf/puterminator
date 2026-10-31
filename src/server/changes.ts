@@ -73,7 +73,37 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
     changes.push({ id: changeId, op: c.op, path, to, bytes: c.op === "trash" ? f.size : 0 });
   });
   if (problems.length > 0) return { error: `Fix these and propose again: ${problems.slice(0, 10).join("; ")}` };
-  return { plan: { id, title: input.title.trim().slice(0, 80) || "changes", changes }, ids };
+  const withSubtitles = changes.flatMap((c) => [c, ...subtitlesFor(snapshot, byPath, c, seen, ids)]);
+  return { plan: { id, title: input.title.trim().slice(0, 80) || "changes", changes: withSubtitles }, ids };
+};
+
+const SUBTITLE = /^((?:[._ -][a-z]{2,8})*\.(?:srt|sub|idx|ass|ssa|vtt))$/i;
+const stemOf = (name: string) => name.replace(/\.[a-z0-9]{2,4}$/i, "");
+
+/** A renamed or moved video takes its subtitles along: files beside it named after it, like `Heat.eng.srt`. */
+const subtitlesFor = (
+  snapshot: ReadonlyArray<WalkedFile>,
+  byPath: Map<string, WalkedFile>,
+  c: Change,
+  seen: Set<number>,
+  ids: Record<string, number>,
+): Change[] => {
+  const video = byPath.get(c.path);
+  if (!video || video.file_type !== "VIDEO" || c.op === "trash" || !c.to) return [];
+  const stem = stemOf(video.name);
+  const target = c.op === "rename" ? `${parentOf(c.path).replace(/\/$/, "")}/${c.to}` : c.to;
+  const newStem = stemOf(nameOf(target));
+  const folder = parentOf(target).replace(/\/$/, "");
+  return snapshot
+    .filter((f) => f.parent_id === video.parent_id && f.id !== video.id && !seen.has(f.id) && f.name.startsWith(stem) && SUBTITLE.test(f.name.slice(stem.length)))
+    .flatMap((f, k) => {
+      const name = newStem + f.name.slice(stem.length);
+      if (byPath.has(`${folder}/${name}`)) return [];
+      seen.add(f.id);
+      const id = `${c.id}s${k + 1}`;
+      ids[id] = f.id;
+      return [{ id, op: c.op, path: f.path, to: c.op === "rename" ? name : `${folder}/${name}`, bytes: 0 }];
+    });
 };
 
 export const validateQuestion = (input: AskInput, id: string): Question | { error: string } => {

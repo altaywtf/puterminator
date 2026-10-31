@@ -2,7 +2,8 @@ import type { WalkedFile } from "./tree";
 
 const RELEASE_TAG =
   /\b(2160p|1080p|720p|480p|x26[45]|h\.?26[45]|hevc|web-?dl|webrip|bluray|brrip|bdrip|hdtv|dvdrip|hdrip|aac|ac3|ddp?5\.1|10bit|yify|yts|rarbg|eztv|ettv|proper|repack)\b/i;
-const BRACKET_GROUP = /\[[^\]]{2,}\]|-[A-Za-z0-9]{2,12}$/;
+const BRACKET_GROUP = /\[[^\]]{2,}\]/;
+const GROUP_SUFFIX = /-[A-Za-z0-9]{2,12}$/;
 const JUNK_NAME = /(^|[\s._-])(sample|rarbg|www\.|torrent downloaded from)|RARBG_DO_NOT_MIRROR|^Thumbs\.db$/i;
 const OS_DEBRIS = /^\._|^\.DS_Store$|^desktop\.ini$/i;
 const JUNK_EXT = new Set(["nfo", "txt", "url", "exe", "lnk", "sfv", "md5", "torrent", "website", "db"]);
@@ -32,7 +33,7 @@ const isFolder = (f: WalkedFile) => f.file_type === "FOLDER";
 export function isMessyName(name: string) {
   const stem = name.replace(/\.[a-z0-9]{2,4}$/i, "");
   const dotted = (stem.match(/\./g) ?? []).length >= 3 && !stem.includes(" ");
-  return RELEASE_TAG.test(stem) || dotted || BRACKET_GROUP.test(stem);
+  return RELEASE_TAG.test(stem) || dotted || BRACKET_GROUP.test(stem) || (GROUP_SUFFIX.test(stem) && !stem.includes(" "));
 }
 
 /** Junk by name, plus small images that sit beside a video (posters, tracker logos). Images elsewhere are content. */

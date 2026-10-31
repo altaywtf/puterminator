@@ -27,6 +27,9 @@ describe("naming", () => {
     expect(isMessyName("Dune.Part.Two.2024.2160p.WEB-DL.DDP5.1.mkv")).toBe(true);
     expect(isMessyName("The Office (US) - S02E01 - The Dundies.mkv")).toBe(false);
     expect(isMessyName("Behzat Ç - S01E01.mkv")).toBe(false);
+    expect(isMessyName("The Office (US) - S06E24 - The Cover-Up.mkv")).toBe(false);
+    expect(isMessyName("Extended Interview-interview.mp4")).toBe(false);
+    expect(isMessyName("Heat1995-GRP.mkv")).toBe(true);
   });
 });
 

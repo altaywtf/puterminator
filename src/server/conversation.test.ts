@@ -28,6 +28,7 @@ const setup = async (
     trashEnabled?: boolean;
     failWrites?: Array<number>;
     restoreLag?: number;
+    files?: typeof library;
   } = {},
 ) => {
   const sql = memorySql();
@@ -35,7 +36,7 @@ const setup = async (
   for (const m of opts.history ?? []) store.append(m);
   const anthropic = makeFakeAnthropic(replies);
   const putio = makeFakePutio({
-    files: library,
+    files: opts.files ?? library,
     pageSize: 2,
     unauthorized: opts.putioUnauthorized ?? false,
     trashEnabled: opts.trashEnabled ?? true,
@@ -345,6 +346,38 @@ describe("plans", () => {
     await t.settle();
     expect(t.putio.log.slice(before).filter((r) => r.url.pathname === "/v2/files/list")).toHaveLength(3);
     expect(t.store.snapshot().some((f) => f.id === 3)).toBe(true);
+  });
+
+  it("takes a renamed or moved video's subtitles along, and nothing else", async () => {
+    const t = await setup(
+      proposeTurn(
+        JSON.stringify({
+          title: "names",
+          changes: [
+            { op: "rename", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "Heat (1995).mkv" },
+            { op: "move", path: "/Alien (1979).mkv", to: "/Movies/Alien (1979).mkv" },
+          ],
+        }),
+      ),
+      {
+        files: [
+          ...library,
+          file(5, 1, "Heat.1995.1080p.BluRay.x264-GRP.eng.srt", "TEXT", 100),
+          file(6, 1, "Heat.1995.1080p.BluRay.x264-GRP-forced.en.ass", "TEXT", 100),
+          file(7, 1, "Heat.1995.1080p.BluRay.x264-GRP.nfo", "TEXT", 100),
+          file(8, 0, "Alien (1979).srt", "TEXT", 100),
+        ],
+      },
+    );
+    await Effect.runPromise(t.agent.receive(send("rename")));
+    await t.settle();
+    expect(planOf(t).plan.changes.map((c) => [c.op, c.path, c.to])).toEqual([
+      ["rename", "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", "Heat (1995).mkv"],
+      ["rename", "/Movies/Heat.1995.1080p.BluRay.x264-GRP.eng.srt", "Heat (1995).eng.srt"],
+      ["rename", "/Movies/Heat.1995.1080p.BluRay.x264-GRP-forced.en.ass", "Heat (1995)-forced.en.ass"],
+      ["move", "/Alien (1979).mkv", "/Movies/Alien (1979).mkv"],
+      ["move", "/Alien (1979).srt", "/Movies/Alien (1979).srt"],
+    ]);
   });
 
   it("undoes a rename back to the old name", async () => {
