@@ -170,46 +170,36 @@ const loadingView = (h: H) => h.div([h.Class("h-dvh bg-bg"), h.AriaBusy(true)], 
 
 type SignIn = "ready" | "unconfigured" | "failed";
 
+/** What the terminal printed: a status line per state, the way a CLI answers `login`. */
+const signInOutput = (h: H, kind: SignIn): Html[] =>
+  kind === "ready"
+    ? [h.span([h.Class("text-fg-3")], ["# terminates the mess in your put.io"]), h.span([h.Class("text-fg-3")], ["# asks before it touches anything"])]
+    : kind === "unconfigured"
+      ? [h.span([h.Class("text-warn")], ["! sign-in isn’t wired up yet"])]
+      : [h.span([h.Class("text-danger"), h.Role("alert")], ["! couldn’t reach puterminator"])];
+
 const signInAction = (h: H, kind: SignIn) =>
   kind === "ready"
     ? h.a([h.Href("/auth/login"), h.Class("btn btn-primary justify-self-start")], ["continue with put.io ↗"])
     : kind === "unconfigured"
-      ? h.div(
-          [h.Class("grid justify-items-start gap-3")],
-          [
-            h.button([h.Type("button"), h.Disabled(true), h.Class("btn")], ["continue with put.io"]),
-            h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-2")], [dot(h, "warn"), "sign-in isn’t wired up yet."]),
-          ],
-        )
-      : h.div(
-          [h.Class("grid justify-items-start gap-3")],
-          [
-            h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-2"), h.Role("alert")], [dot(h, "error"), "couldn’t reach puterminator."]),
-            h.button([h.Type("button"), h.Class("btn"), h.OnClick(Message.ClickedRetryMe())], ["try again"]),
-          ],
-        );
+      ? h.button([h.Type("button"), h.Disabled(true), h.Class("btn justify-self-start")], ["continue with put.io"])
+      : h.button([h.Type("button"), h.Class("btn justify-self-start"), h.OnClick(Message.ClickedRetryMe())], ["try again"]);
 
+/** No box: the mascot, the wordmark, a few lines of terminal output, one button. */
 const signInView = (h: H, kind: SignIn) =>
   h.div(
     [h.Class("grid min-h-dvh place-items-center bg-bg p-6 text-fg")],
     [
       h.div(
-        [h.Class("enter w-full max-w-[360px]")],
+        [h.Class("enter grid w-full max-w-[400px] gap-6")],
         [
-          h.div(
-            [h.Class("grid gap-6 rounded-2xl border border-line bg-raised p-8")],
-            [
-              art(h, kind === "ready" ? "asleep" : "unplugged", 64),
-              h.div(
-                [h.Class("grid gap-2")],
-                [
-                  h.h1([h.Class("m-0 font-display text-[22px] font-medium text-accent")], ["puterminator"]),
-                  h.p([h.Class("m-0 text-fg-2")], ["terminates the mess in your put.io"]),
-                ],
-              ),
-              signInAction(h, kind),
-            ],
-          ),
+          art(h, kind === "ready" ? "asleep" : "unplugged", 56),
+          h.h1([h.Class("m-0 font-display text-[28px] leading-none font-medium text-accent")], ["puterminator"]),
+          h.div([h.Class("grid gap-0.5 rounded-xl border border-line bg-sunk px-4 py-3 font-mono text-[12.5px] leading-[1.7]")], [
+            h.span([h.Class("text-fg-2")], ["$ puterminator login"]),
+            ...signInOutput(h, kind),
+          ]),
+          signInAction(h, kind),
         ],
       ),
     ],

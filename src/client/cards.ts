@@ -179,7 +179,8 @@ const scoreCard = (h: H, ctx: Ctx, a: Audit, uid: string, live: boolean) => {
     ["duplicates", a.scores.duplicates],
   ];
   const worst = Math.min(...subs.map((s) => s[1]));
-  const worstName = worst < 100 ? subs.find((s) => s[1] === worst)?.[0] : undefined;
+  // Above 90 the library is clean; naming its weakest area would contradict the mood line.
+  const worstName = worst < 100 && a.score < 90 ? subs.find((s) => s[1] === worst)?.[0] : undefined;
   const verdict = [MOOD_LINE[mood], ...(worstName ? [`${worstName} needs the most work.`] : []), ...(a.truncated ? ["partial scan."] : [])].join(" ");
   return h.section(
     [

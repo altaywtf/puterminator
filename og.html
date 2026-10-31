@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- Source of public/og.png. With `pnpm lab` running:
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --hide-scrollbars --window-size=1200,630 --screenshot=public/og.png http://localhost:5174/og.html -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="robots" content="noindex" />
+    <title>puterminator og</title>
+    <link href="/src/client/styles.css" rel="stylesheet" />
+    <style>
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: repeating-linear-gradient(to bottom, rgb(255 214 150 / 0.025) 0 1px, transparent 1px 4px), var(--bg);
+      }
+      .skull {
+        width: 288px;
+        height: 288px;
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <main style="display: flex; align-items: center; gap: 64px; height: 630px; padding: 0 88px">
+      <img class="skull" src="/src/client/logo.svg" alt="" />
+      <div style="display: grid; gap: 22px">
+        <div style="font-family: var(--font-display); font-weight: 500; font-size: 92px; line-height: 1; color: var(--accent)">puterminator</div>
+        <div style="display: grid; gap: 6px; font-family: var(--font-mono); font-size: 28px; line-height: 1.5">
+          <span style="color: var(--fg-muted)">$ puterminator login</span>
+          <span style="color: var(--fg-subtle)"># terminates the mess in your put.io</span>
+        </div>
+        <div style="margin-top: 40px; font-family: var(--font-mono); font-size: 22px; color: var(--fg-faint)">puterminator.uinaf.dev</div>
+      </div>
+    </main>
+  </body>
+</html>

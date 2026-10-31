@@ -22,6 +22,8 @@ Without put.io or Anthropic: `pnpm dev:fake`. It runs the same Worker and Durabl
 - `FAKE_UNCONFIGURED=1 pnpm dev:fake` shows the unconfigured state.
 - `DEV_FAKE_UPSTREAM` routes put.io and Anthropic calls to the fake. Only a loopback `http` URL decodes, and a `prod` deploy with it set stops.
 
+Cards: `pnpm lab` serves [`lab.html`](lab.html) on <http://localhost:5174/lab.html>, every tool and action card in each [fixture](src/client/lab/fixtures.ts) state. A new tool's card goes in the `CARDS` registry in [`cards.ts`](src/client/cards.ts) and gets fixtures here. `vite build` builds only `index.html`, so the lab never ships.
+
 Register a put.io OAuth app at <https://app.put.io/oauth> with callback `<public URL>/auth/callback`.
 
 ## Check and deploy

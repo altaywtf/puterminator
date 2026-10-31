@@ -9,7 +9,6 @@ import {
   ClientFrame,
   ContentBlock,
   Folder,
-  Folders,
   Library,
   Me,
   MessageParam,
@@ -23,8 +22,6 @@ const CONNECT_TIMEOUT = Duration.seconds(8);
 const MAX_PROMPT = 4000;
 export const COMPOSER_ID = "composer";
 export const THREAD_ID = "thread";
-export const FOLDER_TRIGGER_ID = "folder-trigger";
-export const folderOptionId = (index: number) => `folder-opt-${index}`;
 export const LENGTH_ERROR = `keep it under ${MAX_PROMPT.toLocaleString("en-US")} characters.`;
 
 // MODEL
@@ -62,9 +59,6 @@ export const Model = Schema.Struct({
   /** False for a moment after a send, so a double click on send never lands on stop. */
   stopArmed: Schema.Boolean,
   draft: Schema.String,
-  folders: Schema.Array(Folder),
-  picked: Schema.NullOr(Folder),
-  menuOpen: Schema.Boolean,
   expanded: Schema.Array(Schema.String),
   clock: ThinkingClock,
   /** The last scan, as the server sent it; indexed lazily in library.ts. */
@@ -81,8 +75,8 @@ export const Model = Schema.Struct({
 });
 export type Model = typeof Model.Type;
 
-/** The folder the next prompt targets: the user's pick, else the agent's last one. */
-export const targetFolder = (model: Model): Folder => model.picked ?? model.agent?.folder ?? ROOT_FOLDER;
+/** The folder the next prompt targets: the agent's last one, else the whole library. */
+export const targetFolder = (model: Model): Folder => model.agent?.folder ?? ROOT_FOLDER;
 export const isBusy = (model: Model) => model.agent?.busy === true;
 /** Busy, or a send the server has not answered yet. */
 export const isLocked = (model: Model) => model.sending || isBusy(model);
@@ -93,7 +87,6 @@ export const Message = defineMessageUnion({
   GotMe: { me: Me },
   FailedMe: {},
   ClickedRetryMe: {},
-  GotFolders: { folders: Folders },
   ConnectedSocket: {},
   ReleasedSocket: {},
   FailedSocket: {},
@@ -124,10 +117,6 @@ export const Message = defineMessageUnion({
   SentFrame: {},
   FailedFrame: { error: Schema.String },
   ToggledStep: { key: Schema.String },
-  ToggledFolderMenu: {},
-  ClosedFolderMenu: {},
-  LeftFolderMenu: {},
-  PickedFolder: { folder: Folder },
   ClickedSignOut: {},
   CompletedEffect: {},
 });
@@ -174,7 +163,6 @@ export const managedResources = ManagedResource.make<Model, Message>()((entry) =
 // COMMANDS
 
 const decodeMe = Schema.decodeUnknownEffect(Me);
-const decodeFolders = Schema.decodeUnknownEffect(Folders);
 
 const getJson = (path: string) =>
   Effect.tryPromise(async () => {
@@ -189,16 +177,6 @@ export const FetchMe = Command.define("FetchMe", {
     Effect.flatMap(decodeMe),
     Effect.map((me) => Message.GotMe({ me })),
     Effect.orElseSucceed(() => Message.FailedMe()),
-  ),
-});
-
-/** The picker still offers the root folder when /api/folders fails. */
-export const FetchFolders = Command.define("FetchFolders", {
-  messages: [Message.GotFolders],
-  execute: getJson("/api/folders").pipe(
-    Effect.flatMap(decodeFolders),
-    Effect.orElseSucceed(() => []),
-    Effect.map((folders) => Message.GotFolders({ folders })),
   ),
 });
 
@@ -271,11 +249,6 @@ export const FocusComposer = Command.define("FocusComposer", {
       when === "always" ? true : when === "idle" ? finePointer() && nothingFocused() : finePointer() || composerHadFocus,
     );
   },
-});
-
-export const FocusFolderItem = Command.define("FocusFolderItem", {
-  messages: [Message.CompletedEffect],
-  execute: focusAfterCommit(`[role="menuitemradio"][tabindex="0"]`, () => true),
 });
 
 export const treeNodeId = (id: number) => `tree-${id}`;
@@ -364,11 +337,6 @@ export const ScrollTreeNode = Command.define("ScrollTreeNode", {
     ),
 });
 
-export const FocusFolderTrigger = Command.define("FocusFolderTrigger", {
-  messages: [Message.CompletedEffect],
-  execute: focusAfterCommit(`#${FOLDER_TRIGGER_ID}`, () => true),
-});
-
 // Scroll state lives in the DOM, so the stick-to-bottom check does too: follow new content only
 // when the reader was within 160px of the end before it rendered.
 let lastHeight = 0;
@@ -398,7 +366,7 @@ const send = (model: Model, raw: string): UpdateReturn => {
   if (!text || isLocked(model) || model.connection._tag !== "Connected") return { model };
   if (text.length > MAX_PROMPT) return { model: modifyFields(model, { error: () => LENGTH_ERROR }) };
   return {
-    model: modifyFields(model, { draft: () => "", error: () => null, menuOpen: () => false, sending: () => true, stopArmed: () => false }),
+    model: modifyFields(model, { draft: () => "", error: () => null, sending: () => true, stopArmed: () => false }),
     commands: [
       SendFrame({ event: { type: "send", text, folder: targetFolder(model) } }),
       ScrollThread({ force: true }),
@@ -428,12 +396,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       me.signedIn
         ? {
             model: modifyFields(model, { session: () => Session.SignedIn(), connection: () => Connection.Connecting() }),
-            commands: [FetchFolders()],
           }
         : { model: modifyFields(model, { session: () => Session.SignedOut({ configured: me.configured }) }) },
     FailedMe: () => ({ model: modifyFields(model, { session: () => Session.Failed() }) }),
     ClickedRetryMe: () => ({ model: modifyFields(model, { session: () => Session.Loading() }), commands: [FetchMe()] }),
-    GotFolders: ({ folders }) => ({ model: modifyFields(model, { folders: () => folders }) }),
     ConnectedSocket: () => ({
       model: modifyFields(model, { connection: () => Connection.Connected(), attempts: () => 0, error: () => null }),
       commands: [FocusComposer({ when: "idle" })],
@@ -487,17 +453,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     ToggledStep: ({ key }) => ({
       model: modifyFields(model, { expanded: (ks) => (ks.includes(key) ? ks.filter((k) => k !== key) : [...ks, key]) }),
     }),
-    ToggledFolderMenu: () => ({
-      model: modifyFields(model, { menuOpen: (open) => !open }),
-      commands: model.menuOpen ? [] : [FocusFolderItem()],
-    }),
-    ClosedFolderMenu: () =>
-      model.menuOpen ? { model: modifyFields(model, { menuOpen: () => false }), commands: [FocusFolderTrigger()] } : { model },
-    LeftFolderMenu: () => ({ model: modifyFields(model, { menuOpen: () => false }) }),
-    PickedFolder: ({ folder }) => ({
-      model: modifyFields(model, { picked: () => folder, menuOpen: () => false }),
-      commands: [FocusComposer({ when: "always" })],
-    }),
     ReceivedLibrary: ({ library }) => ({ model: modifyFields(model, { library: () => library }) }),
     ToggledTree: () => ({ model: modifyFields(model, { treeOpen: (open) => !open }) }),
     ClosedTree: () => ({ model: modifyFields(model, { treeOpen: () => false }) }),
@@ -547,9 +502,6 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     stopping: false,
     stopArmed: true,
     draft: "",
-    folders: [],
-    picked: null,
-    menuOpen: false,
     expanded: [],
     clock: emptyClock,
     library: null,
