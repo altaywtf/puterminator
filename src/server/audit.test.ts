@@ -30,6 +30,12 @@ describe("naming", () => {
     expect(isMessyName("The Office (US) - S06E24 - The Cover-Up.mkv")).toBe(false);
     expect(isMessyName("Extended Interview-interview.mp4")).toBe(false);
     expect(isMessyName("Heat1995-GRP.mkv")).toBe(true);
+    expect(isMessyName("Heat PROPER.mkv")).toBe(true);
+  });
+
+  it("leaves hyphenated titles, course files and media-server names clean", () => {
+    for (const name of ["Spider-Man.mkv", "01-introduction.mp4", "A Proper Job (2019).mkv", "Heat (1995) - 1080p.mkv", "Heat (1995) [imdbid-tt0113277].mkv"])
+      expect(isMessyName(name), name).toBe(false);
   });
 });
 
@@ -62,11 +68,23 @@ describe("junk", () => {
     expect(junkReason(screenshot)).toBeNull();
   });
 
-  it("catches macOS debris anywhere", () => {
+  it("leaves a course's diagrams alone, but not tracker art beside a video", () => {
+    const lesson = file("/Courses/Habits/01 - Intro.mp4", { parent_id: 30 });
+    const diagram = file("/Courses/Habits/diagram.png", { parent_id: 30, size: 300_000 });
+    const ad = file("/Courses/Habits/www.site.com.png", { parent_id: 30, size: 30_000 });
+    const junkReason = junkFinder([lesson, diagram, ad]);
+    expect(junkReason(diagram)).toBeNull();
+    expect(junkReason(ad)).not.toBeNull();
+  });
+
+  it("catches system debris anywhere", () => {
     const junkReason = junkFinder([]);
-    expect(junkReason(file("/Docs/x/._notes.pdf", { size: 4096 }))).toBe("macOS debris");
-    expect(junkReason(file("/Docs/x/__MACOSX/notes.pdf", { size: 4096 }))).toBe("macOS debris");
-    expect(junkReason(file("/Docs/.DS_Store", { size: 6148 }))).toBe("macOS debris");
+    expect(junkReason(file("/Movies/X/_____padding_file_0_if you see this file, please update to BitComet 0.85 or above____", { size: 4096 }))).toBe("system debris");
+    expect(junkReason(file("/Drive/.Spotlight-V100/Store-V2/store.db", { size: 4096 }))).toBe("system debris");
+    expect(junkReason(file("/Movies/X/x.vol00+01.par2", { size: 4096 }))).toBe(".par2 file");
+    expect(junkReason(file("/Docs/x/._notes.pdf", { size: 4096 }))).toBe("system debris");
+    expect(junkReason(file("/Docs/x/__MACOSX/notes.pdf", { size: 4096 }))).toBe("system debris");
+    expect(junkReason(file("/Docs/.DS_Store", { size: 6148 }))).toBe("system debris");
   });
 });
 
@@ -110,6 +128,15 @@ describe("duplicates", () => {
     expect(a.duplicates.groups).toBe(1);
     expect(a.duplicates.examples[0]!.keep).toBe(big.path);
     expect(a.duplicates.wastedBytes).toBe(2 ** 30);
+  });
+});
+
+describe("structure", () => {
+  it("calls a release folder with its movie and a sample a wrapper", () => {
+    const dir = file("/Heat.1995.1080p.BluRay.x264-GRP", { id: 50, parent_id: 0, file_type: "FOLDER", extension: null, size: 0 });
+    const movie = file("/Heat.1995.1080p.BluRay.x264-GRP/Heat.1995.1080p.BluRay.x264-GRP.mkv", { parent_id: 50 });
+    const sample = file("/Heat.1995.1080p.BluRay.x264-GRP/Sample/heat-sample.mkv", { parent_id: 50, size: 20 * 2 ** 20 });
+    expect(audit([dir, movie, sample], "Your Files", false).structure.wrapperFolders).toBe(1);
   });
 });
 

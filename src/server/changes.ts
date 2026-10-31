@@ -74,7 +74,8 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
     const changeId = `c${i + 1}`;
     ids[changeId] = f.id;
     if (f.parent_id != null) parents[changeId] = f.parent_id;
-    changes.push({ id: changeId, op: c.op, path, to, bytes: c.op === "trash" ? f.size : 0 });
+    const items = f.file_type === "FOLDER" ? snapshot.filter((g) => g.path.startsWith(`${path}/`)).length : null;
+    changes.push({ id: changeId, op: c.op, path, to, bytes: c.op === "trash" ? f.size : 0, ...(items === null ? {} : { items }) });
   });
   problems.push(...conflicts(changes));
   if (problems.length > 0) return { error: `Fix these and propose again: ${problems.slice(0, 10).join("; ")}` };

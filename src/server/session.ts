@@ -6,8 +6,9 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
-export const SESSION_COOKIE = "pt_session";
-export const STATE_COOKIE = "pt_oauth_state";
+/** `__Host-`: only this exact origin over https can set them, so a sibling subdomain can't plant a session. */
+export const SESSION_COOKIE = "__Host-pt_session";
+export const STATE_COOKIE = "__Host-pt_oauth_state";
 export const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 30;
 export const STATE_MAX_AGE_SEC = 600;
 
@@ -19,7 +20,8 @@ export const cookieOptions = (maxAgeSec: number): NonNullable<Cookies.Cookie["op
   maxAge: Duration.seconds(maxAgeSec),
 });
 
-const Session = Schema.Struct({ uid: Schema.String, exp: Schema.Finite });
+/** `gen`: the user's session generation when signed; signing out bumps it, which ends every earlier session. */
+const Session = Schema.Struct({ uid: Schema.String, exp: Schema.Finite, gen: Schema.optionalKey(Schema.Finite) });
 export type Session = typeof Session.Type;
 const decodeSession = Schema.decodeUnknownOption(Schema.fromJsonString(Session));
 
@@ -37,10 +39,10 @@ const hmacKey = (secret: Redacted.Redacted<string>) =>
   );
 
 /** `<base64url JSON>.<base64url HMAC-SHA256>`, the v1 format, so v1 sessions stay valid. */
-export const signSession = (secret: Redacted.Redacted<string>, uid: string) =>
+export const signSession = (secret: Redacted.Redacted<string>, uid: string, gen: number) =>
   Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
-    const payload = b64url(enc.encode(JSON.stringify({ uid, exp: Math.floor(now / 1000) + SESSION_MAX_AGE_SEC })));
+    const payload = b64url(enc.encode(JSON.stringify({ uid, exp: Math.floor(now / 1000) + SESSION_MAX_AGE_SEC, gen })));
     const key = yield* hmacKey(secret);
     const sig = yield* Effect.promise(() => crypto.subtle.sign("HMAC", key, enc.encode(payload)));
     return `${payload}.${b64url(new Uint8Array(sig))}`;

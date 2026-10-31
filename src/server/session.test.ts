@@ -17,8 +17,8 @@ const b64url = (s: string) => Buffer.from(s).toString("base64url");
 
 describe("session cookie", () => {
   it("verifies what it signed", async () => {
-    const session = await run(Effect.flatMap(signSession(secret, "putio-42"), (raw) => verifySession(secret, raw)));
-    expect(session).toEqual(Option.some({ uid: "putio-42", exp: T0 / 1000 + SESSION_MAX_AGE_SEC }));
+    const session = await run(Effect.flatMap(signSession(secret, "putio-42", 3), (raw) => verifySession(secret, raw)));
+    expect(session).toEqual(Option.some({ uid: "putio-42", exp: T0 / 1000 + SESSION_MAX_AGE_SEC, gen: 3 }));
   });
 
   it("verifies a v1 cookie: base64url JSON, HMAC-SHA256 over it", async () => {
@@ -29,7 +29,7 @@ describe("session cookie", () => {
   });
 
   it("rejects tampering, a foreign secret, expiry and junk", async () => {
-    const raw = await run(signSession(secret, "putio-42"));
+    const raw = await run(signSession(secret, "putio-42", 0));
     const [payload, sig] = raw.split(".") as [string, string];
     const forged = `${b64url(JSON.stringify({ uid: "putio-1", exp: T0 / 1000 + SESSION_MAX_AGE_SEC }))}.${sig}`;
     const flipped = `${payload}.${sig.startsWith("A") ? "B" : "A"}${sig.slice(1)}`;

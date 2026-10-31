@@ -59,6 +59,7 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         }),
         setAuth: (token: string, username: string, avatarUrl: string | null) => agent.setAuth(token, username, avatarUrl),
         signOut: () => agent.signOut,
+        sessionGen: () => agent.sessionGen,
         thumbnail: (id: number) => agent.thumbnail(id),
         stream: (id: number) => agent.stream(id),
       };

@@ -53,7 +53,7 @@ describe("config", () => {
     expect(to.searchParams.get("client_id")).toBe("1234");
     expect(to.searchParams.get("redirect_uri")).toBe(`${PUBLIC_URL}/auth/callback`);
     const state = to.searchParams.get("state");
-    expect(login.headers.getSetCookie().find((c) => c.startsWith("pt_oauth_state="))).toContain(`pt_oauth_state=${state}`);
+    expect(login.headers.getSetCookie().find((c) => c.startsWith("__Host-pt_oauth_state="))).toContain(`__Host-pt_oauth_state=${state}`);
     expect((await call(valid, "/api/files/1/thumb")).status).toBe(401);
   });
 
@@ -96,21 +96,27 @@ describe("OAuth callback", () => {
     if (!Exit.isSuccess(config)) throw new Error("config failed");
     const calls: Array<[string, string, string, string | null]> = [];
     const agent = (uid: string): UserAgent => ({
-      setAuth: (token, username, avatarUrl) => Effect.sync(() => void calls.push([uid, token, username, avatarUrl])),
-      signOut: () => Effect.void,
+      setAuth: (token, username, avatarUrl) =>
+        Effect.sync(() => {
+          calls.push([uid, token, username, avatarUrl]);
+          return gen;
+        }),
+      signOut: () => Effect.sync(() => void gen++),
+      sessionGen: () => Effect.sync(() => gen),
       thumbnail: () => Effect.succeed(null),
       stream: () => Effect.succeed(null),
       fetch: () => Effect.die("unused"),
     });
     const handle = makeHandler({ config: config.value, agentFor: agent, putioFetch: putio });
-    const request = new Request(`${PUBLIC_URL}/auth/callback?code=${code}&state=st`, { headers: { cookie: "pt_oauth_state=st" } });
+    const request = new Request(`${PUBLIC_URL}/auth/callback?code=${code}&state=st`, { headers: { cookie: "__Host-pt_oauth_state=st" } });
     const response = HttpServerResponse.toWeb(await Effect.runPromise(handle(HttpServerRequest.fromWeb(request), PUBLIC_URL)));
-    const session = response.headers.getSetCookie().find((c) => c.startsWith("pt_session=")) ?? "";
-    const me = await Effect.runPromise(
-      handle(HttpServerRequest.fromWeb(new Request(`${PUBLIC_URL}/api/me`, { headers: { cookie: session.split(";")[0] ?? "" } })), PUBLIC_URL),
-    );
-    return { response, calls, session, me: await HttpServerResponse.toWeb(me).json() };
+    const session = response.headers.getSetCookie().find((c) => c.startsWith("__Host-pt_session=")) ?? "";
+    const cookie = session.split(";")[0] ?? "";
+    const get = async (path: string, method = "GET") =>
+      HttpServerResponse.toWeb(await Effect.runPromise(handle(HttpServerRequest.fromWeb(new Request(`${PUBLIC_URL}${path}`, { method, headers: { cookie } })), PUBLIC_URL)));
+    return { response, calls, session, get, me: await (await get("/api/me")).json() };
   };
+  let gen = 0;
 
   it("exchanges the code, stores the token in the user's object and signs a session", async () => {
     const { response, calls, session, me } = await callback("good-code");
@@ -118,6 +124,16 @@ describe("OAuth callback", () => {
     expect(calls).toEqual([["putio-77", "tok-1", "altay", "https://www.gravatar.com/avatar/abc"]]);
     expect(session).toMatch(/HttpOnly/);
     expect(me).toEqual({ configured: true, signedIn: true });
+  });
+
+  it("ends the session on logout, even for a copy of the cookie kept elsewhere", async () => {
+    const { get, session } = await callback("good-code");
+    expect(session).toMatch(/Secure/);
+    expect(session).toMatch(/Path=\//);
+    expect(await (await get("/api/me")).json()).toEqual({ configured: true, signedIn: true });
+    expect((await get("/auth/logout", "POST")).status).toBe(200);
+    expect(await (await get("/api/me")).json()).toEqual({ configured: true, signedIn: false });
+    expect((await get("/api/files/1/thumb")).status).toBe(401);
   });
 
   it("keeps only an https avatar, since the browser loads it directly", async () => {

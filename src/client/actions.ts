@@ -133,16 +133,20 @@ const line = (h: H, kind: "del" | "add", text: string, meta: string, active: boo
   );
 };
 
+/** A folder reads as one, with what's inside it, so trashing a folder never looks like trashing a file. */
+const slash = (c: Change, path: string) => (c.items === undefined ? path : `${path}/`);
+const weight = (c: Change) => [...(c.items === undefined ? [] : [`${fmt(c.items)} ${c.items === 1 ? "item" : "items"}`]), ...(c.bytes > 0 ? [size(c.bytes)] : [])].join(" · ");
+
 const diffChange = (h: H, ctx: Ctx, plan: Plan, hunk: Hunk, c: Change) => {
   const active = lineOn(ctx, plan, hunk, c);
   const locked = on(ctx, hunkOffKey(plan, hunk)) || (videoOf(c) !== c.id && on(ctx, offKey(plan, videoOf(c))));
   const name = nameOf(c.path);
   const lines =
     c.op === "trash"
-      ? [line(h, "del", name, size(c.bytes), active)]
+      ? [line(h, "del", slash(c, name), weight(c), active)]
       : c.op === "rename"
-        ? [line(h, "del", name, "", active), line(h, "add", c.to ?? "", "", active)]
-        : [line(h, "del", `${c.path}/`, "", active), line(h, "add", `${c.to ?? ""}/`, "", active)];
+        ? [line(h, "del", slash(c, name), "", active), line(h, "add", slash(c, c.to ?? ""), "", active)]
+        : [line(h, "del", slash(c, c.path), "", active), line(h, "add", slash(c, c.to ?? ""), "", active)];
   return h.button(
     [
       h.Type("button"),
@@ -229,12 +233,12 @@ const runChange = (h: H, c: Change, state: State, error: string | null) => {
   const name = nameOf(c.path);
   const lines =
     c.op === "trash"
-      ? [runLine(h, state, "del", name, size(c.bytes))]
+      ? [runLine(h, state, "del", slash(c, name), weight(c))]
       : c.op === "rename"
-        ? [runLine(h, state, "del", name, ""), runLine(h, state, "add", c.to ?? "", "")]
+        ? [runLine(h, state, "del", slash(c, name), ""), runLine(h, state, "add", slash(c, c.to ?? ""), "")]
         : c.op === "restore"
-          ? [runLine(h, state, "add", name, size(c.bytes))]
-          : [runLine(h, state, "del", `${c.path}/`, ""), runLine(h, state, "add", `${c.to ?? ""}/`, "")];
+          ? [runLine(h, state, "add", slash(c, name), weight(c))]
+          : [runLine(h, state, "del", slash(c, c.path), ""), runLine(h, state, "add", slash(c, c.to ?? ""), "")];
   return h.div(
     [h.Class("grid"), h.AriaLabel(`${c.op} ${name}: ${state}`)],
     [...lines, ...(error ? [h.span([h.Class("truncate ps-[3.75rem] pe-3 text-danger/80")], [`# ${error}`])] : [])],
@@ -248,7 +252,7 @@ const statLine = (changes: readonly Change[]) => {
   const freed = changes.filter((c) => c.op === "trash").reduce((a, c) => a + c.bytes, 0);
   return [
     `${fmt(changes.length)} ${changes.length === 1 ? "change" : "changes"}`,
-    ...(n("trash") > 0 ? [`${fmt(n("trash"))} deleted`] : []),
+    ...(n("trash") > 0 ? [`${fmt(n("trash"))} trashed`] : []),
     ...(n("rename") > 0 ? [`${fmt(n("rename"))} renamed`] : []),
     ...(n("move") > 0 ? [`${fmt(n("move"))} moved`] : []),
     ...(n("restore") > 0 ? [`${fmt(n("restore"))} restored`] : []),

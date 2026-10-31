@@ -1,13 +1,18 @@
 import type { WalkedFile } from "./tree";
 
 const RELEASE_TAG =
-  /\b(2160p|1080p|720p|480p|x26[45]|h\.?26[45]|hevc|web-?dl|webrip|bluray|brrip|bdrip|hdtv|dvdrip|hdrip|aac|ac3|ddp?5\.1|10bit|yify|yts|rarbg|eztv|ettv|proper|repack)\b/i;
+  /\b(2160p|1080p|720p|480p|x26[45]|h\.?26[45]|hevc|web-?dl|webrip|bluray|brrip|bdrip|hdtv|dvdrip|hdrip|aac|ac3|ddp?5\.1|10bit|yify|yts|rarbg|eztv|ettv)\b/i;
+const SCENE_FLAG = /\b(PROPER|REPACK)\b/;
+/** Jellyfin and Plex ask for these, so they are clean: `Movie (2010) - 1080p`, `[imdbid-tt1234567]`. */
+const MEDIA_SERVER_TAG = /\s+-\s+(2160p|1080p|720p|480p)$|\s*\[(imdb|tmdb|tvdb)id-[^\]]+\]|\s*\{(imdb|tmdb|tvdb)-[^}]+\}/gi;
 const BRACKET_GROUP = /\[[^\]]{2,}\]/;
 const GROUP_SUFFIX = /-[A-Za-z0-9]{2,12}$/;
 const JUNK_NAME = /(^|[\s._-])(rarbg|www\.|torrent downloaded from)|RARBG_DO_NOT_MIRROR|^Thumbs\.db$/i;
 const SAMPLE = /(^|[\s._-])sample([\s._-]|$)/i;
-const OS_DEBRIS = /^\._|^\.DS_Store$|^desktop\.ini$/i;
-const JUNK_EXT = new Set(["nfo", "url", "lnk", "sfv", "md5", "torrent", "website"]);
+const OS_DEBRIS = /^\._|^\.DS_Store$|^desktop\.ini$|^Icon\r?$|^_+padding_file/i;
+const DEBRIS_DIR = /\/(__MACOSX|\.Spotlight-V100|\.fseventsd|\.Trashes|\.pad)\//i;
+const ARTWORK = /^(cover|poster|folder|fanart|banner|logo|thumb|backdrop|clearart|clearlogo|disc|landscape|screens?)\b|-(poster|fanart|thumb|banner)$|www\.|torrent/i;
+const JUNK_EXT = new Set(["nfo", "url", "lnk", "sfv", "md5", "par2", "torrent", "website"]);
 const IMAGE_EXT = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
 const MB = 2 ** 20;
 
@@ -34,9 +39,11 @@ const isFolder = (f: WalkedFile) => f.file_type === "FOLDER";
 const stemOf = (name: string) => name.replace(/\.[a-z0-9]{2,4}$/i, "");
 
 export function isMessyName(name: string) {
-  const stem = stemOf(name);
+  const stem = stemOf(name).replace(MEDIA_SERVER_TAG, "");
   const dotted = (stem.match(/\./g) ?? []).length >= 3 && !stem.includes(" ");
-  return RELEASE_TAG.test(stem) || dotted || BRACKET_GROUP.test(stem) || (GROUP_SUFFIX.test(stem) && !stem.includes(" "));
+  const group = stem.match(GROUP_SUFFIX)?.[0].slice(1) ?? "";
+  const tagged = group !== "" && !stem.includes(" ") && (stem.includes(".") || group === group.toUpperCase());
+  return RELEASE_TAG.test(stem) || SCENE_FLAG.test(stem) || dotted || BRACKET_GROUP.test(stem) || tagged;
 }
 
 /** Junk by name, plus small images that sit beside a video (posters, tracker logos). Images elsewhere are content. */
@@ -44,7 +51,7 @@ export function junkFinder(files: ReadonlyArray<WalkedFile>) {
   const withVideo = new Set(files.flatMap((f) => (isVideo(f) && f.parent_id != null ? [f.parent_id] : [])));
   return (f: WalkedFile): string | null => {
     if (isFolder(f)) return null;
-    if (OS_DEBRIS.test(f.name) || f.path.includes("/__MACOSX/")) return "macOS debris";
+    if (OS_DEBRIS.test(f.name) || DEBRIS_DIR.test(f.path)) return "system debris";
     if (isVideo(f)) {
       if (f.size >= 50 * MB) return null;
       if (SAMPLE.test(stemOf(f.name)) || /\/sample\//i.test(f.path)) return "sample clip";
@@ -53,7 +60,7 @@ export function junkFinder(files: ReadonlyArray<WalkedFile>) {
     if (JUNK_NAME.test(f.name) && f.size < 2 * MB) return "tracker filler";
     const e = ext(f);
     if (JUNK_EXT.has(e)) return `.${e} file`;
-    if (IMAGE_EXT.has(e) && f.size < 2 * MB && f.parent_id != null && withVideo.has(f.parent_id)) return "cover or logo image";
+    if (IMAGE_EXT.has(e) && f.size < 2 * MB && f.parent_id != null && withVideo.has(f.parent_id) && ARTWORK.test(stemOf(f.name))) return "cover or logo image";
     return null;
   };
 }
@@ -94,21 +101,21 @@ export function audit(files: WalkedFile[], rootName: string, truncated: boolean,
   const bytes = files.filter((f) => !isFolder(f)).reduce((a, f) => a + f.size, 0);
 
   const messy = videos.filter((f) => isMessyName(f.name));
+  const junkReason = junkFinder(files);
 
   const childCount = new Map<number, number>();
   const childVideos = new Map<number, number>();
   for (const f of files) {
     if (f.parent_id == null) continue;
     childCount.set(f.parent_id, (childCount.get(f.parent_id) ?? 0) + 1);
-    if (isVideo(f)) childVideos.set(f.parent_id, (childVideos.get(f.parent_id) ?? 0) + 1);
+    if (isVideo(f) && !junkReason(f)) childVideos.set(f.parent_id, (childVideos.get(f.parent_id) ?? 0) + 1);
   }
   const emptyFolders = folders.filter((f) => !childCount.get(f.id));
-  // A wrapper is a torrent-style folder holding a single video plus filler.
+  // A wrapper is a torrent-style folder holding a single real video plus filler and samples.
   const wrappers = folders.filter((f) => childVideos.get(f.id) === 1 && isMessyName(f.name));
   const rootFiles = files.filter((f) => f.depth === 1 && !isFolder(f));
   const deepest = files.reduce((a, f) => Math.max(a, f.depth), 0);
 
-  const junkReason = junkFinder(files);
   const junk = files
     .map((f) => ({ f, why: junkReason(f) }))
     .filter((x): x is { f: WalkedFile; why: string } => x.why !== null);

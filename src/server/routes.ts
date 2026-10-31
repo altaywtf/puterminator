@@ -19,8 +19,11 @@ import {
 
 /** The Worker's view of one user's Durable Object. */
 export interface UserAgent {
-  readonly setAuth: (token: string, username: string, avatarUrl: string | null) => Effect.Effect<void>;
+  /** Stores the token and answers the session generation to sign. */
+  readonly setAuth: (token: string, username: string, avatarUrl: string | null) => Effect.Effect<number>;
+  /** Drops the token and ends every session signed so far. */
   readonly signOut: () => Effect.Effect<void>;
+  readonly sessionGen: () => Effect.Effect<number>;
   readonly thumbnail: (id: number) => Effect.Effect<string | null>;
   readonly stream: (id: number) => Effect.Effect<string | null>;
   readonly fetch: (request: HttpServerRequest) => Effect.Effect<HttpServerResponse.HttpServerResponse, HttpServerError>;
@@ -43,8 +46,16 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
     const auth = origin ? deps.config.auth : null;
     const path = url.pathname;
 
+    const current = (raw: string | undefined) =>
+      Effect.gen(function* () {
+        const session = auth ? yield* verifySession(auth.sessionSecret, raw) : Option.none();
+        if (Option.isNone(session)) return session;
+        const gen = yield* deps.agentFor(session.value.uid).sessionGen();
+        return (session.value.gen ?? 0) === gen ? session : Option.none();
+      });
+
     if (path === "/api/me") {
-      const session = auth ? yield* verifySession(auth.sessionSecret, request.cookies[SESSION_COOKIE]) : Option.none();
+      const session = yield* current(request.cookies[SESSION_COOKIE]);
       const me: Me = { configured: auth !== null, signedIn: Option.isSome(session) };
       return json(me);
     }
@@ -81,15 +92,15 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
         return text("Sign-in failed. Try again.", 502);
       }
       const uid = `putio-${signedIn.success.info.userId}`;
-      yield* deps.agentFor(uid).setAuth(signedIn.success.token, signedIn.success.info.username, signedIn.success.info.avatarUrl);
-      const session = yield* signSession(auth.sessionSecret, uid);
+      const gen = yield* deps.agentFor(uid).setAuth(signedIn.success.token, signedIn.success.info.username, signedIn.success.info.avatarUrl);
+      const session = yield* signSession(auth.sessionSecret, uid, gen);
       return HttpServerResponse.redirect("/").pipe(
         HttpServerResponse.setCookieUnsafe(SESSION_COOKIE, session, cookieOptions(SESSION_MAX_AGE_SEC)),
         HttpServerResponse.expireCookieUnsafe(STATE_COOKIE, { path: "/", httpOnly: true, secure: true, sameSite: "lax" }),
       );
     }
 
-    const session = yield* verifySession(auth.sessionSecret, request.cookies[SESSION_COOKIE]);
+    const session = yield* current(request.cookies[SESSION_COOKIE]);
 
     if (path === "/auth/logout" && request.method === "POST") {
       if (Option.isSome(session)) yield* deps.agentFor(session.value.uid).signOut();

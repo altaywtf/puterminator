@@ -197,6 +197,8 @@ export const makeAgent = (deps: AgentDeps) =>
     const runFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
     const newId = () => crypto.randomUUID().replaceAll("-", "").slice(0, 12);
 
+    const sessionGen = () => Number(store.secret("session_gen") ?? 0);
+
     const saveRecord = (p: StoredRecord) => {
       plans.set(p.record.plan.id, p);
       store.savePlan(p);
@@ -418,6 +420,7 @@ export const makeAgent = (deps: AgentDeps) =>
             if (category === "never_played") rows = rows.filter((f) => f.file_type === "VIDEO" && !f.first_accessed_at);
             if (category === "messy_names") rows = rows.filter((f) => f.file_type === "VIDEO" && isMessyName(f.name));
             if (category === "folders") rows = rows.filter((f) => f.file_type === "FOLDER");
+            if (category === "large") rows = rows.filter((f) => f.file_type !== "FOLDER");
             if (category === "large" || category === "never_played") rows.sort((a, b) => b.size - a.size);
             return JSON.stringify({
               total: rows.length,
@@ -616,10 +619,16 @@ export const makeAgent = (deps: AgentDeps) =>
       /** Called by the Worker after OAuth. Never reachable from the browser. */
       setAuth: (token: string, username: string, avatarUrl: string | null) =>
         Effect.sync(() => {
+          store.deleteToken();
           store.setToken(token);
           setState({ ...state, username, avatarUrl });
+          return sessionGen();
         }),
-      signOut: Effect.sync(() => store.deleteToken()),
+      signOut: Effect.sync(() => {
+        store.deleteToken();
+        store.setSecret("session_gen", String(sessionGen() + 1));
+      }),
+      sessionGen: Effect.sync(() => sessionGen()),
       /** A file's screenshot URL, or null for none, no token or a failed read. Cached per activation. */
       thumbnail: (id: number) =>
         Effect.suspend(() => {

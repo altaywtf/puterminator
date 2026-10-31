@@ -4,13 +4,15 @@ import * as Schema from "effect/Schema";
 // `propose_changes` call; only the user's apply click, handled by the server, changes anything on put.io.
 
 /** One change to one file or folder. `to` is the new name (rename) or the new full path (move). Paths are
-    relative to the target folder, as the snapshot writes them. `restore` only appears when undoing a trash. */
+    relative to the target folder, as the snapshot writes them. `restore` only appears when undoing a trash.
+    `items`: set for a folder, how many files and folders are under it. */
 export const Change = Schema.Struct({
   id: Schema.String,
   op: Schema.Literals(["trash", "rename", "move", "restore"]),
   path: Schema.String,
   to: Schema.NullOr(Schema.String),
   bytes: Schema.Finite,
+  items: Schema.optionalKey(Schema.Finite),
 });
 export type Change = typeof Change.Type;
 
