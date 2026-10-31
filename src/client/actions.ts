@@ -1,7 +1,7 @@
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Change, Plan, Question, Run } from "../shared/actions";
 import { cardHead, panel, shareBar, term } from "./cards";
-import { Message } from "./main";
+import { COMPOSER_ID, Message } from "./main";
 import { fmt, size } from "./steps";
 
 // Action cards, drawn as diffs: a plan to approve, a question to answer, a run in flight and its receipt.
@@ -23,17 +23,20 @@ const answerKey = (q: Question, id: string) => `question.${q.id}.${id}`;
 const sentKey = (q: Question) => `question.${q.id}.sent`;
 
 /** A terminal prompt, not a card: `?` and the question, then the choices under a `❯` pointer. One answer
-    sends on click; several toggle `◉`/`◯` and send with enter. Answered, it folds to `✓ question › answer`. */
-export const questionCard = (h: H, ctx: Ctx, q: Question, live = false): Html => {
+    sends on click; several toggle `◉`/`◯` and send together. The answer goes back as the user's next
+    message; once one exists (`settled`), it folds to `✓ question`. */
+export const questionCard = (h: H, ctx: Ctx, q: Question, live = false, settled = false): Html => {
   const chosen = q.options.filter((o) => on(ctx, answerKey(q, o.id)));
-  const answered = q.multi ? on(ctx, sentKey(q)) && chosen.length > 0 : chosen.length > 0;
+  const answered = settled || (q.multi ? on(ctx, sentKey(q)) && chosen.length > 0 : chosen.length > 0);
   const mono = "font-mono text-[13px] leading-[1.7]";
   if (answered)
     return h.p([h.Class(`m-0 flex min-w-0 gap-2 ${mono}`)], [
       h.span([h.Class("flex-none text-ok"), h.AriaHidden(true)], ["✓"]),
-      h.span([h.Class("flex-none text-fg-3")], [q.prompt]),
-      h.span([h.Class("flex-none text-fg-4"), h.AriaHidden(true)], ["›"]),
-      h.span([h.Class("truncate text-accent")], [chosen.map((o) => o.label).join(", ")]),
+      h.span([h.Class("min-w-0 truncate text-fg-3")], [q.prompt]),
+      // The answer itself is the user's next message; after a reload only local picks are known.
+      ...(chosen.length > 0
+        ? [h.span([h.Class("flex-none text-fg-4"), h.AriaHidden(true)], ["›"]), h.span([h.Class("truncate text-accent")], [chosen.map((o) => o.label).join(", ")])]
+        : []),
     ]);
   return h.div([h.Class(`${live ? "enter" : ""} grid gap-1 ${mono}`)], [
     h.p([h.Class("m-0 flex gap-2")], [h.span([h.Class("text-accent"), h.AriaHidden(true)], ["?"]), h.span([h.Class("text-fg-strong")], [q.prompt])]),
@@ -47,7 +50,7 @@ export const questionCard = (h: H, ctx: Ctx, q: Question, live = false): Html =>
             h.Role(q.multi ? "checkbox" : "radio"),
             h.AriaChecked(picked),
             h.Class("group -mx-2 grid grid-cols-[1rem_minmax(0,auto)_minmax(0,1fr)] items-baseline gap-x-2 rounded-md px-2 text-start transition-colors duration-160 hover:bg-hover focus-visible:bg-hover"),
-            h.OnClick(toggle(answerKey(q, o.id))),
+            h.OnClick(q.multi ? toggle(answerKey(q, o.id)) : Message.ClickedStarter({ text: o.label })),
           ],
           [
             h.span([h.Class("text-accent opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"), h.AriaHidden(true)], ["❯"]),
@@ -61,12 +64,13 @@ export const questionCard = (h: H, ctx: Ctx, q: Question, live = false): Html =>
       ...(q.multi
         ? [
             h.button(
-              [h.Type("button"), h.Disabled(chosen.length === 0), h.Class("hit transition-colors duration-160 enabled:text-accent enabled:hover:text-accent-bright"), h.OnClick(toggle(sentKey(q)))],
+              [h.Type("button"), h.Disabled(chosen.length === 0), h.Class("hit transition-colors duration-160 enabled:text-accent enabled:hover:text-accent-bright"), h.OnClick(Message.ClickedStarter({ text: chosen.map((o) => o.label).join(", ") }))],
               [chosen.length === 0 ? "pick one or more" : `↵ send ${fmt(chosen.length)}`],
             ),
           ]
         : []),
-      h.button([h.Type("button"), h.Class("hit transition-colors duration-160 hover:text-fg")], ["or type something else"]),
+      // A label for the composer: clicking it focuses the field, no message needed.
+      h.label([h.For(COMPOSER_ID), h.Class("hit cursor-text transition-colors duration-160 hover:text-fg")], ["or type something else"]),
     ]),
   ]);
 };
@@ -159,8 +163,16 @@ export const planCard = (h: H, ctx: Ctx, plan: Plan, live = false): Html => {
     h.div([h.Class("flex flex-wrap items-center justify-between gap-x-4 gap-y-3")], [
       h.span([h.Class("font-mono text-[12.5px] text-fg-3")], [picked.length === 0 ? "nothing to apply" : stat]),
       h.span([h.Class("flex items-center gap-2")], [
-        h.button([h.Type("button"), h.Class("btn btn-sm border-transparent text-fg-2")], ["discard"]),
-        h.button([h.Type("button"), h.Disabled(picked.length === 0), h.Class("btn btn-sm btn-primary")], ["apply"]),
+        h.button([h.Type("button"), h.Class("btn btn-sm border-transparent text-fg-2"), h.OnClick(Message.ClickedDiscard({ plan: plan.id }))], ["discard"]),
+        h.button(
+          [
+            h.Type("button"),
+            h.Disabled(picked.length === 0),
+            h.Class("btn btn-sm btn-primary"),
+            h.OnClick(Message.ClickedApply({ plan: plan.id, exclude: plan.changes.filter((c) => !picked.includes(c)).map((c) => c.id) })),
+          ],
+          ["apply"],
+        ),
       ]),
     ]),
   ]);
@@ -250,7 +262,7 @@ export const runCard = (h: H, ctx: Ctx, run: Run, live = false): Html => {
       diffBlock(h, hunkLines(() => true)),
       h.div([h.Class("flex items-center justify-between gap-4")], [
         h.span([h.Class("font-mono text-[12.5px] text-fg-3")], [`applying… ${fmt(done.length)} done${failed.length > 0 ? `, ${fmt(failed.length)} failed` : ""}`]),
-        h.button([h.Type("button"), h.Class("btn btn-sm")], ["stop"]),
+        h.button([h.Type("button"), h.Class("btn btn-sm"), h.OnClick(Message.ClickedStopRun({ plan: run.id }))], ["stop"]),
       ]),
     ]);
 
@@ -269,9 +281,18 @@ export const runCard = (h: H, ctx: Ctx, run: Run, live = false): Html => {
         [open ? "hide diff" : "show diff"],
       ),
       h.span([h.Class("flex items-center gap-2")], [
-        ...(failed.length > 0 ? [h.button([h.Type("button"), h.Class("btn btn-sm border-transparent text-fg-2")], [`retry ${fmt(failed.length)}`])] : []),
-        h.button([h.Type("button"), h.Class("btn btn-sm")], ["undo"]),
+        ...(failed.length > 0
+          ? [h.button([h.Type("button"), h.Class("btn btn-sm"), h.OnClick(Message.ClickedRetryRun({ plan: run.id }))], [`retry ${fmt(failed.length)}`])]
+          : []),
       ]),
     ]),
   ]);
 };
+
+/** A plan the user threw away: one line where the diff was. */
+export const discardedLine = (h: H, plan: Plan): Html =>
+  h.p([h.Class("m-0 flex min-w-0 gap-2 font-mono text-[12.5px] text-fg-4")], [
+    h.span([h.AriaHidden(true)], ["✗"]),
+    h.span([h.Class("truncate line-through")], [plan.title]),
+    h.span([], ["discarded"]),
+  ]);

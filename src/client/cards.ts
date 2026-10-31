@@ -3,7 +3,9 @@ import * as Schema from "effect/Schema";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Audit } from "../shared/audit";
 import { FileFlag } from "../shared/contract";
+import { Plan, Question } from "../shared/actions";
 import { ListFolderOutput, SearchFilesOutput } from "../shared/tools";
+import { discardedLine, planCard, questionCard, runCard } from "./actions";
 import { art, type Mood, moodOf } from "./art";
 import { has, type Index, indexOf, isFolder, isRegular, type Node, putioUrl, resolve } from "./library";
 import { Message, type Model } from "./main";
@@ -14,8 +16,8 @@ import { auditOf, fmt, size } from "./steps";
 
 type H = HtmlBuilder<Message>;
 
-/** All a card reads from the app: which toggles are open and the last scan's file index. */
-export type Ctx = Pick<Model, "expanded" | "library">;
+/** All a card reads from the app: which toggles are open, the last scan's file index, and the plans. */
+export type Ctx = Pick<Model, "expanded" | "library" | "plans">;
 
 const ROWS = 5;
 
@@ -278,17 +280,30 @@ const searchCard = (h: H, ctx: Ctx, key: string, out: SearchFilesOutput, live: b
 
 const decodeListFolder = Schema.decodeUnknownOption(Schema.fromJsonString(ListFolderOutput));
 const decodeSearchFiles = Schema.decodeUnknownOption(Schema.fromJsonString(SearchFilesOutput));
+const decodePlan = Schema.decodeUnknownOption(Schema.fromJsonString(Plan));
+const decodeQuestion = Schema.decodeUnknownOption(Schema.fromJsonString(Question));
 
-type Card = (h: H, ctx: Ctx, key: string, output: string, live: boolean) => Html | null;
+/** `settled`: the user has spoken since this tool ran, so a question is answered. */
+type Card = (h: H, ctx: Ctx, key: string, output: string, live: boolean, settled: boolean) => Html | null;
+
+/** The proposal as the server last reported it: the diff, its run, or one line once discarded. */
+const planOrRun = (h: H, ctx: Ctx, plan: Plan, live: boolean): Html => {
+  const record = ctx.plans[plan.id];
+  if (record?.status === "discarded") return discardedLine(h, plan);
+  if (record?.run) return runCard(h, ctx, record.run, live);
+  return planCard(h, ctx, plan, live);
+};
 
 const CARDS: Record<string, Card> = {
   scan_library: (h, ctx, key, output, live) => Option.match(auditOf(output), { onNone: () => null, onSome: (a) => scoreCard(h, ctx, a, key, live) }),
   list_folder: (h, ctx, key, output, live) => Option.match(decodeListFolder(output), { onNone: () => null, onSome: (o) => folderCard(h, ctx, key, o, live) }),
   search_files: (h, ctx, key, output, live) => Option.match(decodeSearchFiles(output), { onNone: () => null, onSome: (o) => searchCard(h, ctx, key, o, live) }),
+  propose_changes: (h, ctx, _key, output, live) => Option.match(decodePlan(output), { onNone: () => null, onSome: (p) => planOrRun(h, ctx, p, live) }),
+  ask_user: (h, ctx, _key, output, live, settled) => Option.match(decodeQuestion(output), { onNone: () => null, onSome: (q) => questionCard(h, ctx, q, live, settled) }),
 };
 
 /** The card for a finished tool call, or null when the tool has none or its output doesn't decode. */
-export const toolCard = (h: H, ctx: Ctx, tool: { name: string; key: string; output: string | null }, live: boolean): Html | null => {
+export const toolCard = (h: H, ctx: Ctx, tool: { name: string; key: string; output: string | null }, live: boolean, settled = false): Html | null => {
   const card = CARDS[tool.name];
-  return card && tool.output !== null ? card(h, ctx, tool.key, tool.output, live) : null;
+  return card && tool.output !== null ? card(h, ctx, tool.key, tool.output, live, settled) : null;
 };

@@ -16,6 +16,7 @@ import {
   ServerFrame,
   type ServerEvent,
 } from "../shared/contract";
+import { PlanRecord } from "../shared/actions";
 import { emptyClock, onMessage, onPartial, ThinkingClock } from "./thinking";
 
 const CONNECT_TIMEOUT = Duration.seconds(8);
@@ -63,6 +64,8 @@ export const Model = Schema.Struct({
   clock: ThinkingClock,
   /** The last scan, as the server sent it; indexed lazily in library.ts. */
   library: Schema.NullOr(Library),
+  /** Plans the agent proposed, by id, as the server last reported them. */
+  plans: Schema.Record(Schema.String, PlanRecord),
   treeOpen: Schema.Boolean,
   treeExpanded: Schema.Array(Schema.Finite),
   treeFocus: Schema.NullOr(Schema.Finite),
@@ -99,6 +102,12 @@ export const Message = defineMessageUnion({
   ReceivedPartial: { content: Schema.NullOr(Schema.Array(ContentBlock)), at: Schema.Finite },
   ReceivedError: { message: Schema.String },
   ReceivedLibrary: { library: Library },
+  ReceivedPlan: { record: PlanRecord },
+  /** `exclude` holds the changes the user unticked; the server applies the rest. */
+  ClickedApply: { plan: Schema.String, exclude: Schema.Array(Schema.String) },
+  ClickedDiscard: { plan: Schema.String },
+  ClickedStopRun: { plan: Schema.String },
+  ClickedRetryRun: { plan: Schema.String },
   ToggledTree: {},
   ClosedTree: {},
   ToggledTreeNode: { id: Schema.Finite },
@@ -454,6 +463,11 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       model: modifyFields(model, { expanded: (ks) => (ks.includes(key) ? ks.filter((k) => k !== key) : [...ks, key]) }),
     }),
     ReceivedLibrary: ({ library }) => ({ model: modifyFields(model, { library: () => library }) }),
+    ReceivedPlan: ({ record }) => ({ model: modifyFields(model, { plans: (ps) => ({ ...ps, [record.plan.id]: record }) }) }),
+    ClickedApply: ({ plan, exclude }) => ({ model, commands: [SendFrame({ event: { type: "apply", plan, exclude } })] }),
+    ClickedDiscard: ({ plan }) => ({ model, commands: [SendFrame({ event: { type: "discard", plan } })] }),
+    ClickedStopRun: ({ plan }) => ({ model, commands: [SendFrame({ event: { type: "stopRun", plan } })] }),
+    ClickedRetryRun: ({ plan }) => ({ model, commands: [SendFrame({ event: { type: "retry", plan } })] }),
     ToggledTree: () => ({ model: modifyFields(model, { treeOpen: (open) => !open }) }),
     ClosedTree: () => ({ model: modifyFields(model, { treeOpen: () => false }) }),
     ToggledTreeNode: ({ id }) => ({
@@ -505,6 +519,7 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     expanded: [],
     clock: emptyClock,
     library: null,
+    plans: {},
     treeOpen: false,
     treeExpanded: [],
     treeFocus: null,
@@ -527,6 +542,7 @@ const toMessage = (event: ServerEvent, at: number): Message =>
       partial: ({ content }) => Message.ReceivedPartial({ content, at }),
       error: ({ message }) => Message.ReceivedError({ message }),
       library: ({ library }) => Message.ReceivedLibrary({ library }),
+      plan: ({ record }) => Message.ReceivedPlan({ record }),
     }),
   );
 

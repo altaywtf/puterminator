@@ -20,13 +20,19 @@ const send = (text: string) => JSON.stringify({ type: "send", text, folder: { id
 
 const setup = async (
   replies: Array<Reply>,
-  opts: { cap?: number; token?: string | null; putioUnauthorized?: boolean; history?: Array<MessageParam> } = {},
+  opts: { cap?: number; token?: string | null; putioUnauthorized?: boolean; history?: Array<MessageParam>; trashEnabled?: boolean; failWrites?: Array<number> } = {},
 ) => {
   const sql = memorySql();
   const store = makeStore(sql);
   for (const m of opts.history ?? []) store.append(m);
   const anthropic = makeFakeAnthropic(replies);
-  const putio = makeFakePutio({ files: library, pageSize: 2, unauthorized: opts.putioUnauthorized ?? false });
+  const putio = makeFakePutio({
+    files: library,
+    pageSize: 2,
+    unauthorized: opts.putioUnauthorized ?? false,
+    trashEnabled: opts.trashEnabled ?? true,
+    failWrites: opts.failWrites ?? [],
+  });
   const events: Array<ServerEvent> = [];
   const turns: Array<Promise<unknown>> = [];
   const agent = await Effect.runPromise(
@@ -78,6 +84,8 @@ describe("a turn", () => {
       ["scan_library", true],
       ["list_folder", true],
       ["search_files", true],
+      ["propose_changes", true],
+      ["ask_user", true],
     ]);
     expect(JSON.stringify(first?.body.tools)).not.toMatch(/minimum|maximum/);
     expect(first?.body.messages[0].content[1].text).toMatch(/^<context>Target folder: Your Files \(id 0\)\. No scan yet\./);
@@ -210,3 +218,122 @@ describe("previews", () => {
   });
 });
 
+
+describe("plans", () => {
+  const WRITES = ["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/files/create-folder"];
+  const writes = (t: Awaited<ReturnType<typeof setup>>) =>
+    t.putio.log.filter((r) => WRITES.includes(r.url.pathname)).map((r) => [r.url.pathname, Object.fromEntries(r.body)]);
+  const proposal = JSON.stringify({
+    title: "clean up Movies",
+    changes: [
+      { op: "trash", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: null },
+      { op: "rename", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "Heat (1995).mkv" },
+      { op: "move", path: "/Alien (1979).mkv", to: "/Movies/Alien (1979)/Alien (1979).mkv" },
+    ],
+  });
+  const proposeTurn = (input = proposal): Array<Reply> => [
+    { kind: "sse", events: toolUseTurn({ id: "toolu_p", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
+    { kind: "sse", events: toolUseTurn({ id: "toolu_q", name: "propose_changes", inputJsonChunks: [input] }, { input: 10, output: 5 }) },
+    { kind: "sse", events: textTurn("plan's up.", { input: 10, output: 5 }) },
+  ];
+  const planOf = (t: Awaited<ReturnType<typeof setup>>) => {
+    const last = t.events.filter((e) => e.type === "plan").at(-1);
+    if (last?.type !== "plan") throw new Error("no plan event");
+    return last.record;
+  };
+  const frame = (event: object) => JSON.stringify(event);
+
+  it("stores a proposal and writes nothing until the user applies it", async () => {
+    const t = await setup(proposeTurn());
+    await Effect.runPromise(t.agent.receive(send("clean up")));
+    await t.settle();
+    const record = planOf(t);
+    expect(record.status).toBe("proposed");
+    expect(record.plan.changes.map((c) => [c.op, c.path, c.to])).toEqual([
+      ["trash", "/Movies/RARBG_DO_NOT_MIRROR.exe", null],
+      ["rename", "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", "Heat (1995).mkv"],
+      ["move", "/Alien (1979).mkv", "/Movies/Alien (1979)/Alien (1979).mkv"],
+    ]);
+    expect(writes(t)).toEqual([]);
+  });
+
+  it("applies only what the user kept, in order, creating the missing folder", async () => {
+    const t = await setup(proposeTurn());
+    await Effect.runPromise(t.agent.receive(send("clean up")));
+    await t.settle();
+    const { plan } = planOf(t);
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: plan.id, exclude: ["c2"] })));
+    await t.settle();
+    expect(writes(t)).toEqual([
+      ["/v2/files/delete", { file_ids: "3" }],
+      ["/v2/files/create-folder", { name: "Alien (1979)", parent_id: "1" }],
+      ["/v2/files/move", { file_ids: "4", parent_id: expect.any(String) }],
+    ]);
+    const record = planOf(t);
+    expect(record.status).toBe("done");
+    expect(record.run?.steps.map((s) => [s.change, s.state])).toEqual([
+      ["c1", "done"],
+      ["c3", "done"],
+    ]);
+  });
+
+  it("refuses to trash when put.io's trash is off, since delete would be permanent", async () => {
+    const t = await setup(proposeTurn(), { trashEnabled: false });
+    await Effect.runPromise(t.agent.receive(send("clean up")));
+    await t.settle();
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: planOf(t).plan.id, exclude: [] })));
+    await t.settle();
+    expect(writes(t).map(([p]) => p)).not.toContain("/v2/files/delete");
+    expect(planOf(t).run?.steps.find((s) => s.change === "c1")).toMatchObject({ state: "failed" });
+  });
+
+  it("keeps going past a failed change, and retry runs only the failures", async () => {
+    const t = await setup(proposeTurn(), { failWrites: [2] });
+    await Effect.runPromise(t.agent.receive(send("clean up")));
+    await t.settle();
+    const id = planOf(t).plan.id;
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
+    await t.settle();
+    expect(planOf(t).run?.steps.map((s) => s.state)).toEqual(["done", "failed", "done"]);
+    const before = writes(t).length;
+    await Effect.runPromise(t.agent.receive(frame({ type: "retry", plan: id })));
+    await t.settle();
+    expect(writes(t).slice(before)).toEqual([["/v2/files/rename", { file_id: "2", name: "Heat (1995).mkv" }]]);
+  });
+
+  it("rejects a proposal naming files outside the snapshot, and stores nothing", async () => {
+    const bad = JSON.stringify({ title: "x", changes: [{ op: "trash", path: "/nope.txt", to: null }] });
+    const t = await setup(proposeTurn(bad));
+    await Effect.runPromise(t.agent.receive(send("clean up")));
+    await t.settle();
+    expect(t.events.some((e) => e.type === "plan")).toBe(false);
+    const result = t.store.history().flatMap((m) => (typeof m.content === "string" ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_q");
+    expect(String(result?.content)).toContain("not in the snapshot");
+  });
+
+  it("tells the model in the next context what happened to the plan", async () => {
+    const t = await setup([...proposeTurn(), { kind: "sse", events: textTurn("done.", { input: 10, output: 5 }) }]);
+    await Effect.runPromise(t.agent.receive(send("clean up")));
+    await t.settle();
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: planOf(t).plan.id, exclude: ["c3"] })));
+    await t.settle();
+    await Effect.runPromise(t.agent.receive(send("thanks")));
+    await t.settle();
+    const lastUser = t.store.history().filter((m) => m.role === "user").at(-1);
+    const context = JSON.stringify(lastUser?.content);
+    expect(context).toContain('applied plan \\"clean up Movies\\": 2 done, 0 failed');
+  });
+
+  it("ignores apply for a discarded plan or an unknown id", async () => {
+    const t = await setup(proposeTurn());
+    await Effect.runPromise(t.agent.receive(send("clean up")));
+    await t.settle();
+    const id = planOf(t).plan.id;
+    await Effect.runPromise(t.agent.receive(frame({ type: "discard", plan: id })));
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: "made-up", exclude: [] })));
+    await t.settle();
+    expect(planOf(t).status).toBe("discarded");
+    expect(writes(t)).toEqual([]);
+  });
+});

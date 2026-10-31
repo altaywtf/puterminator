@@ -164,6 +164,25 @@ const putio = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
     if (!Number.isFinite(perPage) || perPage <= 0) return json(res, 400, { status: "ERROR", error_type: "BAD_REQUEST" });
     return json(res, 200, page(parent ?? 0, offset ?? 0, perPage));
   }
+  if (route === "GET /v2/account/settings") return json(res, 200, { settings: { trash_enabled: true }, status: "OK" });
+  // Writes change the fake library, so the rescan after an apply sees them. A name with "locked" fails.
+  if (method === "POST" && ["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/files/create-folder"].includes(url.pathname)) {
+    const form = new URLSearchParams(await readBody(req));
+    const id = Number(form.get("file_ids") ?? form.get("file_id"));
+    const f = files.find((x) => x.id === id);
+    await sleep(350);
+    log(`${url.pathname} ${[...form].map(([k, v]) => `${k}=${v}`).join(" ")}`);
+    if (url.pathname === "/v2/files/create-folder") {
+      const created = add(Number(form.get("parent_id")), form.get("name") ?? "", "FOLDER");
+      return json(res, 200, { file: files.find((x) => x.id === created), status: "OK" });
+    }
+    if (!f) return json(res, 404, { status: "ERROR", error_type: "NOT_FOUND", status_code: 404 });
+    if (f.name.toLowerCase().includes("locked")) return json(res, 400, { status: "ERROR", error_type: "LOCKED", status_code: 400 });
+    if (url.pathname === "/v2/files/delete") files.splice(files.indexOf(f), 1);
+    if (url.pathname === "/v2/files/rename") f.name = form.get("name") ?? f.name;
+    if (url.pathname === "/v2/files/move") f.parent_id = Number(form.get("parent_id"));
+    return json(res, 200, { status: "OK", errors: [] });
+  }
   log(`UNEXPECTED put.io call: ${route}`);
   return json(res, method === "GET" ? 404 : 405, { status: "ERROR", error_type: "NOT_FAKED", status_code: 404 });
 };
@@ -227,6 +246,11 @@ const plan = (messages: Array<Message>): Array<Step> => {
         },
       ];
     }
+    if (call?.name === "propose_changes") {
+      const p = JSON.parse(raw);
+      return [{ kind: "text", delayMs: 40, text: p.error ? `couldn't build that plan: ${p.error}` : "plan's up. untick anything you want to keep." }];
+    }
+    if (call?.name === "ask_user") return [{ kind: "text", delayMs: 40, text: "your call." }];
     const r = JSON.parse(raw);
     const lines = (r.items ?? []).slice(0, 5).map((i: any) => `- \`${i.path ?? i.name}\``);
     return [{ kind: "text", delayMs: 40, text: [`${r.total ?? r.count} found.`, ...lines].join("\n") }];
@@ -236,6 +260,45 @@ const plan = (messages: Array<Message>): Array<Step> => {
     return [
       { kind: "thinking", text: "No fresh snapshot for this folder. Scan first, then answer from the numbers." },
       { kind: "tool", name: "scan_library", input: {} },
+    ];
+  }
+  if (/clean/.test(ask)) {
+    const releases = titles.slice(0, 3).map((t, i) => ({ t, year: 1979 + i * 4 }));
+    const dir = (t: string, year: number) => `/Downloads/${t}.${year}.1080p.BluRay.x264-RARBG`;
+    return [
+      { kind: "thinking", text: "Junk out, release names cleaned, wrapper folders moved under Movies." },
+      {
+        kind: "tool",
+        name: "propose_changes",
+        input: {
+          title: "clean up Downloads",
+          changes: [
+            ...releases.flatMap(({ t, year }) => [
+              { op: "trash", path: `${dir(t, year)}/RARBG.txt`, to: null },
+              { op: "trash", path: `${dir(t, year)}/${t}.${year}.nfo`, to: null },
+              { op: "trash", path: `${dir(t, year)}/${t.toLowerCase()}-sample.mkv`, to: null },
+            ]),
+            ...releases.map(({ t, year }) => ({ op: "rename", path: `${dir(t, year)}/${t}.${year}.1080p.BluRay.x264-RARBG.mkv`, to: `${t} (${year}).mkv` })),
+            ...releases.map(({ t, year }) => ({ op: "move", path: dir(t, year), to: `/Movies/${t} (${year}) [release]` })),
+          ],
+        },
+      },
+    ];
+  }
+  if (/which|keep/.test(ask)) {
+    return [
+      {
+        kind: "tool",
+        name: "ask_user",
+        input: {
+          prompt: "which copy of Heat should I keep?",
+          multi: false,
+          options: [
+            { label: "Heat (1983).mkv", detail: "/Movies · played" },
+            { label: "Heat.1995.2160p.WEB-DL.mkv", detail: "/ · 14.0 GB · never played" },
+          ],
+        },
+      },
     ];
   }
   if (/junk/.test(ask)) {
@@ -257,6 +320,8 @@ const plan = (messages: Array<Message>): Array<Step> => {
   ];
 };
 
+// Ids stay unique across restarts: the stored thread pairs tool results with calls by id.
+const RUN = randomBytes(3).toString("hex");
 let messageCount = 0;
 const anthropic = async (req: IncomingMessage, res: ServerResponse) => {
   const body = JSON.parse(await readBody(req));
@@ -281,7 +346,7 @@ const anthropic = async (req: IncomingMessage, res: ServerResponse) => {
   send({
     type: "message_start",
     message: {
-      id: `msg_fake_${++messageCount}`,
+      id: `msg_fake_${RUN}_${++messageCount}`,
       type: "message",
       role: "assistant",
       model: body.model,
@@ -303,7 +368,7 @@ const anthropic = async (req: IncomingMessage, res: ServerResponse) => {
       send({ type: "content_block_delta", index, delta: { type: "signature_delta", signature: "ZmFrZS1zaWc=" } });
     } else if (step.kind === "tool") {
       stop = "tool_use";
-      send({ type: "content_block_start", index, content_block: { type: "tool_use", id: `toolu_fake_${messageCount}`, name: step.name, input: {} } });
+      send({ type: "content_block_start", index, content_block: { type: "tool_use", id: `toolu_fake_${RUN}_${messageCount}`, name: step.name, input: {} } });
       send({ type: "content_block_delta", index, delta: { type: "input_json_delta", partial_json: JSON.stringify(step.input) } });
     } else {
       send({ type: "content_block_start", index, content_block: { type: "text", text: "" } });

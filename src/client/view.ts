@@ -284,7 +284,7 @@ const doneLog = (h: H, model: Model, key: string, summary: string, rows: Html[])
 const lazyMarkdown = createKeyedLazy();
 
 /** Text stays prose; consecutive steps share one run log; a scan's score card closes its log. */
-const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live: boolean): Html[] => {
+const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live: boolean, settled: boolean): Html[] => {
   const out: Html[] = [];
   let rows: Html[] = [];
   let logKey = "";
@@ -324,7 +324,7 @@ const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live
         detail = describeStep(item.name, item.input, item.output).detail;
         if (item.state === "error") failed++;
         rows.push(toolRow(h, item, model));
-        const card = item.state === "done" ? toolCard(h, model, item, live) : null;
+        const card = item.state === "done" ? toolCard(h, model, item, live, settled) : null;
         if (card) {
           flush();
           out.push(h.keyed("div")(`card.${item.key}`, [], [card]));
@@ -340,11 +340,11 @@ const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live
 };
 
 /** The agent's words sit in the column, no mark, no box; the user's bubble is what tells the voices apart. */
-const agentView = (h: H, turn: Turn, model: Model, caretKey: string | null, live: boolean) =>
+const agentView = (h: H, turn: Turn, model: Model, caretKey: string | null, live: boolean, settled = false) =>
   h.keyed("article")(
     turn.key,
     [h.Class("grid min-w-0 gap-3"), h.DataAttribute("role", "assistant"), h.AriaLabel("puterminator")],
-    agentBody(h, turn, model, caretKey, live),
+    agentBody(h, turn, model, caretKey, live, settled),
   );
 
 /** The user's words sit on the right in a quiet block; that alone tells the voices apart. */
@@ -528,7 +528,11 @@ const threadPage = (h: H, model: Model) => {
         h.div(
           [h.Class(`${COLUMN} gap-9 pt-10 pb-14`)],
           [
-            ...turns.map((t) => (t.role === "user" ? userView(h, t, busy && (t === last || t === turns.at(-2))) : agentView(h, t, model, caretKey, busy && t === last))),
+            ...turns.map((t, i) =>
+              t.role === "user"
+                ? userView(h, t, busy && (t === last || t === turns.at(-2)))
+                : agentView(h, t, model, caretKey, busy && t === last, turns.slice(i + 1).some((u) => u.role === "user")),
+            ),
             ...(pending ? [agentView(h, { key: "pending", role: "assistant", items: [] }, model, null, true)] : []),
             ...statusRows(h, model),
           ],

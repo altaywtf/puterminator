@@ -1,5 +1,6 @@
 import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages";
 import * as Clock from "effect/Clock";
+import * as Exit from "effect/Exit";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -8,9 +9,11 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, type Library } from "../shared/contract";
 import { audit, isMessyName, junkReason } from "./audit";
-import { downloadToken, fileMedia, hlsUrl, listAll, putioLayer, rootFolders } from "./putio";
+import type { Run } from "../shared/actions";
+import { AskInput, applyChange, folderIds, ProposeInput, validatePlan, validateQuestion } from "./changes";
+import { downloadToken, fileMedia, hlsUrl, listAll, type PutioError, putioLayer, rootFolders, trashEnabled } from "./putio";
 import { type AnthropicClient, effectTool, runTurn, type TurnError, weightedTokens } from "./runner";
-import { month, type Store } from "./store";
+import { month, type Store, type StoredRecord } from "./store";
 import { buildTree } from "./tree";
 import type { ListFolderOutput, SearchFilesOutput } from "../shared/tools";
 
@@ -22,7 +25,12 @@ Who you are:
 - The name is the only terminator joke. No catchphrases, no movie quotes.
 - You sort files. You never judge taste or legality.
 
-This version is read-only. You can scan the library, score it, list folders and search files. You cannot rename, move or delete anything yet. When the user asks for changes, describe the plan you would apply (what moves where, what goes to trash and why) and say that applying changes is coming in a later version.
+You can scan, score, list folders and search files. You can also change the library, but only through a plan the user approves:
+- To trash, rename or move anything, call propose_changes with every change. The app shows it as a diff; the user applies, edits or discards it. You never apply anything yourself, and nothing changes until they click apply.
+- Trash goes to put.io's trash, never a permanent delete. Prefer trash for junk, rename for messy release names, move for wrapper folders.
+- After propose_changes, stop: at most one line, never a list of the changes; the diff shows them.
+- When you need a decision you can't infer (which copy to keep, which folders to leave alone), call ask_user and stop. The answer arrives as the next user message.
+- The <context> block says when a plan was applied or discarded. After an apply the snapshot is fresh; don't propose the same changes again.
 
 How to work:
 - Scan before you judge. Call scan_library when there is no snapshot, when the user asks for a fresh audit, or when the target folder changed.
@@ -37,7 +45,6 @@ How to write:
 - No bold, no labels like "junk:", no headings, no sections, no caveats, no "+N more", no follow-up questions.
 - After a scan: one line, no numbers from the card.
 - All lowercase, like the app: "no." not "No.". File names and abbreviations (GB, HDR) keep their case.
-- Mention read-only only when the user asks for a change. Then give the plan as at most 3 bullets.
 - Duplicates: which copy to keep, and why, in one line each. A clean library gets one line, then stop.
 - Errors: one line saying what failed and when to retry.
 - No preamble, no recap, no offers, no exclamation marks, no emoji.
@@ -158,6 +165,148 @@ export const makeAgent = (deps: AgentDeps) =>
       };
     };
 
+    /** Reads the whole tree under the target folder, saves it and scores it. */
+    const scan = Effect.gen(function* () {
+      const { id, name } = state.folder;
+      const tree = buildTree(yield* listAll, id);
+      store.saveSnapshot(tree.files);
+      const a = audit(tree.files, id === 0 ? name : tree.rootName, false, new Date(yield* Clock.currentTimeMillis));
+      setState({ ...state, lastAudit: { at: a.at, rootName: a.rootName, score: a.score, items: a.totals.items } });
+      const lib = library();
+      if (lib) broadcast({ type: "library", library: lib });
+      return a;
+    });
+
+    // ---------- plans: proposed by the model, applied only from a browser frame ----------
+
+    const plans = new Map(store.plans().map((p) => [p.record.plan.id, p]));
+    const runFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
+    const newId = () => crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+
+    const saveRecord = (p: StoredRecord) => {
+      plans.set(p.record.plan.id, p);
+      store.savePlan(p);
+      broadcast({ type: "plan", record: p.record });
+    };
+
+    const stepError = (e: PutioError) =>
+      e._tag === "PutioRateLimited" ? "put.io rate limit; retry in a minute" : e._tag === "PutioUnauthorized" ? "put.io signed you out" : e.message;
+
+    /** Runs the queued steps in order, one put.io change each, then rescans. Stopping fails what's left. */
+    const runSteps = (planId: string) => {
+      const token = store.token();
+      const first = plans.get(planId);
+      if (!token || !first?.record.run) return;
+      const update = (f: (run: Run) => Run, status: StoredRecord["record"]["status"] = "applying") => {
+        const cur = plans.get(planId);
+        if (cur?.record.run) saveRecord({ ...cur, reported: false, record: { ...cur.record, status, run: f(cur.record.run) } });
+      };
+      const setStep = (change: string, state: Run["steps"][number]["state"], error: string | null = null) =>
+        update((run) => ({ ...run, steps: run.steps.map((s) => (s.change === change ? { ...s, state, error } : s)) }));
+      const work = Effect.gen(function* () {
+        const run = first.record.run;
+        if (!run) return;
+        const folders = folderIds(store.snapshot(), state.folder.id);
+        const queued = run.steps.filter((s) => s.state === "queued");
+        const needsTrash = queued.some((s) => run.changes.find((c) => c.id === s.change)?.op === "trash");
+        const trashOn = needsTrash ? yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)) : true;
+        for (const step of queued) {
+          const change = run.changes.find((c) => c.id === step.change);
+          const fileId = first.ids[step.change];
+          if (!change || fileId === undefined) continue;
+          if (change.op === "trash" && !trashOn) {
+            setStep(step.change, "failed", "trash is off in your put.io settings, so this would delete for good");
+            continue;
+          }
+          setStep(step.change, "running");
+          const exit = yield* Effect.exit(applyChange(change, fileId, folders));
+          if (Exit.isSuccess(exit)) setStep(step.change, "done");
+          else {
+            const err = Exit.findErrorOption(exit);
+            setStep(step.change, "failed", err._tag === "Some" ? stepError(err.value) : "didn’t finish");
+          }
+        }
+        update((r) => r, "done");
+        yield* scan.pipe(Effect.ignore);
+      });
+      deps.background(
+        Effect.withFiber((fiber) => {
+          runFibers.set(planId, fiber);
+          return work.pipe(
+            Effect.provide(putioLayer(token, deps.putioFetch)),
+            Effect.catchDefect((defect) => Effect.logError("run crashed", defect)),
+            Effect.ensuring(
+              Effect.sync(() => {
+                runFibers.delete(planId);
+                // Stopped or crashed mid-run: whatever didn't finish is failed, so retry can pick it up.
+                if (plans.get(planId)?.record.status === "applying")
+                  update(
+                    (run) => ({
+                      ...run,
+                      steps: run.steps.map((s) => (s.state === "running" || s.state === "queued" ? { ...s, state: "failed", error: "stopped" } : s)),
+                    }),
+                    "done",
+                  );
+              }),
+            ),
+          );
+        }),
+      );
+    };
+
+    /** The only way a plan reaches put.io: an apply frame from the user's browser. */
+    const apply = (planId: string, exclude: ReadonlyArray<string>) => {
+      const p = plans.get(planId);
+      if (!p || p.record.status !== "proposed" || runFibers.size > 0) return;
+      const changes = p.record.plan.changes.filter((c) => !exclude.includes(c.id));
+      if (changes.length === 0) return;
+      const run: Run = { id: planId, title: p.record.plan.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
+      saveRecord({ ...p, reported: false, record: { ...p.record, status: "applying", run } });
+      runSteps(planId);
+    };
+
+    const retry = (planId: string) => {
+      const p = plans.get(planId);
+      if (!p?.record.run || p.record.status !== "done" || runFibers.size > 0) return;
+      const run = p.record.run;
+      saveRecord({
+        ...p,
+        reported: false,
+        record: { ...p.record, status: "applying", run: { ...run, steps: run.steps.map((s) => (s.state === "failed" ? { ...s, state: "queued", error: null } : s)) } },
+      });
+      runSteps(planId);
+    };
+
+    const discard = (planId: string) => {
+      const p = plans.get(planId);
+      if (p?.record.status === "proposed") saveRecord({ ...p, reported: false, record: { ...p.record, status: "discarded" } });
+    };
+
+    // An eviction mid-run leaves steps marked running; they never finished.
+    for (const p of plans.values())
+      if (p.record.status === "applying" && p.record.run)
+        saveRecord({
+          ...p,
+          record: {
+            ...p.record,
+            status: "done",
+            run: { ...p.record.run, steps: p.record.run.steps.map((s) => (s.state === "running" || s.state === "queued" ? { ...s, state: "failed", error: "interrupted" } : s)) },
+          },
+        });
+
+    /** What happened to plans since the model last heard, for the next <context>. */
+    const planNews = () =>
+      [...plans.values()].flatMap((p) => {
+        if (p.reported || p.record.status === "proposed" || p.record.status === "applying") return [];
+        saveRecord({ ...p, reported: true });
+        if (p.record.status === "discarded") return [`The user discarded plan "${p.record.plan.title}".`];
+        const steps = p.record.run?.steps ?? [];
+        const failed = steps.filter((s) => s.state === "failed");
+        return [
+          `The user applied plan "${p.record.plan.title}": ${steps.length - failed.length} done, ${failed.length} failed${failed[0]?.error ? ` (${failed[0].error})` : ""}. The snapshot was rescanned.`,
+        ];
+      });
+
     // Inputs have no optional or default fields and no numeric bounds, so they stay valid under strict tool use.
     const tools = [
       effectTool({
@@ -168,14 +317,7 @@ export const makeAgent = (deps: AgentDeps) =>
         run: () =>
           Effect.gen(function* () {
             if (!store.token()) return JSON.stringify({ error: "Not signed in to put.io." });
-            const { id, name } = state.folder;
-            const tree = buildTree(yield* listAll, id);
-            store.saveSnapshot(tree.files);
-            const a = audit(tree.files, id === 0 ? name : tree.rootName, false, new Date(yield* Clock.currentTimeMillis));
-            setState({ ...state, lastAudit: { at: a.at, rootName: a.rootName, score: a.score, items: a.totals.items } });
-            const lib = library();
-            if (lib) broadcast({ type: "library", library: lib });
-            return JSON.stringify(a);
+            return JSON.stringify(yield* scan);
           }),
       }),
       effectTool({
@@ -232,6 +374,27 @@ export const makeAgent = (deps: AgentDeps) =>
             } satisfies SearchFilesOutput);
           }),
       }),
+      effectTool({
+        name: "propose_changes",
+        description:
+          "Propose trash, rename and move changes as one plan. The user sees a diff and decides; nothing changes until they apply it. Paths come from the snapshot.",
+        input: ProposeInput,
+        run: (input) =>
+          Effect.sync(() => {
+            const all = store.snapshot();
+            if (!all.length) return noSnapshot;
+            const out = validatePlan(all, input, newId());
+            if ("error" in out) return JSON.stringify(out);
+            saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, reported: true });
+            return JSON.stringify(out.plan);
+          }),
+      }),
+      effectTool({
+        name: "ask_user",
+        description: "Ask the user to pick between 2 to 6 options when you can't decide alone. Then stop; the answer comes as the next message.",
+        input: AskInput,
+        run: (input) => Effect.sync(() => JSON.stringify(validateQuestion(input, newId()))),
+      }),
     ];
 
     const converse = (text: string) =>
@@ -244,6 +407,7 @@ export const makeAgent = (deps: AgentDeps) =>
             ? `Last scan: ${lastAudit.at.slice(0, 10)}, ${lastAudit.items} items, score ${lastAudit.score}.`
             : "No scan yet.",
           `Credits left this month: ${Math.max(0, Math.floor((credits.cap - credits.used) / 1000))}.`,
+          ...planNews(),
         ].join(" ");
         closeDanglingTools();
         append({
@@ -337,6 +501,7 @@ export const makeAgent = (deps: AgentDeps) =>
           { type: "state", state },
           { type: "history", messages: store.history() },
           ...(lib ? [{ type: "library" as const, library: lib }] : []),
+          ...[...plans.values()].map((p) => ({ type: "plan" as const, record: p.record })),
         ];
       },
       /** One browser frame. Frames that fail to decode are dropped. */
@@ -344,12 +509,30 @@ export const makeAgent = (deps: AgentDeps) =>
         Effect.gen(function* () {
           const event = decodeFrame(raw);
           if (Option.isNone(event)) return;
-          if (event.value.type === "stop") {
-            if (turnFiber) yield* Fiber.interrupt(turnFiber);
-            return;
+          const e = event.value;
+          switch (e.type) {
+            case "stop":
+              if (turnFiber) yield* Fiber.interrupt(turnFiber);
+              return;
+            case "apply":
+              if (!running && !state.busy) apply(e.plan, e.exclude);
+              return;
+            case "retry":
+              if (!running && !state.busy) retry(e.plan);
+              return;
+            case "discard":
+              discard(e.plan);
+              return;
+            case "stopRun": {
+              const f = runFibers.get(e.plan);
+              if (f) yield* Fiber.interrupt(f);
+              return;
+            }
+            case "send":
+              if (running || state.busy) return;
+              start(e.text, e.folder);
+              return;
           }
-          if (running || state.busy) return;
-          start(event.value.text, event.value.folder);
         }),
       /** Called by the Worker after OAuth. Never reachable from the browser. */
       setAuth: (token: string, username: string, avatarUrl: string | null) =>

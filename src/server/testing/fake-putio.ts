@@ -27,6 +27,10 @@ export type FakePutioOptions = {
   /** Answer the first `times` continue requests with 429, refilling at `resetAt` (epoch seconds). */
   rateLimitContinue?: { times: number; resetAt: number };
   unauthorized?: boolean;
+  /** put.io's account setting; with it off, delete is permanent. Default on. */
+  trashEnabled?: boolean;
+  /** File ids whose writes fail with a 400. */
+  failWrites?: ReadonlyArray<number>;
 };
 
 export type PutioRequest = { method: string; url: URL; body: URLSearchParams };
@@ -61,6 +65,12 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     }
     if (url.pathname === "/v2/account/info" && url.searchParams.get("download_token") === "1")
       return json(200, { info: { user_id: 1, username: "altay", download_token: "dl-token" }, status: "OK" });
+    if (url.pathname === "/v2/account/settings") return json(200, { settings: { trash_enabled: opts.trashEnabled ?? true }, status: "OK" });
+    const target = Number(body.get("file_ids") ?? body.get("file_id") ?? NaN);
+    const fails = (opts.failWrites ?? []).includes(target);
+    if (["/v2/files/delete", "/v2/files/rename", "/v2/files/move"].includes(url.pathname))
+      return fails ? json(400, { status: "ERROR", error_type: "LOCKED", status_code: 400 }) : json(200, { status: "OK", errors: [] });
+    if (url.pathname === "/v2/files/create-folder") return json(200, { file: { ...file(9000 + log.length, Number(body.get("parent_id")), body.get("name") ?? "", "FOLDER") }, status: "OK" });
     const one = url.pathname.match(/^\/v2\/files\/(\d+)$/);
     const found = one && opts.files.find((f) => f.id === Number(one[1]));
     if (found) return json(200, { file: { ...found, screenshot: `https://img.put.io/s/${found.id}.jpg` }, status: "OK" });

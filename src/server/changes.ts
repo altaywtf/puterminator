@@ -1,0 +1,122 @@
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import type { PutioSdkContext } from "@putdotio/sdk";
+import type { Change, Plan, Question } from "../shared/actions";
+import { createFolder, moveFile, type PutioError, renameFile, trashFile } from "./putio";
+import type { WalkedFile } from "./tree";
+
+// What the model may propose and ask, checked against the snapshot before anything is shown,
+// and how one approved change becomes put.io calls.
+
+export const MAX_CHANGES = 200;
+
+export const ProposeInput = Schema.Struct({
+  title: Schema.String.annotate({ description: "short, lowercase, e.g. 'clean up Downloads'" }),
+  changes: Schema.Array(
+    Schema.Struct({
+      op: Schema.Literals(["trash", "rename", "move"]),
+      path: Schema.String.annotate({ description: "the file or folder, as scan and search return it, e.g. '/Downloads/x.nfo'" }),
+      to: Schema.NullOr(Schema.String).annotate({ description: "trash: null. rename: the new name. move: the new full path, e.g. '/Movies/Heat (1995)'" }),
+    }),
+  ),
+});
+export type ProposeInput = typeof ProposeInput.Type;
+
+export const AskInput = Schema.Struct({
+  prompt: Schema.String,
+  multi: Schema.Boolean.annotate({ description: "true when several answers can apply" }),
+  options: Schema.Array(Schema.Struct({ label: Schema.String, detail: Schema.NullOr(Schema.String) })),
+});
+export type AskInput = typeof AskInput.Type;
+
+/** A plan as the server keeps it: what the card shows, plus the put.io ids it acts on. */
+export type StoredPlan = { plan: Plan; ids: Record<string, number> };
+
+const clean = (path: string) => `/${path.trim().replace(/^\/+|\/+$/g, "")}`;
+const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+export const parentOf = (path: string) => path.slice(0, path.lastIndexOf("/")) || "/";
+const badName = (name: string) => name.trim() === "" || name.includes("/") || name.length > 255 || name === "." || name === "..";
+
+/** Every change must name a file in the snapshot, once, and say something valid about it. Errors go back to the model. */
+export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: ProposeInput, id: string): StoredPlan | { error: string } => {
+  if (input.changes.length === 0) return { error: "A plan needs at least one change." };
+  if (input.changes.length > MAX_CHANGES) return { error: `At most ${MAX_CHANGES} changes per plan; split it.` };
+  const byPath = new Map(snapshot.map((f) => [f.path, f]));
+  const seen = new Set<number>();
+  const changes: Change[] = [];
+  const ids: Record<string, number> = {};
+  const problems: string[] = [];
+  input.changes.forEach((c, i) => {
+    const path = clean(c.path);
+    const f = byPath.get(path);
+    if (!f) return void problems.push(`${path}: not in the snapshot`);
+    if (seen.has(f.id)) return void problems.push(`${path}: appears twice`);
+    seen.add(f.id);
+    let to: string | null = null;
+    if (c.op === "trash") to = null;
+    else if (c.op === "rename") {
+      const name = (c.to ?? "").trim();
+      if (badName(name)) return void problems.push(`${path}: rename needs a plain new name`);
+      if (name === f.name) return void problems.push(`${path}: already named that`);
+      to = name;
+    } else {
+      if (!c.to) return void problems.push(`${path}: move needs the new full path`);
+      const target = clean(c.to);
+      if (target === path) return void problems.push(`${path}: already there`);
+      if (target.startsWith(`${path}/`)) return void problems.push(`${path}: can't move a folder into itself`);
+      if (target.split("/").slice(1).some(badName)) return void problems.push(`${path}: bad target path`);
+      if (byPath.has(target)) return void problems.push(`${target}: already exists`);
+      to = target;
+    }
+    const changeId = `c${i + 1}`;
+    ids[changeId] = f.id;
+    changes.push({ id: changeId, op: c.op, path, to, bytes: c.op === "trash" ? f.size : 0 });
+  });
+  if (problems.length > 0) return { error: `Fix these and propose again: ${problems.slice(0, 10).join("; ")}` };
+  return { plan: { id, title: input.title.trim().slice(0, 80) || "changes", changes }, ids };
+};
+
+export const validateQuestion = (input: AskInput, id: string): Question | { error: string } => {
+  if (!input.prompt.trim()) return { error: "The question is empty." };
+  if (input.options.length < 2 || input.options.length > 6) return { error: "Give 2 to 6 options." };
+  return {
+    id,
+    prompt: input.prompt.trim(),
+    multi: input.multi,
+    options: input.options.map((o, i) => ({ id: `o${i + 1}`, label: o.label.trim(), detail: o.detail?.trim() || null })),
+  };
+};
+
+/** Folder ids by path for one run: the snapshot's folders, plus any the run creates. */
+export const folderIds = (snapshot: ReadonlyArray<WalkedFile>, rootId: number) => {
+  const ids = new Map<string, number>([["/", rootId]]);
+  for (const f of snapshot) if (f.file_type === "FOLDER") ids.set(f.path, f.id);
+  return ids;
+};
+
+/** The folder at `path`, creating any missing ones on the way down. */
+const ensureFolder = (folders: Map<string, number>, path: string): Effect.Effect<number, PutioError, PutioSdkContext> =>
+  Effect.suspend(() => {
+    const known = folders.get(path);
+    if (known !== undefined) return Effect.succeed(known);
+    return ensureFolder(folders, parentOf(path)).pipe(
+      Effect.flatMap((parent) => createFolder(nameOf(path), parent)),
+      Effect.tap((id) => Effect.sync(() => folders.set(path, id))),
+    );
+  });
+
+/** One approved change as put.io calls. A move that also changes the name renames after moving. */
+export const applyChange = (change: Change, fileId: number, folders: Map<string, number>): Effect.Effect<void, PutioError, PutioSdkContext> => {
+  if (change.op === "trash") return trashFile(fileId).pipe(Effect.asVoid);
+  if (change.op === "rename") return renameFile(fileId, change.to ?? "").pipe(Effect.asVoid);
+  const to = change.to ?? "";
+  return Effect.gen(function* () {
+    const parent = yield* ensureFolder(folders, parentOf(to));
+    yield* moveFile(fileId, parent);
+    if (nameOf(to) !== nameOf(change.path)) yield* renameFile(fileId, nameOf(to));
+    if (folders.has(change.path)) {
+      folders.delete(change.path);
+      folders.set(to, fileId);
+    }
+  });
+};

@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { Runtime } from "foldkit";
 import type { Document, Html, HtmlBuilder } from "foldkit/html";
+import { PlanRecord } from "../../shared/actions";
 import { Library } from "../../shared/contract";
 import { planCard, questionCard, runCard } from "../actions";
 import { toolCard } from "../cards";
@@ -10,7 +11,7 @@ import { audits, folders, library, plans, questions, runs, searches } from "./fi
 // Dev-only gallery: every tool card, in every fixture state, through the same toolCard the thread uses.
 // Served by `pnpm lab` (vite) at /lab.html; `vite build` only builds index.html, so this never ships.
 
-const Model = Schema.Struct({ expanded: Schema.Array(Schema.String), library: Library });
+const Model = Schema.Struct({ expanded: Schema.Array(Schema.String), library: Library, plans: Schema.Record(Schema.String, PlanRecord) });
 type Model = typeof Model.Type;
 type H = HtmlBuilder<Message>;
 
@@ -75,7 +76,7 @@ Runtime.run(
   Runtime.makeApplication({
     Model,
     // Fixture toggles (unticked rows, open groups, answers) start the lab in each state.
-    init: () => ({ model: { expanded: [...plans, ...questions, ...runs].flatMap(([, , keys]) => keys), library } }),
+    init: () => ({ model: { expanded: [...plans, ...questions, ...runs].flatMap(([, , keys]) => keys), library, plans: {} } }),
     update,
     view,
     container: document.getElementById("root"),

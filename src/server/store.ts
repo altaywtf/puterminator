@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { PlanRecord } from "../shared/actions";
 import { AgentState, initialAgentState, MessageParam } from "../shared/contract";
 import type { WalkedFile } from "./tree";
 
@@ -21,6 +22,13 @@ const encodeState = Schema.encodeSync(Schema.fromJsonString(AgentState));
 const decodeMessage = Schema.decodeUnknownOption(Schema.fromJsonString(MessageParam));
 const encodeMessage = Schema.encodeSync(Schema.fromJsonString(MessageParam));
 
+/** A plan as the server keeps it: the record the browser sees, the put.io ids it acts on, and whether
+    the model has been told how its run went. */
+export const StoredRecord = Schema.Struct({ record: PlanRecord, ids: Schema.Record(Schema.String, Schema.Finite), reported: Schema.Boolean });
+export type StoredRecord = typeof StoredRecord.Type;
+const decodeRecord = Schema.decodeUnknownOption(Schema.fromJsonString(StoredRecord));
+const encodeRecord = Schema.encodeSync(Schema.fromJsonString(StoredRecord));
+
 const str = (v: unknown) => (typeof v === "string" ? v : String(v));
 const strOrNull = (v: unknown) => (v == null ? null : str(v));
 const num = (v: unknown) => Number(v);
@@ -36,6 +44,7 @@ export const makeStore = (sql: Sql) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT NOT NULL, path TEXT NOT NULL, depth INTEGER NOT NULL,
     size INTEGER NOT NULL, file_type TEXT NOT NULL, extension TEXT, crc32 TEXT, created_at TEXT NOT NULL, first_accessed_at TEXT)`);
+  sql.exec("CREATE TABLE IF NOT EXISTS plans (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, json TEXT NOT NULL)");
 
   return {
     loadState: (now: number): AgentState => {
@@ -77,6 +86,15 @@ export const makeStore = (sql: Sql) => {
         m,
         tokens,
       );
+    },
+
+    plans: (): Array<StoredRecord> =>
+      sql.exec("SELECT json FROM plans ORDER BY seq").flatMap((r) => {
+        const p = decodeRecord(str(r.json));
+        return p._tag === "Some" ? [p.value] : [];
+      }),
+    savePlan: (p: StoredRecord) => {
+      sql.exec("INSERT INTO plans (id, json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json", p.record.plan.id, encodeRecord(p));
     },
 
     snapshot: (): Array<WalkedFile> =>

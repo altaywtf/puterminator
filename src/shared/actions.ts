@@ -1,9 +1,10 @@
 import * as Schema from "effect/Schema";
 
-// Action cards: what the agent proposes, asks and applies. Nothing writes to put.io yet; the lab renders
-// these from fixtures. When write tools land, the server builds them and only a user click applies a plan.
+// Action cards: what the agent proposes, asks and applies. The server builds plans from the model's
+// `propose_changes` call; only the user's apply click, handled by the server, changes anything on put.io.
 
-/** One change to one file or folder. `to` is the new name (rename) or the new parent path (move). */
+/** One change to one file or folder. `to` is the new name (rename) or the new full path (move). Paths are
+    relative to the target folder, as the snapshot writes them. */
 export const Change = Schema.Struct({
   id: Schema.String,
   op: Schema.Literals(["trash", "rename", "move"]),
@@ -36,3 +37,11 @@ export const Run = Schema.Struct({
   steps: Schema.Array(Schema.Struct({ change: Schema.String, state: StepState, error: Schema.NullOr(Schema.String) })),
 });
 export type Run = typeof Run.Type;
+
+/** A plan and where it stands. The browser reads it; only browser frames move it past `proposed`. */
+export const PlanRecord = Schema.Struct({
+  plan: Plan,
+  status: Schema.Literals(["proposed", "discarded", "applying", "done"]),
+  run: Schema.NullOr(Run),
+});
+export type PlanRecord = typeof PlanRecord.Type;

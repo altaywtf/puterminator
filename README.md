@@ -1,6 +1,6 @@
 # puterminator
 
-A conversational agent for your put.io library: it reads the tree, scores naming, structure, junk and duplicates, and answers questions. This version is read-only.
+A conversational agent for your put.io library: it reads the tree, scores naming, structure, junk and duplicates, answers questions, and proposes trash, rename and move changes that you approve as a diff.
 
 - One Cloudflare Worker plus one Durable Object per put.io user, declared and deployed with [Alchemy](https://alchemy.run) ([`alchemy.run.ts`](alchemy.run.ts)).
 - Backend in [Effect](https://effect.website) 4; put.io through [`@putdotio/sdk`](https://github.com/putdotio/putio-sdk-typescript).
@@ -84,6 +84,14 @@ flowchart LR
 - History stays append-only as Anthropic `BetaMessageParam` rows, so thinking signatures and the cached prefix stay valid.
 - A `stop` frame interrupts the turn fiber. A turn that ends with an unanswered `tool_use` (stopped, or put.io rejected the token) gets an `is_error` tool result appended, so the next request stays valid. A put.io 401 also drops the stored token.
 - put.io reads retry a 429 while `x-ratelimit-reset` is 10 s away or less, up to four times; a longer wait becomes a tool error with the retry time.
+
+### Changes to the library
+
+- The model can only propose. `propose_changes` checks each change against the snapshot ([`changes.ts`](src/server/changes.ts)) and stores the plan; nothing reaches put.io from a tool.
+- Only an `apply` frame from the browser runs a plan: one put.io write per change, in order, then a rescan. `stopRun`, `retry` and `discard` are browser frames too. The model learns the outcome from the next `<context>`.
+- Trash uses put.io's trash and never `skip_trash`. With trash off in the account settings, delete is permanent, so trash changes fail instead.
+- Writes are not retried: a 429 or a lost response could mean put.io already applied it. A failed change stays failed for the user to retry.
+- `ask_user` shows a question; the answer comes back as the next user message.
 
 ### Durable Object data
 

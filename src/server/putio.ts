@@ -183,3 +183,52 @@ export const hlsUrl = (id: number, token: string, base: string = PUTIO_API) =>
 export const rootFolders: Effect.Effect<Array<Folder>, PutioError, PutioSdkContext> = listPaged(0, 1000).pipe(
   Effect.map((files) => files.filter((f) => f.file_type === "FOLDER" && f.id >= 0).map((f) => ({ id: f.id, name: f.name }))),
 );
+
+// ---------- writes ----------
+
+/**
+ * Writes are never retried: a 429 or a dropped response could mean put.io already applied it. A failure
+ * surfaces on its step, and the user retries from the run card.
+ */
+const write = <A, R>(label: string, effect: Effect.Effect<A, PutioSdkError, R>): Effect.Effect<A, PutioError, R> =>
+  effect.pipe(
+    Effect.mapError((err): PutioError =>
+      isPutioAuthError(err)
+        ? new PutioUnauthorized({ status: err.status })
+        : isPutioRateLimitError(err)
+          ? new PutioRateLimited({ retryAfterMs: 60_000 })
+          : new PutioFailed({ message: `put.io ${label}${"status" in err ? ` → ${err.status}` : ""}` }),
+    ),
+  );
+
+const Ok = Schema.Struct({ status: Schema.String });
+
+/** With trash off, put.io's delete is permanent, so trash changes check this first. */
+export const trashEnabled = read(
+  "/account/settings",
+  requestJson(Schema.Struct({ settings: Schema.Struct({ trash_enabled: Schema.Boolean }) }), { method: "GET", path: "/v2/account/settings" }),
+).pipe(Effect.map(({ settings }) => settings.trash_enabled));
+
+/** Moves one file to put.io's trash. Never passes skip_trash. */
+export const trashFile = (id: number) =>
+  write("/files/delete", requestJson(Ok, { method: "POST", path: "/v2/files/delete", body: { type: "form", value: { file_ids: String(id) } } }));
+
+export const renameFile = (id: number, name: string) =>
+  write("/files/rename", requestJson(Ok, { method: "POST", path: "/v2/files/rename", body: { type: "form", value: { file_id: id, name } } }));
+
+const MoveResult = Schema.Struct({ errors: Schema.optional(Schema.Array(Schema.Unknown)) });
+
+/** put.io answers 200 with an `errors` list when a move fails; that is a failure too. */
+export const moveFile = (id: number, parentId: number) =>
+  write(
+    "/files/move",
+    requestJson(MoveResult, { method: "POST", path: "/v2/files/move", body: { type: "form", value: { file_ids: String(id), parent_id: parentId } } }),
+  ).pipe(Effect.flatMap((r) => ((r.errors ?? []).length > 0 ? Effect.fail(new PutioFailed({ message: "put.io /files/move → refused" })) : Effect.void)));
+
+const Created = Schema.Struct({ file: Schema.Struct({ id: Schema.Finite }) });
+
+export const createFolder = (name: string, parentId: number) =>
+  write(
+    "/files/create-folder",
+    requestJson(Created, { method: "POST", path: "/v2/files/create-folder", body: { type: "form", value: { name, parent_id: parentId } } }),
+  ).pipe(Effect.map(({ file }) => file.id));

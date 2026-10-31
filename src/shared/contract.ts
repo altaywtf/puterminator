@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { PlanRecord } from "./actions";
 
 /** Wire contract between the Worker, the Puterminator Durable Object and the browser. */
 
@@ -57,6 +58,11 @@ export const ClientEvent = Schema.Union([
     folder: Folder,
   }),
   Schema.Struct({ type: Schema.Literal("stop") }),
+  /** Apply a proposed plan, minus the changes the user left out. The only path to a write. */
+  Schema.Struct({ type: Schema.Literal("apply"), plan: Schema.String, exclude: Schema.Array(Schema.String) }),
+  Schema.Struct({ type: Schema.Literal("discard"), plan: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("stopRun"), plan: Schema.String }),
+  Schema.Struct({ type: Schema.Literal("retry"), plan: Schema.String }),
 ]);
 export type ClientEvent = typeof ClientEvent.Type;
 
@@ -95,6 +101,7 @@ export const ServerEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("partial"), content: Schema.NullOr(Schema.Array(ContentBlock)) }),
   Schema.Struct({ type: Schema.Literal("error"), message: Schema.String }),
   Schema.Struct({ type: Schema.Literal("library"), library: Library }),
+  Schema.Struct({ type: Schema.Literal("plan"), record: PlanRecord }),
 ]);
 export type ServerEvent = typeof ServerEvent.Type;
 
