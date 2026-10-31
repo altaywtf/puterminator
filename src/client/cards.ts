@@ -16,8 +16,8 @@ import { auditOf, fmt, size } from "./steps";
 
 type H = HtmlBuilder<Message>;
 
-/** All a card reads from the app: which toggles are open, the last scan's file index, and the plans. */
-export type Ctx = Pick<Model, "expanded" | "library" | "plans">;
+/** All a card reads from the app: which toggles are open, the last scan's file index, the plans, and whether a turn is running. */
+export type Ctx = Pick<Model, "expanded" | "library" | "plans"> & { agent?: Model["agent"] };
 
 const ROWS = 5;
 

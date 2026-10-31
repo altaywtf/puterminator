@@ -511,6 +511,70 @@ describe("plans", () => {
     expect(String(result?.content)).toContain("not in the snapshot");
   });
 
+  const rejection = async (changes: Array<{ op: string; path: string; to: string | null }>) => {
+    const t = await setup(proposeTurn(JSON.stringify({ title: "x", changes })));
+    await Effect.runPromise(t.agent.receive(send("go")));
+    await t.settle();
+    expect(t.events.some((e) => e.type === "plan")).toBe(false);
+    const result = t.store.history().flatMap((m) => (typeof m.content === "string" ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_q");
+    return String(result?.content);
+  };
+
+  it("rejects changes that collide: into or inside a trashed folder, onto one path, onto an existing name", async () => {
+    expect(await rejection([{ op: "trash", path: "/Movies", to: null }, { op: "move", path: "/Alien (1979).mkv", to: "/Movies/Alien (1979).mkv" }])).toContain(
+      "lands in /Movies, which this plan trashes",
+    );
+    expect(await rejection([{ op: "trash", path: "/Movies", to: null }, { op: "trash", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: null }])).toContain(
+      "inside /Movies, which this plan trashes",
+    );
+    expect(
+      await rejection([
+        { op: "move", path: "/Alien (1979).mkv", to: "/Movies/x.mkv" },
+        { op: "move", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "/Movies/x.mkv" },
+      ]),
+    ).toContain("two changes end there");
+    expect(await rejection([{ op: "rename", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "RARBG_DO_NOT_MIRROR.exe" }])).toContain("already exists there");
+  });
+
+  it("leaves another cut's subtitles alone, and keeps subtitles with their video when it's left out", async () => {
+    const t = await setup(
+      proposeTurn(JSON.stringify({ title: "names", changes: [{ op: "rename", path: "/Movies/Heat.mkv", to: "Heat (1995).mkv" }] })),
+      {
+        files: [
+          file(1, 0, "Movies", "FOLDER"),
+          file(2, 1, "Heat.mkv", "VIDEO", 2 ** 30),
+          file(3, 1, "Heat.Extended.mkv", "VIDEO", 2 ** 30),
+          file(4, 1, "Heat.Extended.srt", "TEXT", 100),
+          file(5, 1, "Heat.en.srt", "TEXT", 100),
+        ],
+      },
+    );
+    await Effect.runPromise(t.agent.receive(send("rename")));
+    await t.settle();
+    const { plan } = planOf(t);
+    expect(plan.changes.map((c) => [c.id, c.path])).toEqual([
+      ["c1", "/Movies/Heat.mkv"],
+      ["c1s1", "/Movies/Heat.en.srt"],
+    ]);
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: plan.id, exclude: ["c1"] })));
+    await t.settle();
+    expect(writes(t)).toEqual([]);
+  });
+
+  it("rescans after a stopped run", async () => {
+    const t = await setup(proposeTurn(), { restoreLag: 0 });
+    await Effect.runPromise(t.agent.receive(send("go")));
+    await t.settle();
+    const id = planOf(t).plan.id;
+    const lists = () => t.putio.log.filter((r) => r.url.pathname === "/v2/files/list").length;
+    const before = lists();
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
+    await Effect.runPromise(t.agent.receive(frame({ type: "stopRun", plan: id })));
+    await t.settle();
+    expect(planOf(t).status).toBe("done");
+    expect(lists()).toBeGreaterThan(before);
+  });
+
   it("tells the model in the next context what happened to the plan", async () => {
     const t = await setup([...proposeTurn(), { kind: "sse", events: textTurn("done.", { input: 10, output: 5 }) }]);
     await Effect.runPromise(t.agent.receive(send("clean up")));

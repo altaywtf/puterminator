@@ -60,6 +60,7 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
       const name = (c.to ?? "").trim();
       if (badName(name)) return void problems.push(`${path}: rename needs a plain new name`);
       if (name === f.name) return void problems.push(`${path}: already named that`);
+      if (byPath.has(`${parentOf(path).replace(/\/$/, "")}/${name}`)) return void problems.push(`${path}: ${name} already exists there`);
       to = name;
     } else {
       if (!c.to) return void problems.push(`${path}: move needs the new full path`);
@@ -75,9 +76,31 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
     if (f.parent_id != null) parents[changeId] = f.parent_id;
     changes.push({ id: changeId, op: c.op, path, to, bytes: c.op === "trash" ? f.size : 0 });
   });
+  problems.push(...conflicts(changes));
   if (problems.length > 0) return { error: `Fix these and propose again: ${problems.slice(0, 10).join("; ")}` };
   const withSubtitles = changes.flatMap((c) => [c, ...subtitlesFor(snapshot, byPath, c, seen, ids, parents)]);
   return { plan: { id, title: input.title.trim().slice(0, 80) || "changes", changes: withSubtitles }, ids, parents };
+};
+
+const finalPath = (c: Change) => (c.op === "rename" ? `${parentOf(c.path).replace(/\/$/, "")}/${c.to}` : (c.to ?? c.path));
+const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
+
+/** Changes that undo each other: touching or landing in something the plan trashes, or two ending at one path. */
+const conflicts = (changes: ReadonlyArray<Change>): string[] => {
+  const trashed = changes.filter((c) => c.op === "trash").map((c) => c.path);
+  const problems: string[] = [];
+  const ends = new Set<string>();
+  for (const c of changes) {
+    const inside = trashed.find((t) => t !== c.path && within(c.path, t));
+    if (inside) problems.push(`${c.path}: inside ${inside}, which this plan trashes`);
+    if (c.op === "trash") continue;
+    const end = finalPath(c);
+    const lands = trashed.find((t) => within(end, t));
+    if (lands) problems.push(`${end}: lands in ${lands}, which this plan trashes`);
+    if (ends.has(end)) problems.push(`${end}: two changes end there`);
+    ends.add(end);
+  }
+  return problems;
 };
 
 const SUBTITLE = /^((?:[._ -][a-z]{2,8})*\.(?:srt|sub|idx|ass|ssa|vtt))$/i;
@@ -95,11 +118,15 @@ const subtitlesFor = (
   const video = byPath.get(c.path);
   if (!video || video.file_type !== "VIDEO" || c.op === "trash" || !c.to) return [];
   const stem = stemOf(video.name);
+  const longer = snapshot
+    .filter((f) => f.parent_id === video.parent_id && f.file_type === "VIDEO" && f.id !== video.id)
+    .map((f) => stemOf(f.name))
+    .filter((s) => s.length > stem.length && s.startsWith(stem));
   const target = c.op === "rename" ? `${parentOf(c.path).replace(/\/$/, "")}/${c.to}` : c.to;
   const newStem = stemOf(nameOf(target));
   const folder = parentOf(target).replace(/\/$/, "");
   return snapshot
-    .filter((f) => f.parent_id === video.parent_id && f.id !== video.id && !seen.has(f.id) && f.name.startsWith(stem) && SUBTITLE.test(f.name.slice(stem.length)))
+    .filter((f) => f.parent_id === video.parent_id && f.id !== video.id && !seen.has(f.id) && f.name.startsWith(stem) && SUBTITLE.test(f.name.slice(stem.length)) && !longer.some((s) => f.name.startsWith(s)))
     .flatMap((f, k) => {
       const name = newStem + f.name.slice(stem.length);
       if (byPath.has(`${folder}/${name}`)) return [];

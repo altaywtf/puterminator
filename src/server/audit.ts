@@ -58,16 +58,32 @@ export function junkFinder(files: ReadonlyArray<WalkedFile>) {
   };
 }
 
-/** Normalised identity for duplicate detection: title + episode or year, no release noise. */
-export function mediaKey(name: string) {
-  const stem = name.replace(/\.[a-z0-9]{2,4}$/i, "").toLowerCase();
+const NOISE = new RegExp(`${RELEASE_TAG.source}|\\b(web|remux|hdr|dts|atmos|truehd)\\b`, "gi");
+const words = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const PLEX_EXTRA = /-(trailer|featurette|deleted|scene|short|interview|behindthescenes|other|extra)s?$/i;
+const SEASON_DIR = /^(season|series|s)\s*\d+$|^specials$/i;
+
+/** The show a bare `S01E01.mkv` belongs to: the nearest folder above it that isn't a season folder. */
+export const showOf = (path: string) =>
+  path.split("/").slice(1, -1).reverse().find((d) => !SEASON_DIR.test(d.trim())) ?? "";
+
+/** Normalised identity for duplicate detection: title (and year) + episode, or title + year + whatever
+    tells cuts and parts apart, with release noise dropped. `show` names a file that starts at its episode. */
+export function mediaKey(name: string, show = "") {
+  const stem = stemOf(name).toLowerCase();
   const ep = stem.match(/s(\d{1,2})e(\d{1,3})/i);
-  const cut = stem.search(/s\d{1,2}e\d{1,3}|\b(19|20)\d{2}\b|2160p|1080p|720p|480p/i);
-  const title = (cut > 0 ? stem.slice(0, cut) : stem).replace(/[^a-z0-9]+/g, " ").trim();
-  if (!title) return null;
-  if (ep) return `${title}|s${Number(ep[1])}e${Number(ep[2])}`;
   const year = stem.match(/\b(19|20)\d{2}\b/);
-  return year ? `${title}|${year[0]}` : null;
+  const cut = stem.search(/s\d{1,2}e\d{1,3}|\b(19|20)\d{2}\b|2160p|1080p|720p|480p/i);
+  const title = words(cut > 0 ? stem.slice(0, cut) : cut === 0 ? show.toLowerCase().replace(/\((19|20)\d{2}\)/, "") : stem);
+  if (!title) return null;
+  if (ep) {
+    const showYear = year && year.index! < ep.index! ? year[0] : (show.match(/\b(19|20)\d{2}\b/)?.[0] ?? null);
+    return `${title}${showYear ? `|${showYear}` : ""}|s${Number(ep[1])}e${Number(ep[2])}`;
+  }
+  if (!year) return null;
+  const after = stem.slice(year.index! + 4);
+  const rest = words((PLEX_EXTRA.test(after) ? after : after.replace(GROUP_SUFFIX, "")).replace(BRACKET_GROUP, " ").replace(NOISE, " "));
+  return `${title}|${year[0]}${rest ? `|${rest}` : ""}`;
 }
 
 const pct = (good: number, total: number) => (total === 0 ? 100 : Math.round((100 * good) / total));
@@ -98,15 +114,25 @@ export function audit(files: WalkedFile[], rootName: string, truncated: boolean,
     .filter((x): x is { f: WalkedFile; why: string } => x.why !== null);
   const junkBytes = junk.reduce((a, x) => a + x.f.size, 0);
 
+  const crcOf = (v: WalkedFile) => (v.crc32 ? `crc:${v.crc32}:${v.size}` : null);
+  const copies = new Map<string, number>();
+  for (const v of videos) {
+    const c = crcOf(v);
+    if (c) copies.set(c, (copies.get(c) ?? 0) + 1);
+  }
   const byKey = new Map<string, WalkedFile[]>();
   for (const v of videos) {
-    const k = (v.crc32 && `crc:${v.crc32}:${v.size}`) || mediaKey(v.name);
+    const c = crcOf(v);
+    const k = c && (copies.get(c) ?? 0) > 1 ? c : mediaKey(v.name, showOf(v.path));
     if (!k) continue;
     byKey.set(k, [...(byKey.get(k) ?? []), v]);
   }
-  const dupGroups = [...byKey.values()]
-    .filter((g) => g.length > 1)
-    .map((g) => [...g].sort((a, b) => b.size - a.size));
+  const keepFirst = (a: WalkedFile, b: WalkedFile) =>
+    b.size - a.size ||
+    Number(isMessyName(a.name)) - Number(isMessyName(b.name)) ||
+    Number(b.first_accessed_at != null) - Number(a.first_accessed_at != null) ||
+    a.depth - b.depth;
+  const dupGroups = [...byKey.values()].filter((g) => g.length > 1).map((g) => [...g].sort(keepFirst));
   const dupFiles = dupGroups.reduce((a, g) => a + g.length - 1, 0);
   const wasted = dupGroups.reduce((a, g) => a + g.slice(1).reduce((s, f) => s + f.size, 0), 0);
 

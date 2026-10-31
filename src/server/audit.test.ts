@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { audit, isMessyName, junkFinder, mediaKey } from "./audit";
+import { audit, isMessyName, junkFinder, mediaKey, showOf } from "./audit";
 import { buildTree, type WalkedFile } from "./tree";
 
 let id = 1;
@@ -74,6 +74,33 @@ describe("duplicates", () => {
   it("matches the same episode across release names", () => {
     expect(mediaKey("The.Office.S02E01.720p.HDTV.x264.mkv")).toBe(mediaKey("The Office S02E01 1080p WEB.mkv"));
     expect(mediaKey("The.Office.S02E01.mkv")).not.toBe(mediaKey("The.Office.S02E02.mkv"));
+  });
+
+  it("keeps different shows, show years, dates, parts and extras apart", () => {
+    const key = (path: string) => mediaKey(path.slice(path.lastIndexOf("/") + 1), showOf(path));
+    expect(key("/Breaking Bad/Season 1/S01E01.mkv")).not.toBe(key("/The Wire/Season 1/S01E01.mkv"));
+    expect(key("/Doctor Who (1963)/Doctor Who (1963) - S01E01.mkv")).not.toBe(key("/Doctor Who (2005)/Doctor Who (2005) - S01E01.mkv"));
+    expect(key("/Doctor Who (2005)/Season 1/S01E01.mkv")).toBe(key("/TV/Doctor Who (2005) - S01E01 - Rose.mkv"));
+    expect(key("/TDS/The.Daily.Show.2024.01.15.720p.WEB.mkv")).not.toBe(key("/TDS/The.Daily.Show.2024.01.16.720p.WEB.mkv"));
+    expect(key("/Movies/Kill Bill (2003) - pt1.mkv")).not.toBe(key("/Movies/Kill Bill (2003) - pt2.mkv"));
+    expect(key("/Movies/Heat (1995)/Heat (1995)-trailer.mkv")).not.toBe(key("/Movies/Heat (1995)/Heat (1995).mkv"));
+    expect(key("/Movies/Blade Runner (1982) {edition-Final Cut}.mkv")).not.toBe(key("/Movies/Blade Runner (1982) {edition-Theatrical}.mkv"));
+    expect(key("/Downloads/Heat.1995.1080p.BluRay.x264-GRP.mkv")).toBe(key("/Movies/Heat (1995)/Heat (1995).mkv"));
+  });
+
+  it("finds two releases of one movie even when put.io has their checksums", () => {
+    const a = audit(
+      [file("/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", { crc32: "aaaa1111", size: 2 * 2 ** 30 }), file("/Movies/Heat.1995.720p.WEB.mkv", { crc32: "bbbb2222", size: 2 ** 30 })],
+      "Your Files",
+      false,
+    );
+    expect(a.duplicates.groups).toBe(1);
+  });
+
+  it("keeps the well-named, played copy of identical files", () => {
+    const messy = file("/Downloads/Heat.1995.1080p-GRP/Heat.1995.1080p-GRP.mkv", { crc32: "aaaa1111" });
+    const clean = file("/Movies/Heat (1995)/Heat (1995).mkv", { crc32: "aaaa1111", first_accessed_at: "2026-02-01T00:00:00" });
+    expect(audit([messy, clean], "Your Files", false).duplicates.examples[0]!.keep).toBe(clean.path);
   });
 
   it("keeps the bigger copy and counts the smaller as waste", () => {

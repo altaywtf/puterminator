@@ -264,7 +264,6 @@ export const makeAgent = (deps: AgentDeps) =>
             setStep(step.change, "failed", err._tag === "Some" ? stepMessage(err.value) : "didn’t finish", err._tag === "None" || maybeApplied(err.value));
           }
         }
-        update((r) => r, finished);
         yield* scan.pipe(Effect.ignore);
         const restored = new Set(
           (current(plans.get(planId)?.record ?? first.record)?.steps ?? []).flatMap((s) => {
@@ -280,6 +279,7 @@ export const makeAgent = (deps: AgentDeps) =>
           yield* Effect.sleep(deps.restoreRecheckMs ?? 5000);
           yield* scan.pipe(Effect.ignore);
         }
+        update((r) => r, finished);
       });
       deps.background(
         Effect.withFiber((fiber) => {
@@ -292,7 +292,9 @@ export const makeAgent = (deps: AgentDeps) =>
                 runFibers.delete(planId);
                 // Stopped or crashed mid-run: whatever didn't finish is failed, so retry can pick it up.
                 const status = plans.get(planId)?.record.status;
-                if (status === "applying" || status === "undoing") update((r) => failUnfinished(r, "stopped"), finished);
+                if (status !== "applying" && status !== "undoing") return;
+                update((r) => failUnfinished(r, "stopped"), finished);
+                deps.background(scan.pipe(Effect.ignore, Effect.provide(putioLayer(token, deps.putioFetch))));
               }),
             ),
           );
@@ -304,7 +306,7 @@ export const makeAgent = (deps: AgentDeps) =>
     const apply = (planId: string, exclude: ReadonlyArray<string>) => {
       const p = plans.get(planId);
       if (!p || p.record.status !== "proposed" || runFibers.size > 0) return;
-      const changes = p.record.plan.changes.filter((c) => !exclude.includes(c.id));
+      const changes = p.record.plan.changes.filter((c) => !exclude.includes(c.id) && !exclude.includes(c.id.replace(/s\d+$/, "")));
       if (changes.length === 0) return;
       const run: Run = { id: planId, title: p.record.plan.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
       saveRecord({ ...p, reported: false, record: { ...p.record, status: "applying", run } });

@@ -9,10 +9,30 @@ import { fmt, size } from "./steps";
 // Nothing here writes to put.io; until write tools land, only /lab renders these.
 
 type H = HtmlBuilder<Message>;
-type Ctx = { expanded: readonly string[] };
+type Ctx = {
+  expanded: readonly string[];
+  agent?: { busy: boolean } | null;
+  plans?: Readonly<Record<string, { status: string }>>;
+};
 
 const on = (ctx: Ctx, key: string) => ctx.expanded.includes(key);
 const toggle = (key: string) => Message.ToggledStep({ key });
+
+/** Why the server would drop an apply, retry or undo right now, or null. */
+const held = (ctx: Ctx) =>
+  ctx.agent?.busy
+    ? "wait for the reply to finish"
+    : Object.values(ctx.plans ?? {}).some((p) => p.status === "applying" || p.status === "undoing")
+      ? "wait for the running changes to finish"
+      : null;
+
+const runButton = (h: H, ctx: Ctx, label: string, message: Message, primary = false, disabled = false) => {
+  const wait = held(ctx);
+  return h.button(
+    [h.Type("button"), h.Disabled(disabled || wait !== null), ...(wait ? [h.Title(wait)] : []), h.Class(`btn btn-sm${primary ? " btn-primary" : ""}`), h.OnClick(message)],
+    [label],
+  );
+};
 
 const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf("/")) || "/";
@@ -77,7 +97,9 @@ export const questionCard = (h: H, ctx: Ctx, q: Question, live = false, settled 
 
 // ---------- plan ----------
 
-const offKey = (plan: Plan, c: Change) => `plan.${plan.id}.off.${c.id}`;
+const offKey = (plan: Plan, id: string) => `plan.${plan.id}.off.${id}`;
+/** A carried subtitle (`c1s1`) follows its video (`c1`). */
+const videoOf = (c: Change) => c.id.replace(/s\d+$/, "");
 
 type Hunk = { key: string; title: string; changes: Change[] };
 
@@ -93,7 +115,8 @@ const hunks = (plan: Plan): Hunk[] => {
 };
 
 const hunkOffKey = (plan: Plan, hunk: Hunk) => `plan.${plan.id}.hunkoff.${hunk.key}`;
-const lineOn = (ctx: Ctx, plan: Plan, hunk: Hunk, c: Change) => !on(ctx, hunkOffKey(plan, hunk)) && !on(ctx, offKey(plan, c));
+const lineOn = (ctx: Ctx, plan: Plan, hunk: Hunk, c: Change) =>
+  !on(ctx, hunkOffKey(plan, hunk)) && !on(ctx, offKey(plan, c.id)) && !on(ctx, offKey(plan, videoOf(c)));
 
 const SIGN = { del: ["-", "bg-danger/8", "text-danger"], add: ["+", "bg-ok/8", "text-ok"] } as const;
 
@@ -112,6 +135,7 @@ const line = (h: H, kind: "del" | "add", text: string, meta: string, active: boo
 
 const diffChange = (h: H, ctx: Ctx, plan: Plan, hunk: Hunk, c: Change) => {
   const active = lineOn(ctx, plan, hunk, c);
+  const locked = on(ctx, hunkOffKey(plan, hunk)) || (videoOf(c) !== c.id && on(ctx, offKey(plan, videoOf(c))));
   const name = nameOf(c.path);
   const lines =
     c.op === "trash"
@@ -124,10 +148,11 @@ const diffChange = (h: H, ctx: Ctx, plan: Plan, hunk: Hunk, c: Change) => {
       h.Type("button"),
       h.Role("checkbox"),
       h.AriaChecked(active),
+      h.Disabled(locked),
       h.AriaLabel(`${c.op} ${name}`),
-      h.Title(active ? "click to leave this out" : "click to put it back"),
-      h.Class("grid w-full text-start transition-[filter] duration-160 hover:brightness-125"),
-      h.OnClick(toggle(offKey(plan, c))),
+      h.Title(locked ? "follows what it belongs to" : active ? "click to leave this out" : "click to put it back"),
+      h.Class("grid w-full text-start transition-[filter] duration-160 enabled:hover:brightness-125"),
+      h.OnClick(toggle(offKey(plan, c.id))),
     ],
     lines,
   );
@@ -164,15 +189,7 @@ export const planCard = (h: H, ctx: Ctx, plan: Plan, live = false): Html => {
       h.span([h.Class("font-mono text-[12.5px] text-fg-3")], [picked.length === 0 ? "nothing to apply" : stat]),
       h.span([h.Class("flex items-center gap-2")], [
         h.button([h.Type("button"), h.Class("btn btn-sm border-transparent text-fg-2"), h.OnClick(Message.ClickedDiscard({ plan: plan.id }))], ["discard"]),
-        h.button(
-          [
-            h.Type("button"),
-            h.Disabled(picked.length === 0),
-            h.Class("btn btn-sm btn-primary"),
-            h.OnClick(Message.ClickedApply({ plan: plan.id, exclude: plan.changes.filter((c) => !picked.includes(c)).map((c) => c.id) })),
-          ],
-          ["apply"],
-        ),
+        runButton(h, ctx, "apply", Message.ClickedApply({ plan: plan.id, exclude: plan.changes.filter((c) => !picked.includes(c)).map((c) => c.id) }), true, picked.length === 0),
       ]),
     ]),
   ]);
@@ -286,10 +303,10 @@ export const runCard = (h: H, ctx: Ctx, run: Run, live = false, opts: { undoable
       ),
       h.span([h.Class("flex items-center gap-2")], [
         ...(failed.length > 0
-          ? [h.button([h.Type("button"), h.Class("btn btn-sm"), h.OnClick(Message.ClickedRetryRun({ plan: run.id }))], [`retry ${fmt(failed.length)}`])]
+          ? [runButton(h, ctx, `retry ${fmt(failed.length)}`, Message.ClickedRetryRun({ plan: run.id }))]
           : []),
         ...(opts.undoable && run.steps.some((s) => s.state === "done" || s.maybeApplied)
-          ? [h.button([h.Type("button"), h.Class("btn btn-sm"), h.OnClick(Message.ClickedUndoRun({ plan: run.id }))], ["undo"])]
+          ? [runButton(h, ctx, "undo", Message.ClickedUndoRun({ plan: run.id }))]
           : []),
       ]),
     ]),
