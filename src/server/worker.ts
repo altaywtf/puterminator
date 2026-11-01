@@ -29,7 +29,6 @@ export default Cloudflare.Worker(
   },
   Effect.gen(function* () {
     const config = yield* readConfig;
-    const publicUrl = yield* Cloudflare.Worker.URL;
     const agents = yield* Puterminator;
 
     const deps: RouteDeps = { config, agentFor: (uid) => agents.getByName(uid) };
@@ -38,10 +37,10 @@ export default Cloudflare.Worker(
     return {
       fetch: Effect.gen(function* () {
         const request = yield* HttpServerRequest;
+        const host = request.headers.host ?? "";
+        const local = URL.canParse(`http://${host}`) && LOCAL_HOSTS.has(new URL(`http://${host}`).hostname);
 
-        const url = yield* publicUrl;
-
-        return yield* handle(request, URL.canParse(url) && LOCAL_HOSTS.has(new URL(url).hostname) ? url : PUBLIC_ORIGIN);
+        return yield* handle(request, local ? `http://${host}` : PUBLIC_ORIGIN);
       }),
     };
   }),
