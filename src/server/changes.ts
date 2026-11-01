@@ -141,20 +141,12 @@ const subtitlesFor = (
 
   if (!video || video.file_type !== "VIDEO" || c.op === "trash" || !c.to) return [];
   const stem = stemOf(video.name);
-
-  const longer = snapshot.flatMap((f) => {
-    if (f.parent_id !== video.parent_id || f.file_type !== "VIDEO" || f.id === video.id) return [];
-    const s = stemOf(f.name);
-
-    return s.length > stem.length && s.startsWith(stem) ? [s] : [];
-  });
-
   const target = c.op === "rename" ? `${parentOf(c.path).replace(/\/$/, "")}/${c.to}` : c.to;
   const newStem = stemOf(nameOf(target));
   const folder = parentOf(target).replace(/\/$/, "");
 
-  return snapshot
-    .filter((f) => f.parent_id === video.parent_id && f.id !== video.id && !seen.has(f.id) && f.name.startsWith(stem) && SUBTITLE.test(f.name.slice(stem.length)) && !longer.some((s) => f.name.startsWith(s)))
+  return sidecarsOf(snapshot, video)
+    .filter((f) => !seen.has(f.id))
     .flatMap((f, k) => {
       const name = newStem + f.name.slice(stem.length);
 
@@ -167,6 +159,55 @@ const subtitlesFor = (
 
       return [{ id, op: c.op, path: f.path, to: c.op === "rename" ? name : `${folder}/${name}`, bytes: 0 }];
     });
+};
+
+/** Subtitle files beside a video that are named after it, like `Heat.eng.srt` next to `Heat.mkv`, matched
+    regardless of case. A sibling video with a longer name, like `Heat.Unrated.1080p.mkv`, claims subtitles
+    that share its next word, like `Heat.Unrated.en.srt`; when siblings differ from
+    the video only in case, only an exact-case match counts, and a sibling with the very same name leaves the
+    subtitles to neither. */
+export const sidecarsOf = (snapshot: ReadonlyArray<WalkedFile>, video: WalkedFile) => {
+  const exact = stemOf(video.name);
+  const stem = exact.toLowerCase();
+  const siblings = snapshot.flatMap((f) => (f.parent_id === video.parent_id && f.file_type === "VIDEO" && f.id !== video.id ? [stemOf(f.name)] : []));
+
+  const longer = siblings.flatMap((s) => {
+    const next = s.toLowerCase().startsWith(stem) ? s.slice(stem.length).match(/^[._ -][^._ -]+/)?.[0] : undefined;
+
+    return next ? [`${stem}${next.toLowerCase()}`] : [];
+  });
+
+  const caseRivals = siblings.filter((s) => s.toLowerCase() === stem);
+
+  if (caseRivals.includes(exact)) return [];
+
+  return snapshot.filter((f) => {
+    const name = f.name.toLowerCase();
+    const owned = caseRivals.length > 0 ? f.name.startsWith(exact) : name.startsWith(stem);
+
+    return f.parent_id === video.parent_id && f.id !== video.id && owned && SUBTITLE.test(f.name.slice(stem.length)) && !longer.some((l) => name.startsWith(l) && /^[._ -]/.test(name.slice(l.length)));
+  });
+};
+
+/** What would stop a stored plan from applying as proposed: a file no longer where the plan saw it, or
+    a destination another file now holds. With `eitherEnd`, for retry and undo, a file may also sit where
+    its change puts it, since put.io may have made that change already or the snapshot may predate it. */
+export const staleChanges = (snapshot: ReadonlyArray<WalkedFile>, changes: ReadonlyArray<Change>, ids: Readonly<Record<string, number>>, eitherEnd = false) => {
+  const byId = new Map(snapshot.map((f) => [f.id, f]));
+  const byPath = new Map(snapshot.map((f) => [f.path.toLowerCase(), f]));
+
+  return changes.flatMap((c) => {
+    const id = ids[c.id] ?? Number.NaN;
+    const f = byId.get(id);
+    const inPlace = f !== undefined && (f.path === c.path || (eitherEnd && c.op !== "trash" && f.path === finalPath(c)));
+
+    if (c.op !== "restore" && !inPlace) return [`${c.path} moved or is gone`];
+
+    if (c.op === "trash" || c.op === "restore") return [];
+    const end = byPath.get(finalPath(c).toLowerCase());
+
+    return end && end.id !== id ? [`${finalPath(c)} is taken`] : [];
+  });
 };
 
 export const validateQuestion = (input: AskInput, id: string): Question | { error: string } => {
@@ -185,10 +226,11 @@ export const validateQuestion = (input: AskInput, id: string): Question | { erro
 /** The reverse of every step that may have reached put.io, last first. Each keeps its change id, so it acts on the same file. */
 export const undoChanges = (run: Run): Change[] => {
   const done = new Set(run.steps.filter((s) => s.state === "done" || (s.state === "failed" && s.maybeApplied)).map((s) => s.change));
+  const reversed = run.changes.filter((c) => done.has(c.id)).reverse();
+  const videoOf = (c: Change) => c.id.replace(/s\d+$/, "");
+  const videosFirst = reversed.flatMap((c) => (videoOf(c) !== c.id && done.has(videoOf(c)) ? [] : [c, ...reversed.filter((s) => s.id !== c.id && videoOf(s) === c.id)]));
 
-  return run.changes
-    .filter((c) => done.has(c.id))
-    .reverse()
+  return videosFirst
     .map((c): Change => {
       if (c.op === "trash") return { ...c, op: "restore", to: null };
 
@@ -206,7 +248,9 @@ export const folderIds = (snapshot: ReadonlyArray<WalkedFile>, rootId: number, k
 
   for (const f of snapshot) if (f.file_type === "FOLDER") ids.set(f.path, f.id);
 
-  for (const [path, id] of known) ids.set(path, id);
+  const folders = new Set(snapshot.flatMap((f) => (f.file_type === "FOLDER" ? [f.id] : [])));
+
+  for (const [path, id] of known) if (folders.has(id) || id === rootId) ids.set(path, id);
 
   return ids;
 };

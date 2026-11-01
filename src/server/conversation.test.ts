@@ -1,3 +1,4 @@
+import type { ProposeInput } from "./changes";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
@@ -112,6 +113,7 @@ describe("a turn", () => {
       ["list_folder", true],
       ["search_files", true],
       ["propose_changes", true],
+      ["plan_layout", true],
       ["make_download_links", true],
       ["ask_user", true],
     ]);
@@ -611,6 +613,172 @@ describe("plans", () => {
     await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
     await t.settle();
     expect(writes(t).at(-1)).toEqual(["/v2/trash/restore", { file_ids: "3" }]);
+  });
+
+  it("plans a media server layout in code, keeps the change list out of the model's context, and applies it", async () => {
+    const layoutInput = JSON.stringify({ movies: "/Movies", shows: "/TV Shows", within: "" });
+
+    const t = await setup([
+      { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
+      { kind: "sse", events: toolUseTurn({ id: "toolu_l", name: "plan_layout", inputJsonChunks: [layoutInput] }, { input: 10, output: 5 }) },
+      { kind: "sse", events: textTurn("plan's up.", { input: 10, output: 5 }) },
+    ]);
+
+    await Effect.runPromise(t.agent.receive(send("make it work with plex")));
+    await t.settle();
+    const record = planOf(t);
+
+    expect(record.plan.changes.map((c) => [c.op, c.path, c.to])).toEqual([
+      ["move", "/Alien (1979).mkv", "/Movies/Alien (1979)/Alien (1979).mkv"],
+      ["move", "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", "/Movies/Heat (1995)/Heat (1995).mkv"],
+    ]);
+    const sentToModel = JSON.stringify(t.anthropic.requests.at(-1)?.body.messages.at(-1));
+
+    expect(sentToModel).toContain(`\\"changes\\":2`);
+    expect(sentToModel).not.toContain("Heat (1995).mkv");
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: record.plan.id, exclude: [] })));
+    await t.settle();
+    expect(planOf(t).run?.steps.map((s) => s.state)).toEqual(["done", "done"]);
+    expect(t.putio.log.filter((r) => r.url.pathname === "/v2/files/create-folder").map((r) => r.body.get("name"))).toEqual(["Alien (1979)", "Heat (1995)"]);
+  });
+
+  it("refuses to apply a plan the library has moved on from", async () => {
+    const rename = (to: string) => JSON.stringify({ title: to, changes: [{ op: "rename", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to }] });
+
+    const t = await setup([
+      { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
+      { kind: "sse", events: toolUseTurn({ id: "toolu_a", name: "propose_changes", inputJsonChunks: [rename("Heat (1995).mkv")] }, { input: 10, output: 5 }) },
+      { kind: "sse", events: toolUseTurn({ id: "toolu_b", name: "propose_changes", inputJsonChunks: [rename("Heat.mkv")] }, { input: 10, output: 5 }) },
+      { kind: "sse", events: textTurn("two plans.", { input: 10, output: 5 }) },
+    ]);
+
+    await Effect.runPromise(t.agent.receive(send("go")));
+    await t.settle();
+    const [first, second] = t.events.flatMap((e) => (e.type === "plan" && e.record.status === "proposed" ? [e.record.plan.id] : []));
+
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: first ?? "", exclude: [] })));
+    await t.settle();
+    const before = writes(t).length;
+
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: second ?? "", exclude: [] })));
+    await t.settle();
+    expect(writes(t).length).toBe(before);
+    expect(planOf(t).run?.steps[0]?.error).toMatch(/^the library changed since this plan/);
+  });
+
+  const twoPlans = async (first: [string, string], second: [string, string], opts: Parameters<typeof setup>[1] = {}) => {
+    const rename = ([path, to]: [string, string]) => JSON.stringify({ title: to, changes: [{ op: "rename", path, to }] });
+
+    const t = await setup(
+      [
+        { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
+        { kind: "sse", events: toolUseTurn({ id: "toolu_a", name: "propose_changes", inputJsonChunks: [rename(first)] }, { input: 10, output: 5 }) },
+        { kind: "sse", events: toolUseTurn({ id: "toolu_b", name: "propose_changes", inputJsonChunks: [rename(second)] }, { input: 10, output: 5 }) },
+        { kind: "sse", events: textTurn("two plans.", { input: 10, output: 5 }) },
+      ],
+      opts,
+    );
+
+    await Effect.runPromise(t.agent.receive(send("go")));
+    await t.settle();
+    const [a, b] = t.events.flatMap((e) => (e.type === "plan" && e.record.status === "proposed" ? [e.record.plan.id] : []));
+
+    const run = async (type: "apply" | "retry" | "undo", plan = "") => {
+      await Effect.runPromise(t.agent.receive(type === "apply" ? frame({ type, plan, exclude: [] }) : frame({ type, plan })));
+      await t.settle();
+    };
+
+    const record = (id: string) => t.events.flatMap((e) => (e.type === "plan" && e.record.plan.id === id ? [e.record] : [])).at(-1);
+
+    return { t, a: a ?? "", b: b ?? "", run, record };
+  };
+
+  it("won't retry onto a name another plan took since", async () => {
+    const { t, a, b, run, record } = await twoPlans(["/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", "Heat (1995).mkv"], ["/Movies/RARBG_DO_NOT_MIRROR.exe", "Heat (1995).mkv"], { failWrites: [2] });
+    await run("apply", a);
+    await run("apply", b);
+    const before = writes(t).length;
+
+    await run("retry", a);
+    expect(writes(t).length).toBe(before);
+    expect(record(a)?.run?.steps[0]?.error).toBe("the library changed since this plan (/Movies/Heat (1995).mkv is taken); ask for a new one");
+  });
+
+  const oneAfterAnother = async (first: ProposeInput, second: ProposeInput, opts: Parameters<typeof setup>[1] = {}) => {
+    const t = await setup(
+      [
+        ...proposeTurn(JSON.stringify(first)),
+        { kind: "sse", events: toolUseTurn({ id: "toolu_b", name: "propose_changes", inputJsonChunks: [JSON.stringify(second)] }, { input: 10, output: 5 }) },
+        { kind: "sse", events: textTurn("plan's up.", { input: 10, output: 5 }) },
+      ],
+      opts,
+    );
+
+    const act = async (event: ClientEvent) => {
+      await Effect.runPromise(t.agent.receive(frame(event)));
+      await t.settle();
+    };
+
+    await Effect.runPromise(t.agent.receive(send("first")));
+    await t.settle();
+    const firstId = planOf(t).plan.id;
+    await act({ type: "apply", plan: firstId, exclude: [] });
+    await Effect.runPromise(t.agent.receive(send("second")));
+    await t.settle();
+    await act({ type: "apply", plan: planOf(t).plan.id, exclude: [] });
+
+    return { t, first: firstId, act, before: writes(t).length };
+  };
+
+  const heat = "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv";
+
+  it("won't undo onto a name another plan took since, and says to undo it by hand", async () => {
+    const { t, first, act, before } = await oneAfterAnother(
+      { title: "a", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] },
+      { title: "b", changes: [{ op: "rename", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }] },
+    );
+
+    await act({ type: "undo", plan: first });
+    expect(writes(t).length).toBe(before);
+    expect(planOf(t).undo?.steps.map((s) => [s.state, s.error])).toEqual([["failed", `the library changed since this plan (${heat} is taken); undo it by hand`]]);
+  });
+
+  it("won't undo a file another plan has moved on since", async () => {
+    const { t, first, act, before } = await oneAfterAnother(
+      { title: "a", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] },
+      { title: "b", changes: [{ op: "move", path: "/Movies/Heat (1995).mkv", to: "/Heat (1995).mkv" }] },
+    );
+
+    await act({ type: "undo", plan: first });
+    expect(writes(t).length).toBe(before);
+    expect(planOf(t).undo?.steps[0]?.error).toBe("the library changed since this plan (/Movies/Heat (1995).mkv moved or is gone); undo it by hand");
+  });
+
+  it("won't retry a file another plan has moved since it failed", async () => {
+    const { t, first, act, before } = await oneAfterAnother(
+      { title: "a", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] },
+      { title: "b", changes: [{ op: "move", path: heat, to: "/Heat.1995.1080p.BluRay.x264-GRP.mkv" }] },
+      { failRenames: [2] },
+    );
+
+    await act({ type: "retry", plan: first });
+    expect(writes(t).length).toBe(before);
+    expect(t.events.flatMap((e) => (e.type === "plan" && e.record.plan.id === first ? [e.record] : [])).at(-1)?.run?.steps[0]?.error).toBe(
+      `the library changed since this plan (${heat} moved or is gone); ask for a new one`,
+    );
+  });
+
+  it("leaves a subtitle where it is when its video's move fails", async () => {
+    const { t } = await applied(
+      JSON.stringify({ title: "x", changes: [{ op: "move", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "/Heat/Heat (1995).mkv" }] }),
+      { files: [...library, file(5, 1, "heat.1995.1080p.bluray.x264-grp.EN.srt", "TEXT", 100)], failWrites: [2] },
+    );
+
+    expect(planOf(t).run?.steps.map((s) => [s.change, s.state, s.error])).toEqual([
+      ["c1", "failed", "put.io /files/move → 400"],
+      ["c1s1", "failed", "its video didn’t move"],
+    ]);
+    expect(t.putio.log.some((r) => r.body.get("file_ids") === "5")).toBe(false);
   });
 
   it("rejects a proposal naming files outside the snapshot, and stores nothing", async () => {

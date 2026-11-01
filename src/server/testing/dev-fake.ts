@@ -351,6 +351,13 @@ const plan = (messages: Array<Message>): Array<Step> => {
     if (call?.name === "ask_user") return [{ kind: "text", delayMs: 40, text: "your call." }];
 
     if (call?.name === "make_download_links") return [{ kind: "text", delayMs: 40, text: "the links are in the card above." }];
+
+    if (call?.name === "plan_layout") {
+      const p = JSON.parse(raw);
+
+      return [{ kind: "text", delayMs: 40, text: p.error ? `couldn't lay it out: ${p.error}` : `plan's up. ${p.skipped} files i couldn't name stay where they are.` }];
+    }
+
     const r = JSON.parse(raw);
     const lines = (r.items ?? []).slice(0, 5).map((i: any) => `- \`${i.path ?? i.name}\` (${i.size})`);
 
@@ -406,6 +413,10 @@ const plan = (messages: Array<Message>): Array<Step> => {
         },
       },
     ];
+  }
+
+  if (/plex|jellyfin|infuse|kodi|layout/.test(ask)) {
+    return [{ kind: "tool", name: "plan_layout", input: { movies: "/Movies", shows: "/Series", within: "" } }];
   }
 
   if (/download|link/.test(ask)) {

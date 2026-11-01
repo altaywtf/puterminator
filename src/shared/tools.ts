@@ -26,6 +26,18 @@ export const DownloadLinksResponse = Schema.Union([
 
 export type DownloadLinksResponse = typeof DownloadLinksResponse.Type;
 
+/** `plan_layout`: the stored plan's id and what it covers. The card renders the plan from the plan record,
+    so the change list never goes back to the model. */
+export const LayoutOutput = Schema.Struct({
+  plan: Schema.String,
+  changes: Schema.Finite,
+  skipped: Schema.Finite,
+  remaining: Schema.Finite,
+  examples: Schema.Array(Schema.Struct({ path: Schema.String, why: Schema.String })),
+});
+
+export type LayoutOutput = typeof LayoutOutput.Type;
+
 /** `search_files`: matching files, by size for the size-ranked categories. */
 export const SearchFilesOutput = Schema.Struct({
   total: Schema.Finite,

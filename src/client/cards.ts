@@ -5,7 +5,7 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Audit } from "../shared/audit";
 import { FileFlag } from "../shared/contract";
 import { Plan, Question } from "../shared/actions";
-import { DownloadLinksOutput, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
+import { DownloadLinksOutput, LayoutOutput, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
 import { discardedLine, planCard, questionCard, runCard } from "./actions";
 import { art, type Mood, moodOf } from "./art";
 import { has, type Index, indexOf, isFolder, isRegular, type Node, putioUrl, resolve } from "./library";
@@ -338,6 +338,7 @@ const decodeSearchFiles = Schema.decodeUnknownOption(Schema.fromJsonString(Searc
 const decodePlan = Schema.decodeUnknownOption(Schema.fromJsonString(Plan));
 const decodeQuestion = Schema.decodeUnknownOption(Schema.fromJsonString(Question));
 const decodeLinks = Schema.decodeUnknownOption(Schema.fromJsonString(DownloadLinksOutput));
+const decodeLayout = Schema.decodeUnknownOption(Schema.fromJsonString(LayoutOutput));
 
 type Card = (h: H, ctx: Ctx, key: string, output: string, live: boolean, settled: boolean) => Html | null;
 
@@ -358,6 +359,8 @@ const CARDS = {
   list_folder: (h, ctx, key, output, live) => Option.match(decodeListFolder(output), { onNone: () => null, onSome: (o) => folderCard(h, ctx, key, o, live) }),
   search_files: (h, ctx, key, output, live) => Option.match(decodeSearchFiles(output), { onNone: () => null, onSome: (o) => searchCard(h, ctx, key, o, live) }),
   propose_changes: (h, ctx, _key, output, live) => Option.match(decodePlan(output), { onNone: () => null, onSome: (p) => planOrRun(h, ctx, p, live) }),
+  plan_layout: (h, ctx, _key, output, live) =>
+    Option.match(Option.flatMapNullishOr(decodeLayout(output), (o) => ctx.plans[o.plan]), { onNone: () => null, onSome: (r) => planOrRun(h, ctx, r.plan, live) }),
   make_download_links: (h, ctx, _key, output, live) => Option.match(decodeLinks(output), { onNone: () => null, onSome: (o) => linksCard(h, ctx, o, live) }),
   ask_user: (h, ctx, _key, output, live, settled) => Option.match(decodeQuestion(output), { onNone: () => null, onSome: (q) => questionCard(h, ctx, q, live, settled) }),
 } satisfies Record<string, Card>;

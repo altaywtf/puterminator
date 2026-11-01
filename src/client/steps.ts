@@ -21,6 +21,7 @@ export const auditOf = (output: string | null): Option.Option<Audit> =>
 
 const decodeOutput = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.JsonObject));
 const decodeToolError = Schema.decodeUnknownOption(Schema.Struct({ error: Schema.String }));
+const decodeLayoutSummary = Schema.decodeUnknownOption(Schema.Struct({ changes: Schema.Finite, skipped: Schema.Finite }));
 const decodeLinkedFiles = Schema.decodeUnknownOption(Schema.Struct({ files: Schema.Finite }));
 const decodeFolderCount = Schema.decodeUnknownOption(Schema.Struct({ count: Schema.Finite }));
 const decodeTotal = Schema.decodeUnknownOption(Schema.Struct({ total: Schema.Finite }));
@@ -57,6 +58,19 @@ export function describeStep(name: string, input: Schema.Json, output: string | 
         ],
       }),
     });
+  }
+
+  if (name === "plan_layout") {
+    const layout = Option.flatMap(out, decodeLayoutSummary);
+
+    return {
+      title: "plan the media server layout",
+      detail: Option.match(layout, {
+        onNone: () => null,
+        onSome: ({ changes, skipped }) => `${fmt(changes)} ${changes === 1 ? "change" : "changes"}${skipped > 0 ? `, ${fmt(skipped)} left alone` : ""}`,
+      }),
+      lines: [],
+    };
   }
 
   if (name === "make_download_links") {

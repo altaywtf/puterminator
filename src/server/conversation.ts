@@ -14,12 +14,13 @@ import * as Stream from "effect/Stream";
 import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, type Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { PlanRecord, Run } from "../shared/actions";
-import { AskInput, applyChange, folderIds, ProposeInput, parentOf, undoChanges, validatePlan, validateQuestion } from "./changes";
+import { AskInput, applyChange, folderIds, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion } from "./changes";
 import { createDownloadLinks, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
 import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
 import { month, type Store, type StoredRecord } from "./store";
 import { buildTree, type WalkedFile } from "./tree";
-import type { DownloadLinksOutput, DownloadLinksResponse, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
+import type { DownloadLinksOutput, DownloadLinksResponse, LayoutOutput, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
+import { planLayout } from "./layout";
 
 const SYSTEM = `You are puterminator, an agent that helps one person understand and tidy their put.io library.
 
@@ -30,7 +31,8 @@ Who you are:
 - You sort files. You never judge taste or legality.
 
 You can scan, score, list folders, search files and make download links; every file you name links to put.io and videos play in the app. You can also change the library, but only through a plan the user approves:
-- To trash, rename or move anything, call propose_changes with every change. The app shows it as a diff; the user applies, edits or discards it. You never apply anything yourself, and nothing changes until they click apply.
+- To make the library work with Plex, Infuse, Jellyfin or Kodi, call plan_layout: it builds the whole plan itself. If the snapshot doesn't show which folders hold movies and shows, ask with ask_user, offering existing top-level folders or new 'Movies' and 'TV Shows'. Afterwards, one line on what it did and how many files it left alone.
+- To trash, rename or move anything else, call propose_changes with every change. The app shows it as a diff; the user applies, edits or discards it. You never apply anything yourself, and nothing changes until they click apply.
 - Trash goes to put.io's trash, never a permanent delete. Prefer trash for junk, rename for messy release names, move for wrapper folders.
 - After propose_changes, stop: at most one line, never a list of the changes; the diff shows them.
 - When you need a decision you can't infer (which copy to keep, which folders to leave alone), call ask_user and stop. The answer arrives as the next user message.
@@ -41,7 +43,7 @@ How to work:
 - After a scan, the UI shows a score card with the score, the weakest area, and the junk, duplicate and never-played counts and sizes. Never restate those. Add only what the card cannot say: the one problem that matters most, with one or two real file names. A scan with no files has no score; say the folder is empty.
 - put.io only records first_accessed_at. "Never played" is knowable; "not watched recently" is not. Say so if asked about stale files.
 - Each user message ends with a <context> block from the app (target folder, last scan, credits). Use it; don't quote it.
-- Asked what you can do, or greeted in an empty thread: in 3 short lines, say what you can do for this library today (score it, find and play files, make download links, plan cleanups they approve and can undo), then end with one thing worth doing first, as a statement they can act on.
+- Asked what you can do, or greeted in an empty thread: in 3 short lines, say what you can do for this library today (score it, find and play files, make download links, plan renames, moves and trash as a diff), then end with one thing worth doing first, as a statement they can act on.
 
 How to write:
 - Hard limit: 3 lines and 40 words per reply. Longer only when the user asks for detail or a plan.
@@ -325,11 +327,19 @@ export const makeAgent = (deps: AgentDeps) =>
         const needsTrash = queued.some((s) => run.changes.find((c) => c.id === s.change)?.op === "trash");
         const trashOn = needsTrash ? yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)) : true;
 
+        const failedVideos = new Set<string>();
+
         for (const step of queued) {
           const change = run.changes.find((c) => c.id === step.change);
           const fileId = first.ids[step.change];
 
           if (!change || fileId === undefined) continue;
+          const video = change.id.replace(/s\d+$/, "");
+
+          if (video !== change.id && failedVideos.has(video)) {
+            setStep(step.change, "failed", "its video didn’t move");
+            continue;
+          }
 
           if (change.op === "trash" && !trashOn) {
             setStep(step.change, "failed", "trash is off in your put.io settings, so this would delete for good");
@@ -342,6 +352,8 @@ export const makeAgent = (deps: AgentDeps) =>
           if (Exit.isSuccess(exit)) setStep(step.change, "done");
           else {
             const err = Exit.findErrorOption(exit);
+
+            failedVideos.add(step.change);
 
             if (Option.isSome(err)) setStep(step.change, "failed", stepMessage(err.value), maybeApplied(err.value));
             else setStep(step.change, "failed", "didn’t finish", true);
@@ -401,6 +413,17 @@ export const makeAgent = (deps: AgentDeps) =>
       const changes = p.record.plan.changes.filter((c) => !exclude.includes(c.id) && !exclude.includes(c.id.replace(/s\d+$/, "")));
 
       if (changes.length === 0) return;
+      const stale = scannedHere() ? staleChanges(store.snapshot(), changes, p.ids) : [];
+
+      if (stale.length > 0) {
+        const error = `the library changed since this plan (${stale[0]}); ask for a new one`;
+        const refused: Run = { id: planId, title: p.record.plan.title, changes, steps: changes.map((c) => ({ change: c.id, state: "failed", error })) };
+
+        saveRecord({ ...p, reported: false, record: { ...p.record, status: "done", run: refused } });
+
+        return;
+      }
+
       const run: Run = { id: planId, title: p.record.plan.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
       saveRecord({ ...p, reported: false, record: { ...p.record, status: "applying", run } });
       runSteps(planId);
@@ -411,6 +434,17 @@ export const makeAgent = (deps: AgentDeps) =>
       const run = p && current(p.record);
 
       if (!p || !run || (p.record.status !== "done" && p.record.status !== "undone") || runFibers.size > 0) return;
+      const failed = new Set(run.steps.flatMap((s) => (s.state === "failed" ? [s.change] : [])));
+      const taken = scannedHere() ? staleChanges(store.snapshot(), run.changes.filter((c) => failed.has(c.id)), p.ids, true) : [];
+
+      if (taken.length > 0) {
+        const error = `the library changed since this plan (${taken[0]}); ask for a new one`;
+
+        saveRecord({ ...p, reported: false, record: withCurrent(p.record, { ...run, steps: run.steps.map((s) => (s.state === "failed" ? { ...s, error } : s)) }) });
+
+        return;
+      }
+
       const steps = run.steps.map((s) => (s.state === "failed" ? { ...s, state: "queued" as const, error: null } : s));
       saveRecord({ ...p, reported: false, record: withCurrent({ ...p.record, status: p.record.undo ? "undoing" : "applying" }, { ...run, steps }) });
       runSteps(planId);
@@ -424,7 +458,16 @@ export const makeAgent = (deps: AgentDeps) =>
       const changes = undoChanges(run);
 
       if (changes.length === 0) return;
-      const back: Run = { id: planId, title: run.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
+      const taken = scannedHere() ? staleChanges(store.snapshot(), changes, p.ids, true) : [];
+      const error = taken.length > 0 ? `the library changed since this plan (${taken[0]}); undo it by hand` : null;
+      const back: Run = { id: planId, title: run.title, changes, steps: changes.map((c) => ({ change: c.id, state: error ? "failed" : "queued", error })) };
+
+      if (error) {
+        saveRecord({ ...p, reported: false, record: { ...p.record, status: "undone", undo: back } });
+
+        return;
+      }
+
       saveRecord({ ...p, reported: false, record: { ...p.record, status: "undoing", undo: back } });
       runSteps(planId);
     };
@@ -561,6 +604,35 @@ export const makeAgent = (deps: AgentDeps) =>
             saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true });
 
             return JSON.stringify(out.plan);
+          }),
+      }),
+      effectTool({
+        name: "plan_layout",
+        description:
+          "Lay out videos the way Plex, Infuse, Jellyfin and Kodi expect: '<movies>/Title (Year)/Title (Year).mkv' and '<shows>/Show (Year)/Season 01/Show (Year) - S01E02.mkv'. The app works out every move and rename from the snapshot, carries subtitles along, leaves anything it can't name alone, and shows the plan as a diff. At most 200 changes per plan; run it again after an apply for the rest.",
+        input: Schema.Struct({
+          movies: Schema.String.annotate({ description: "folder for movies, e.g. '/Movies'" }),
+          shows: Schema.String.annotate({ description: "folder for TV shows, e.g. '/TV Shows'" }),
+          within: Schema.String.annotate({ description: "only videos under this folder, e.g. '/Downloads'; '' for the whole snapshot" }),
+        }),
+        run: ({ movies, shows, within }) =>
+          Effect.sync(() => {
+            const all = snapshotHere();
+
+            if (Result.isFailure(all)) return all.failure;
+            const layout = planLayout(all.success, movies, shows, within);
+
+            if ("error" in layout) return JSON.stringify(layout);
+            const examples = layout.skipped.slice(0, 5);
+
+            if (layout.changes.length === 0)
+              return JSON.stringify({ error: `Nothing to move: every video it can name is already laid out. ${layout.skipped.length} left alone.`, examples });
+            const out = validatePlan(all.success, { title: "media server layout", changes: layout.changes }, newId());
+
+            if ("error" in out) return JSON.stringify(out);
+            saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true });
+
+            return JSON.stringify({ plan: out.plan.id, changes: out.plan.changes.length, skipped: layout.skipped.length, remaining: layout.remaining, examples } satisfies LayoutOutput);
           }),
       }),
       effectTool({
