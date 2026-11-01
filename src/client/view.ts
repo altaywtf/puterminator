@@ -181,11 +181,10 @@ const shell = (h: H, model: Model, children: Html[]) =>
 
 const loadingView = (h: H) => h.div([h.Class("h-dvh bg-bg"), h.AriaBusy(true)], [h.span([h.Class("sr-only"), h.Role("status")], ["loading"])]);
 
-type SignIn = "ready" | "unconfigured" | "failed";
+type SignIn = "unconfigured" | "failed";
 
 const signInOutput = (h: H, kind: SignIn): Html[] =>
   Match.value(kind).pipe(
-    Match.when("ready", () => [h.span([h.Class("text-fg-3")], ["# terminates the mess in your put.io"]), h.span([h.Class("text-fg-3")], ["# junk, doubles, release names"])]),
     Match.when("unconfigured", () => [h.span([h.Class("text-warn")], ["! sign-in isn’t wired up yet"])]),
     Match.when("failed", () => [h.span([h.Class("text-danger"), h.Role("alert")], ["! couldn’t reach puterminator"])]),
     Match.exhaustive,
@@ -193,7 +192,6 @@ const signInOutput = (h: H, kind: SignIn): Html[] =>
 
 const signInAction = (h: H, kind: SignIn) =>
   Match.value(kind).pipe(
-    Match.when("ready", () => h.a([h.Href("/auth/login"), h.Class("btn btn-primary justify-self-start")], ["continue with put.io ↗"])),
     Match.when("unconfigured", () => h.button([h.Type("button"), h.Disabled(true), h.Class("btn justify-self-start")], ["continue with put.io"])),
     Match.when("failed", () => h.button([h.Type("button"), h.Class("btn justify-self-start"), h.OnClick(Message.ClickedRetryMe())], ["try again"])),
     Match.exhaustive,
@@ -206,7 +204,7 @@ const signInView = (h: H, kind: SignIn) =>
       h.div(
         [h.Class("enter grid w-full max-w-[400px] gap-6")],
         [
-          art(h, kind === "ready" ? "asleep" : "unplugged", 56),
+          art(h, "unplugged", 56),
           h.h1([h.Class("m-0 font-display text-[28px] leading-none font-medium text-accent")], ["puterminator"]),
           h.div([h.Class("grid gap-0.5 rounded-xl border border-line bg-sunk px-4 py-3 font-mono text-mono leading-[1.7]")], [
             h.span([h.Class("text-fg-2")], ["$ puterminator login"]),
