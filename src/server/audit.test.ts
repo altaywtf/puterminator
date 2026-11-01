@@ -34,8 +34,22 @@ describe("naming", () => {
   });
 
   it("leaves hyphenated titles, course files and media-server names clean", () => {
-    for (const name of ["Spider-Man.mkv", "01-introduction.mp4", "A Proper Job (2019).mkv", "Heat (1995) - 1080p.mkv", "Heat (1995) [imdbid-tt0113277].mkv"])
+    for (const name of [
+      "Spider-Man.mkv",
+      "X-MEN.mkv",
+      "01-introduction.mp4",
+      "[Lecture 01] Introduction.mp4",
+      "A Proper Job (2019).mkv",
+      "Heat (1995) - 1080p.mkv",
+      "Heat (1995) [imdbid-tt0113277].mkv",
+      "Heat (1995) - 1080p [imdbid-tt0113277].mkv",
+    ])
       expect(isMessyName(name), name).toBe(false);
+  });
+
+  it("reads underscores as separators and keeps a folder's last tag", () => {
+    expect(isMessyName("Heat_1995_1080p_BluRay_x264_RARBG.mkv")).toBe(true);
+    expect(isMessyName("Heat.1995.YIFY", true)).toBe(true);
   });
 });
 
@@ -114,6 +128,9 @@ describe("duplicates", () => {
     expect(key("/TV/Show.S01E01.mkv")).not.toBe(key("/TV/Show.S01E01E02.mkv"));
     expect(key("/TV/Show.S01E01-part1.mkv")).not.toBe(key("/TV/Show.S01E01-part2.mkv"));
     expect(key("/Downloads/Heat.1995.1080p.BluRay.x264-GRP.mkv")).toBe(key("/Movies/Heat (1995)/Heat (1995).mkv"));
+    expect(key("/Movies/1917 (2019).mkv")).toBe("1917|2019");
+    expect(key("/Movies/1917 (2019) 1080p.mkv")).toBe(key("/Movies/1917 (2019).mkv"));
+    expect(key("/Movies/Heat (1995) {imdb-tt0113277}.mkv")).toBe(key("/Movies/Heat (1995).mkv"));
   });
 
   it("finds two releases of one movie even when put.io has their checksums", () => {
@@ -123,6 +140,25 @@ describe("duplicates", () => {
       false,
     );
     expect(a.duplicates.groups).toBe(1);
+  });
+
+  it("keeps a third release in the group when two others are exact copies", () => {
+    const a = audit(
+      [
+        file("/Movies/Heat (1995).mkv", { crc32: "aaaa1111", size: 100 * 2 ** 20 }),
+        file("/Movies/Heat.1995.720p.mkv", { crc32: "bbbb2222", size: 80 * 2 ** 20 }),
+        file("/Movies/Heat copy.mkv", { crc32: "aaaa1111", size: 100 * 2 ** 20 }),
+      ],
+      "Your Files",
+      false,
+    );
+    expect(a.duplicates.groups).toBe(1);
+    expect(a.duplicates.wastedBytes).toBe(180 * 2 ** 20);
+  });
+
+  it("finds duplicate episodes when the scanned folder is the show", () => {
+    const eps = [file("/Season 1/S01E01.1080p.mkv", { size: 2 ** 30 }), file("/Season 1/S01E01.720p.mkv", { size: 2 ** 29 })];
+    expect(audit(eps, "Example Show", false, new Date(), "Example Show").duplicates.groups).toBe(1);
   });
 
   it("keeps the well-named, played copy of identical files", () => {
@@ -167,6 +203,12 @@ describe("structure", () => {
 });
 
 describe("audit", () => {
+  it("never scores lower for deleting empty folders", () => {
+    const readme = file("/readme.nfo", { size: 100 });
+    const empties = Array.from({ length: 9 }, (_, i) => file(`/d${i}`, { id: 900 + i, file_type: "FOLDER", extension: null, size: 0 }));
+    expect(audit([readme], "Your Files", false).score).toBeGreaterThanOrEqual(audit([readme, ...empties], "Your Files", false).score);
+  });
+
   it("scores a clean library at 100 and counts never-played videos", () => {
     const a = audit([file("/Movies/Dune (2024)/Dune (2024).mkv", { depth: 3 })], "Your Files", false);
     expect(a.score).toBe(100);

@@ -4,8 +4,11 @@ const RELEASE_TAG =
   /\b(2160p|1080p|720p|480p|x26[45]|h\.?26[45]|hevc|web-?dl|webrip|bluray|brrip|bdrip|hdtv|dvdrip|hdrip|aac|ac3|ddp?5\.1|10bit|yify|yts|rarbg|eztv|ettv)\b/i;
 const SCENE_FLAG = /\b(PROPER|REPACK)\b/;
 /** Jellyfin and Plex ask for these, so they are clean: `Movie (2010) - 1080p`, `[imdbid-tt1234567]`. */
-const MEDIA_SERVER_TAG = /\s+-\s+(2160p|1080p|720p|480p)$|\s*\[(imdb|tmdb|tvdb)id-[^\]]+\]|\s*\{(imdb|tmdb|tvdb)-[^}]+\}/gi;
+const ID_TAG = /\s*\[(imdb|tmdb|tvdb)id-[^\]]+\]|\s*\{(imdb|tmdb|tvdb)-[^}]+\}/gi;
+const RESOLUTION_SUFFIX = /\s+-\s+(2160p|1080p|720p|480p)$/i;
 const BRACKET_GROUP = /\[[^\]]{2,}\]/;
+/** `[HorribleSubs]`, `[1080p]`: one token. `[Lecture 01]` or `[Final Cut]` is a label, not release noise. */
+const BRACKET_TAG = /\[[^\]\s]{2,}\]/;
 const GROUP_SUFFIX = /-[A-Za-z0-9]{2,12}$/;
 const JUNK_NAME = /(^|[\s._-])(rarbg|www\.|torrent downloaded from)|RARBG_DO_NOT_MIRROR|^Thumbs\.db$/i;
 const SAMPLE = /^sample$|[._-]sample$|^sample[._-]/i;
@@ -41,12 +44,14 @@ const isFolder = (f: WalkedFile) => f.file_type === "FOLDER";
 
 const stemOf = (name: string) => name.replace(/\.[a-z0-9]{2,4}$/i, "");
 
-export function isMessyName(name: string) {
-  const stem = stemOf(name).replace(MEDIA_SERVER_TAG, "");
+export function isMessyName(name: string, folder = false) {
+  const stem = (folder ? name : stemOf(name)).replace(ID_TAG, "").replace(RESOLUTION_SUFFIX, "");
+  const spaced = stem.replace(/_/g, " ");
   const dotted = (stem.match(/\./g) ?? []).length >= 3 && !stem.includes(" ");
   const group = stem.match(GROUP_SUFFIX)?.[0].slice(1) ?? "";
-  const tagged = group !== "" && !stem.includes(" ") && (stem.includes(".") || group === group.toUpperCase());
-  return RELEASE_TAG.test(stem) || SCENE_FLAG.test(stem) || dotted || BRACKET_GROUP.test(stem) || tagged;
+  const prefix = stem.slice(0, stem.length - group.length - 1);
+  const tagged = group !== "" && !stem.includes(" ") && (stem.includes(".") || (group === group.toUpperCase() && /\d/.test(prefix)));
+  return RELEASE_TAG.test(spaced) || SCENE_FLAG.test(spaced) || dotted || BRACKET_TAG.test(stem) || tagged;
 }
 
 /** Junk by name, plus small images that sit beside a video (posters, tracker logos). Images elsewhere are content. */
@@ -82,29 +87,34 @@ export const showOf = (path: string) =>
 /** Normalised identity for duplicate detection: title (and year) + episode, or title + year + whatever
     tells cuts and parts apart, with release noise dropped. `show` names a file that starts at its episode. */
 export function mediaKey(name: string, show = "") {
-  const stem = stemOf(name).toLowerCase();
+  const stem = stemOf(name).replace(ID_TAG, "").toLowerCase();
   const ep = stem.match(/s(\d{1,2})((?:[\s._-]?e\d{1,3})+)/i);
   const part = stem.match(PART)?.[1];
   const edition = stem.match(EDITION);
   const extras = `${part ? `|part ${Number(part)}` : ""}${edition ? `|${words(edition[1] ?? edition[2] ?? "")}` : ""}`;
-  const year = stem.match(/\b(19|20)\d{2}\b/);
-  const cut = stem.search(/s\d{1,2}e\d{1,3}|\b(19|20)\d{2}\b|2160p|1080p|720p|480p/i);
+  // A year in parentheses is the release year; otherwise the first one after the title, so `1917 (2019)` keeps its title.
+  const paren = stem.match(/\(((?:19|20)\d{2})\)/);
+  const bare = [...stem.matchAll(/\b(?:19|20)\d{2}\b/g)].find((m) => m.index > 0);
+  const year = paren ? { at: paren.index! + 1, value: paren[1]! } : bare ? { at: bare.index, value: bare[0] } : null;
+  const marks = [stem.search(/s\d{1,2}e\d{1,3}/i), year?.at ?? -1, stem.search(/2160p|1080p|720p|480p/i)].filter((i) => i >= 0);
+  const cut = marks.length > 0 ? Math.min(...marks) : -1;
   const title = words(cut > 0 ? stem.slice(0, cut) : cut === 0 ? show.toLowerCase().replace(/\((19|20)\d{2}\)/, "") : stem);
   if (!title) return null;
   if (ep) {
-    const showYear = year && year.index! < ep.index! ? year[0] : (show.match(/\b(19|20)\d{2}\b/)?.[0] ?? null);
+    const showYear = year && year.at < ep.index! ? year.value : (show.match(/\b(19|20)\d{2}\b/)?.[0] ?? null);
     const episodes = [...ep[2]!.matchAll(/\d+/g)].map((m) => Number(m[0])).join("e");
     return `${title}${showYear ? `|${showYear}` : ""}|s${Number(ep[1])}e${episodes}${extras}`;
   }
   if (!year) return null;
-  const after = stem.slice(year.index! + 4).replace(PART, " ").replace(EDITION, " ");
+  const after = stem.slice(year.at + 4).replace(PART, " ").replace(EDITION, " ");
   const rest = words((PLEX_EXTRA.test(after) ? after : after.replace(GROUP_SUFFIX, "")).replace(BRACKET_GROUP, " ").replace(NOISE, " "));
-  return `${title}|${year[0]}${rest ? `|${rest}` : ""}${extras}`;
+  return `${title}|${year.value}${rest ? `|${rest}` : ""}${extras}`;
 }
 
 const pct = (good: number, total: number) => (total === 0 ? 100 : Math.round((100 * good) / total));
 
-export function audit(files: WalkedFile[], rootName: string, truncated: boolean, now = new Date()): Audit {
+/** `rootShow` names the show when the scanned folder is one, so its bare `S01E01` files still have a title. */
+export function audit(files: WalkedFile[], rootName: string, truncated: boolean, now = new Date(), rootShow = ""): Audit {
   const videos = files.filter(isVideo);
   const folders = files.filter(isFolder);
   const bytes = files.filter((f) => !isFolder(f)).reduce((a, f) => a + f.size, 0);
@@ -121,7 +131,7 @@ export function audit(files: WalkedFile[], rootName: string, truncated: boolean,
   const wrappers = folders.filter((f) => {
     const kids = children.get(f.id) ?? [];
     const real = kids.filter((k) => isVideo(k) && !junkReason(k));
-    return real.length === 1 && kids.every((k) => k === real[0] || releaseExtra(k)) && isMessyName(f.name);
+    return real.length === 1 && kids.every((k) => k === real[0] || releaseExtra(k)) && isMessyName(f.name, true);
   });
   const rootFiles = files.filter((f) => f.depth === 1 && !isFolder(f));
   const deepest = files.reduce((a, f) => Math.max(a, f.depth), 0);
@@ -132,18 +142,24 @@ export function audit(files: WalkedFile[], rootName: string, truncated: boolean,
   const junkBytes = junk.reduce((a, x) => a + x.f.size, 0);
 
   const crcOf = (v: WalkedFile) => (v.crc32 ? `crc:${v.crc32}:${v.size}` : null);
-  const copies = new Map<string, number>();
+  // One group per set of videos linked by an identical checksum or the same title, so an exact copy
+  // never splits a third release off its group.
+  const link = new Map<WalkedFile, WalkedFile>();
+  const find = (v: WalkedFile): WalkedFile => {
+    const up = link.get(v) ?? v;
+    return up === v ? v : find(up);
+  };
+  const firstWith = new Map<string, WalkedFile>();
   for (const v of videos) {
-    const c = crcOf(v);
-    if (c) copies.set(c, (copies.get(c) ?? 0) + 1);
+    for (const k of [crcOf(v), mediaKey(v.name, showOf(v.path) || rootShow)]) {
+      if (!k) continue;
+      const seen = firstWith.get(k);
+      if (seen) link.set(find(v), find(seen));
+      else firstWith.set(k, v);
+    }
   }
-  const byKey = new Map<string, WalkedFile[]>();
-  for (const v of videos) {
-    const c = crcOf(v);
-    const k = c && (copies.get(c) ?? 0) > 1 ? c : mediaKey(v.name, showOf(v.path));
-    if (!k) continue;
-    byKey.set(k, [...(byKey.get(k) ?? []), v]);
-  }
+  const byKey = new Map<WalkedFile, WalkedFile[]>();
+  for (const v of videos) byKey.set(find(v), [...(byKey.get(find(v)) ?? []), v]);
   const keepFirst = (a: WalkedFile, b: WalkedFile) =>
     b.size - a.size ||
     Number(isMessyName(a.name)) - Number(isMessyName(b.name)) ||
@@ -161,7 +177,7 @@ export function audit(files: WalkedFile[], rootName: string, truncated: boolean,
       Math.max(0, files.length - rootFiles.length - wrappers.length * 3 - emptyFolders.length * 2),
       files.length,
     ),
-    junk: pct(files.length - junk.length * 4, files.length),
+    junk: pct(files.length - folders.length - junk.length * 4, files.length - folders.length),
     duplicates: pct(videos.length - dupFiles * 5, videos.length),
   };
   const clamp = (n: number) => Math.max(0, Math.min(100, n));

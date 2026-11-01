@@ -3,7 +3,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
 import { describe, expect, it } from "vitest";
-import { listAll, PutioRateLimited, PutioUnauthorized, putioLayer } from "./putio";
+import { listAll, PutioRateLimited, PutioUnauthorized, putioLayer, stepMessage, trashFile } from "./putio";
 import { file, makeFakePutio } from "./testing/fake-putio";
 
 const T0 = Date.UTC(2026, 9, 29);
@@ -67,6 +67,26 @@ describe("put.io 429", () => {
     const exit = await scan(fake, 0);
     expect(exit).toEqual(Exit.fail(new PutioRateLimited({ retryAfterMs: 600_000 })));
     expect(fake.log.filter((r) => r.url.pathname === "/v2/files/list/continue")).toHaveLength(1);
+  });
+
+  it("tells a rate-limited write when put.io's window refills, without retrying it", async () => {
+    let calls = 0;
+    const limited = (async () => {
+      calls++;
+      return new Response(JSON.stringify({ status: "ERROR", error_type: "RATE_LIMITED", status_code: 429 }), {
+        status: 429,
+        headers: { "content-type": "application/json", "x-ratelimit-reset": String(T0 / 1000 + 600), "x-ratelimit-limit": "1000", "x-ratelimit-remaining": "0" },
+      });
+    }) as typeof fetch;
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(T0);
+        return yield* trashFile(7).pipe(Effect.provide(putioLayer("tok", limited)));
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+    expect(exit).toEqual(Exit.fail(new PutioRateLimited({ retryAfterMs: 600_000 })));
+    expect(stepMessage(new PutioRateLimited({ retryAfterMs: 600_000 }))).toBe("put.io rate limit; retry in about 10 minutes");
+    expect(calls).toBe(1);
   });
 
   it("maps 401 to PutioUnauthorized", async () => {

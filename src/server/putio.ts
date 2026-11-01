@@ -44,10 +44,12 @@ export type PutioError = PutioUnauthorized | PutioRateLimited | PutioFailed;
 export const putioLayer = (accessToken: string | undefined, fetchImpl: typeof fetch = (input, init) => fetch(input, init)) =>
   makePutioSdkLayer(accessToken === undefined ? {} : { accessToken }).pipe(Layer.provideMerge(makePutioFetchLayer(fetchImpl)));
 
-export const rateLimitMessage = (e: PutioRateLimited) => {
+const minutesLeft = (e: PutioRateLimited) => {
   const minutes = Math.max(1, Math.ceil(e.retryAfterMs / 60_000));
-  return `put.io rate limit: try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`;
+  return `about ${minutes} minute${minutes === 1 ? "" : "s"}`;
 };
+
+export const rateLimitMessage = (e: PutioRateLimited) => `put.io rate limit: try again in ${minutesLeft(e)}.`;
 
 const MAX_WAIT_MS = 10_000;
 const MAX_ATTEMPTS = 4;
@@ -189,21 +191,27 @@ export const hlsUrl = (id: number, token: string, base: string = PUTIO_API) =>
  */
 const write = <A, R>(label: string, effect: Effect.Effect<A, PutioSdkError, R>): Effect.Effect<A, PutioError, R> =>
   effect.pipe(
-    Effect.mapError((err): PutioError =>
-      isPutioAuthError(err)
-        ? new PutioUnauthorized({ status: err.status })
-        : isPutioRateLimitError(err)
-          ? new PutioRateLimited({ retryAfterMs: 60_000 })
-          : new PutioFailed({
-              message: `put.io ${label}${"status" in err ? ` → ${err.status}` : ""}`,
-              ...("status" in err && typeof err.status === "number" && err.status >= 400 && err.status < 500 ? { refused: true } : {}),
-            }),
-    ),
+    Effect.catch((err): Effect.Effect<never, PutioError> => {
+      if (isPutioAuthError(err)) return Effect.fail(new PutioUnauthorized({ status: err.status }));
+      if (isPutioRateLimitError(err))
+        return Clock.currentTimeMillis.pipe(
+          Effect.flatMap((now) => {
+            const reset = Number(err.reset);
+            return Effect.fail(new PutioRateLimited({ retryAfterMs: Number.isFinite(reset) && reset > 0 ? Math.max(reset * 1000 - now, 0) : 60_000 }));
+          }),
+        );
+      return Effect.fail(
+        new PutioFailed({
+          message: `put.io ${label}${"status" in err ? ` → ${err.status}` : ""}`,
+          ...("status" in err && typeof err.status === "number" && err.status >= 400 && err.status < 500 ? { refused: true } : {}),
+        }),
+      );
+    }),
   );
 
 /** How a failed write reads on its step. */
 export const stepMessage = (e: PutioError) =>
-  e._tag === "PutioRateLimited" ? "put.io rate limit; retry in a minute" : e._tag === "PutioUnauthorized" ? "put.io signed you out" : e.message;
+  e._tag === "PutioRateLimited" ? `put.io rate limit; retry in ${minutesLeft(e)}` : e._tag === "PutioUnauthorized" ? "put.io signed you out" : e.message;
 
 /** Whether a failed write may still have changed put.io. */
 export const maybeApplied = (e: PutioError) => e._tag === "PutioFailed" && !e.refused;
