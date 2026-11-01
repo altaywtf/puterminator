@@ -168,7 +168,7 @@ const MOOD_LINE: Record<Mood, string> = {
   wading: "needs a mop.",
   flood: "slime all the way down.",
   idle: "",
-  asleep: "",
+  asleep: "nothing here to score.",
   unplugged: "",
 };
 
@@ -182,7 +182,7 @@ const scoreCard = (h: H, ctx: Ctx, a: Audit, uid: string, live: boolean) => {
   ];
   const worst = Math.min(...subs.map((s) => s[1]));
   // Above 90 the library is clean; naming its weakest area would contradict the mood line.
-  const worstName = worst < 100 && a.score < 90 ? subs.find((s) => s[1] === worst)?.[0] : undefined;
+  const worstName = mood !== "asleep" && worst < 100 && a.score < 90 ? subs.find((s) => s[1] === worst)?.[0] : undefined;
   const verdict = [MOOD_LINE[mood], ...(worstName ? [`${worstName} needs the most work.`] : []), ...(a.truncated ? ["partial scan."] : [])].join(" ");
   return h.section(
     [
@@ -198,13 +198,15 @@ const scoreCard = (h: H, ctx: Ctx, a: Audit, uid: string, live: boolean) => {
           h.div(
             [h.Class("grid min-w-0 gap-2")],
             [
-              h.span(
-                [h.Class("flex items-baseline gap-2"), h.Role("img"), h.AriaLabel(`library score ${a.score} out of 100`)],
-                [
-                  h.span([h.Class("font-display text-[40px] leading-[0.8] font-medium text-accent tabular-nums")], [`${a.score}`]),
-                  h.span([h.Class("font-display text-[16px] leading-none text-fg-3")], ["/100"]),
-                ],
-              ),
+              mood === "asleep"
+                ? h.span([h.Class("font-display text-[40px] leading-[0.8] font-medium text-fg-3")], ["empty"])
+                : h.span(
+                    [h.Class("flex items-baseline gap-2"), h.Role("img"), h.AriaLabel(`library score ${a.score} out of 100`)],
+                    [
+                      h.span([h.Class("font-display text-[40px] leading-[0.8] font-medium text-accent tabular-nums")], [`${a.score}`]),
+                      h.span([h.Class("font-display text-[16px] leading-none text-fg-3")], ["/100"]),
+                    ],
+                  ),
               h.p([h.Class("m-0 max-w-[48ch] text-[14px] text-fg-2")], [verdict]),
             ],
           ),

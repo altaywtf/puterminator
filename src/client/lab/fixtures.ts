@@ -83,6 +83,7 @@ const base: Audit = {
 export const audits: Array<[string, Audit]> = [
   ["lived in", base],
   ["clean", { ...base, score: 97, scores: { naming: 96, structure: 98, junk: 100, duplicates: 100 }, junk: { count: 0, bytes: 0, examples: [] }, duplicates: { groups: 0, wastedBytes: 0, examples: [] }, neverPlayed: { count: 0, bytes: 0, examples: [] } }],
+  ["empty", { ...base, score: 100, scores: { naming: 100, structure: 100, junk: 100, duplicates: 100 }, totals: { items: 2, files: 0, folders: 2, videos: 0, bytes: 0 }, naming: { messy: 0, examples: [] }, structure: { rootFiles: 0, wrapperFolders: 0, emptyFolders: 2, deepest: 1, examples: [] }, junk: { count: 0, bytes: 0, examples: [] }, duplicates: { groups: 0, wastedBytes: 0, examples: [] }, neverPlayed: { count: 0, bytes: 0, examples: [] } }],
   ["drowning, partial scan", { ...base, score: 18, truncated: true, scores: { naming: 12, structure: 30, junk: 9, duplicates: 40 } }],
 ];
 

@@ -1,4 +1,21 @@
 {
   "version": "0.0.1",
-  "configurations": [{ "name": "puterminator", "runtimeExecutable": "pnpm", "runtimeArgs": ["dev:fake"], "port": 1337 }]
+  "configurations": [
+    {
+      "name": "puterminator",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "dev:fake"
+      ],
+      "port": 1337
+    },
+    {
+      "name": "lab",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "lab"
+      ],
+      "port": 5174
+    }
+  ]
 }

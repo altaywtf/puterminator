@@ -75,7 +75,9 @@ const SPRITES: Record<Mood, string[]> = {
 
 /** The score band picks the frame; the number stays the value. */
 export const moodOf = (a: Audit): Mood =>
-  a.score >= 90 && a.junk.count === 0 && a.duplicates.groups === 0
+  a.totals.files === 0
+    ? "asleep"
+    : a.score >= 90 && a.junk.count === 0 && a.duplicates.groups === 0
     ? "jar"
     : a.score >= 90
       ? "shades"
