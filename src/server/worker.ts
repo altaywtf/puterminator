@@ -8,8 +8,8 @@ import { upstreamFetch } from "./dev";
 // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- composition root: the Worker wires route dependencies here
 import { makeHandler, type RouteDeps } from "./routes";
 
-const DOMAIN = "puterminator.uinaf.dev";
 const PUBLIC_ORIGIN = "https://puterminator.com";
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
 const LIVE_SCRIPT_NAME = "puterminator";
 const BUNDLED_WORKERD_MAX_COMPATIBILITY_DATE = "2026-10-19";
 
@@ -18,7 +18,6 @@ export default Cloudflare.Worker(
   {
     main: import.meta.url,
     name: LIVE_SCRIPT_NAME,
-    domain: { name: DOMAIN, zoneName: "uinaf.dev" },
     workersDev: false,
     compatibility: { flags: ["nodejs_compat"], date: BUNDLED_WORKERD_MAX_COMPATIBILITY_DATE },
     observability: { enabled: true },
@@ -42,7 +41,7 @@ export default Cloudflare.Worker(
 
         const url = yield* publicUrl;
 
-        return yield* handle(request, URL.canParse(url) && new URL(url).hostname === DOMAIN ? PUBLIC_ORIGIN : url);
+        return yield* handle(request, URL.canParse(url) && LOCAL_HOSTS.has(new URL(url).hostname) ? url : PUBLIC_ORIGIN);
       }),
     };
   }),
