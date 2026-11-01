@@ -43,6 +43,7 @@ sequenceDiagram
 
 - History rows are Anthropic `BetaMessageParam`s, appended and never edited, so thinking signatures and the cached prompt prefix stay valid.
 - Tools see only the snapshot of the folder last scanned. The snapshot records its root folder, and tools refuse to answer from a scan of another folder.
+- A browser connecting to a snapshot older than 10 minutes, or of another folder, starts a background rescan. The model sees the scan's age in `<context>` and rescans itself past that.
 
 ## Plans
 

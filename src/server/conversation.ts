@@ -36,7 +36,7 @@ You can scan, score, list folders and search files. You can also change the libr
 - The <context> block says when a plan was applied or discarded. After an apply the snapshot is fresh; don't propose the same changes again.
 
 How to work:
-- Scan before you judge. Call scan_library when there is no snapshot, when the user asks for a fresh audit, or when the target folder changed.
+- Scan before you judge. Call scan_library when there is no snapshot, when the last scan is more than 10 minutes old, when the user asks for a fresh audit, or when the target folder changed.
 - After a scan, the UI shows a score card with the score, the weakest area, and the junk, duplicate and never-played counts and sizes. Never restate those. Add only what the card cannot say: the one problem that matters most, with one or two real file names. A scan with no files has no score; say the folder is empty.
 - put.io only records first_accessed_at. "Never played" is knowable; "not watched recently" is not. Say so if asked about stale files.
 - Each user message ends with a <context> block from the app (target folder, last scan, credits). Use it; don't quote it.
@@ -102,6 +102,20 @@ export interface AgentDeps {
   /** put.io makes download links in the background; ask again this often while it works. */
   readonly linksPollMs?: number;
 }
+
+const MINUTE_MS = 60_000;
+
+const describeAge = (ms: number) => {
+  const minutes = Math.floor(ms / MINUTE_MS);
+
+  if (minutes < 1) return "just now";
+
+  if (minutes < 120) return `${minutes} minutes ago`;
+
+  if (minutes < 48 * 60) return `${Math.floor(minutes / 60)} hours ago`;
+
+  return `${Math.floor(minutes / (24 * 60))} days ago`;
+};
 
 /**
  * The per-user agent, free of Durable Object APIs. Build it once per activation: a turn can't
@@ -207,6 +221,25 @@ export const makeAgent = (deps: AgentDeps) =>
       if (lib) broadcast({ type: "library", library: lib });
 
       return a;
+    });
+
+    const STALE_AFTER_MS = 10 * 60_000;
+    let refreshing = false;
+    const scanAgeMs = (now: number) => (state.lastAudit ? now - Date.parse(state.lastAudit.at) : Number.POSITIVE_INFINITY);
+
+    const refreshStaleSnapshot = Effect.gen(function* () {
+      const token = store.token();
+
+      if (!token || refreshing || running || runFibers.size > 0) return;
+
+      if (scannedHere() && scanAgeMs(yield* Clock.currentTimeMillis) <= STALE_AFTER_MS) return;
+      refreshing = true;
+
+      yield* scan.pipe(
+        Effect.ignore,
+        Effect.provide(putioLayer(token, deps.putioFetch)),
+        Effect.ensuring(Effect.sync(() => (refreshing = false))),
+      );
     });
 
     const plans = new Map(store.plans().map((p) => [p.record.plan.id, p]));
@@ -579,11 +612,12 @@ export const makeAgent = (deps: AgentDeps) =>
       Effect.gen(function* () {
         const credits = yield* refreshCredits;
         const lastAudit = state.lastAudit;
+        const scanAge = lastAudit ? describeAge(scanAgeMs(yield* Clock.currentTimeMillis)) : "";
 
         const context = [
           `Target folder: ${state.folder.name} (id ${state.folder.id}).`,
           lastAudit
-            ? `Last scan: ${lastAudit.at.slice(0, 10)}, ${lastAudit.items} items, score ${lastAudit.score}.`
+            ? `Last scan: ${scanAge}, ${lastAudit.items} items, score ${lastAudit.score}.`
             : "No scan yet.",
           `Credits left this month: ${Math.max(0, Math.floor((credits.cap - credits.used) / 1000))}.`,
           ...planNews(),
@@ -688,6 +722,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
     return {
       state: () => state,
+      connected: () => deps.background(refreshStaleSnapshot),
       greeting: (): Array<ServerEvent> => {
         const lib = library();
 

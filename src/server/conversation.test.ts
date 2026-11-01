@@ -32,12 +32,14 @@ const setup = async (
     failRenames?: Array<number>;
     restoreLag?: number;
     files?: typeof library;
+    seed?: (store: ReturnType<typeof makeStore>) => void;
   } = {},
 ) => {
   const sql = memorySql();
   const store = makeStore(sql);
 
   for (const m of opts.history ?? []) store.append(m);
+  opts.seed?.(store);
   const anthropic = makeFakeAnthropic(replies);
 
   const putio = makeFakePutio({
@@ -729,6 +731,40 @@ describe("plans", () => {
     await t.settle();
     expect(planOf(t).status).toBe("discarded");
     expect(writes(t)).toEqual([]);
+  });
+});
+
+describe("library freshness", () => {
+  const scanned = (at: string, root = 0) => (store: ReturnType<typeof makeStore>) => {
+    store.saveSnapshot([{ id: 4, parent_id: 0, name: "Alien (1979).mkv", path: "/Alien (1979).mkv", depth: 1, size: 1, file_type: "VIDEO", extension: "mkv", crc32: null, created_at: "2026-01-01T00:00:00", first_accessed_at: null }], root);
+    store.saveState({ ...store.loadState(Date.now()), lastAudit: { at, rootName: "Your Files", score: 90, items: 1 } });
+  };
+
+  const listings = (t: Awaited<ReturnType<typeof setup>>) => t.putio.log.filter((r) => r.url.pathname === "/v2/files/list").length;
+
+  it("rescans in the background when a browser connects to a stale or foreign snapshot, and not when it's fresh", async () => {
+    const stale = await setup([], { seed: scanned("2026-01-01T00:00:00.000Z") });
+    stale.agent.connected();
+    await stale.settle();
+    expect(listings(stale)).toBe(1);
+    expect(stale.agent.state().lastAudit?.items).toBe(4);
+
+    const foreign = await setup([], { seed: scanned(new Date().toISOString(), 1) });
+    foreign.agent.connected();
+    await foreign.settle();
+    expect(listings(foreign)).toBe(1);
+
+    const fresh = await setup([], { seed: scanned(new Date().toISOString()) });
+    fresh.agent.connected();
+    await fresh.settle();
+    expect(listings(fresh)).toBe(0);
+  });
+
+  it("tells the model how old the last scan is", async () => {
+    const t = await setup([{ kind: "sse", events: textTurn("ok.", { input: 10, output: 5 }) }], { seed: scanned(new Date(Date.now() - 42 * 60_000).toISOString()) });
+    await Effect.runPromise(t.agent.receive(send("hi")));
+    await t.settle();
+    expect(JSON.stringify(t.anthropic.requests[0]?.body.messages.at(-1))).toContain("Last scan: 42 minutes ago, 1 items");
   });
 });
 

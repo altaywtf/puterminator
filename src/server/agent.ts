@@ -61,6 +61,8 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
 
           for (const event of agent.greeting()) yield* socket.send(encodeEvent(event));
 
+          agent.connected();
+
           return response;
         }).pipe(Effect.orDie),
         webSocketMessage: Effect.fn(function* (_socket: Cloudflare.WebSocket, message: string | ArrayBuffer) {
