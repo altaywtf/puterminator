@@ -123,18 +123,36 @@ describe("parseMedia", () => {
       "Friends.Season.1.S01E02.mkv",
       "[SubsPlease] Frieren - 05 (2023).mkv",
       "The Office (US 2005) - S01E01.mkv",
+      "WWE.Raw.15th.Jan.2024.720p.WEBRip.mp4",
+      "The.Daily.Show.March.14.2024.720p.mkv",
+      "Band of Brothers Ep. 2 Day of Days (2001).mkv",
+      "Lupin - Épisode 3 (2021).mkv",
+      "Planet.Earth.II.1of6.Islands.2016.1080p.mkv",
+      "庆余年.第01集.2019.1080p.mp4",
+      "【高清影视之家】The.Wandering.Earth.2019.1080p.mkv",
+      "Torrenting.com - Heat.1995.1080p.mkv",
+      "The.Godfather.Trilogy.1972.-.1990.1080p.mkv",
+      "Show.Name.S01E01.Part.One.1080p.mkv",
+      "Show.S02E01-026.1080p.mkv",
+      "Lost - S01E01 & 02 - Pilot.mkv",
+      "Cowboy_Bebop_-_05_(1998).mkv",
     ])
       expect(parseMedia(name), name).toBeNull();
   });
 
   it("reads single and multi-episode files, and skips what the episode number doesn't settle", () => {
-    expect(parseMedia("The.Office.US.S02E01.720p.HDTV.x264.mkv")).toEqual({ kind: "episode", show: "The Office US", year: null, season: 2, first: 1, last: 1 });
+    expect(parseMedia("The.Office.US.S02E01.720p.HDTV.x264.mkv")).toEqual({ kind: "episode", show: "The Office US", year: null, season: 2, first: 1, last: 1, ids: "" });
     expect(parseMedia("Doctor.Who.2005.S01E01E02.mkv")).toMatchObject({ show: "Doctor Who", year: "2005", first: 1, last: 2 });
     expect(parseMedia("Lost.S01E01-02.720p.mkv")).toMatchObject({ first: 1, last: 2 });
     expect(parseMedia("Severance (2022) - S01E01 - Good News About Hell.mkv")).toMatchObject({ show: "Severance", year: "2022", first: 1 });
     expect(parseMedia("1923.S01E01.mkv")).toMatchObject({ show: "1923", year: null });
     expect(parseMedia("Ghost.in.the.Shell.SAC_2045.S01E01.mkv")).toMatchObject({ show: "Ghost in the Shell SAC 2045", year: null });
     expect(parseMedia("www.Torrenting.com-Spider-Man.2002.1080p.mkv")).toMatchObject({ title: "Spider-Man", year: "2002" });
+    expect(parseMedia("www.Torrenting.com-The.Amazing.Spider-Man.2012.1080p.mkv")).toMatchObject({ title: "The Amazing Spider-Man", year: "2012" });
+    expect(parseMedia("Back.to.the.Future.1985.1080p.mkv")).toMatchObject({ title: "Back to the Future", year: "1985" });
+    expect(parseMedia("Kingdom.of.Heaven.2005.1080p.BluRay.Directors.Cut.x264-GRP.mkv")).toMatchObject({ title: "Kingdom of Heaven", edition: "Director's Cut" });
+    expect(parseMedia("Severance — S01E02 — Half Loop.mkv")).toMatchObject({ show: "Severance", season: 1, first: 2 });
+    expect(parseMedia("Doctor.Who.1963.S02E01.mkv", { show: "Doctor Who", year: "2005", season: 2 })).toBeNull();
     expect(parseMedia("S03E04.1080p.mkv", { show: "Severance", year: null, season: 3 })).toMatchObject({ show: "Severance", season: 3, first: 4 });
     expect(parseMedia("S03E04.1080p.mkv", { show: "Severance", year: null, season: 2 })).toBeNull();
     expect(parseMedia("S03E04.1080p.mkv")).toBeNull();
@@ -150,7 +168,7 @@ describe("targetPath", () => {
     expect(targetPath({ kind: "movie", title: "Heat", year: "1995", part: null, edition: null, ids: "" }, "mkv", "/Movies", "/TV Shows")).toBe("/Movies/Heat (1995)/Heat (1995).mkv");
     expect(targetPath({ kind: "movie", title: "The Matrix", year: "1999", part: 2, edition: null, ids: "" }, "avi", "/Movies", "/TV")).toBe("/Movies/The Matrix (1999)/The Matrix (1999) - pt2.avi");
     expect(targetPath({ kind: "movie", title: "Blade Runner", year: "1982", part: null, edition: "Final Cut", ids: "" }, "mkv", "/Movies", "/TV")).toBe("/Movies/Blade Runner (1982)/Blade Runner (1982) {edition-Final Cut}.mkv");
-    expect(targetPath({ kind: "episode", show: "Doctor Who", year: "2005", season: 1, first: 1, last: 2 }, "mkv", "/Movies", "/TV Shows")).toBe("/TV Shows/Doctor Who (2005)/Season 01/Doctor Who (2005) - S01E01-E02.mkv");
+    expect(targetPath({ kind: "episode", show: "Doctor Who", year: "2005", season: 1, first: 1, last: 2, ids: "" }, "mkv", "/Movies", "/TV Shows")).toBe("/TV Shows/Doctor Who (2005)/Season 01/Doctor Who (2005) - S01E01-E02.mkv");
     expect(targetPath({ kind: "movie", title: "Mission: Impossible", year: "1996", part: null, edition: null, ids: "" }, "mkv", "/Movies", "/TV")).toBe("/Movies/Mission Impossible (1996)/Mission Impossible (1996).mkv");
   });
 });
@@ -270,6 +288,7 @@ describe("planLayout", () => {
     expect(planLayout(files, "/", "/TV Shows", "")).toHaveProperty("error");
     expect(planLayout(files, "/Movies", "/TV Shows", "/Nope")).toHaveProperty("error");
     expect(planLayout(files, "/Media", "/media/", "")).toHaveProperty("error");
+    expect(plan(library("/movies/notes.txt", "/Movies/Heat (1995)/Heat (1995).mkv", "/Downloads/Alien.1979.mkv")).changes.map((c) => c.to)).toEqual(["/Movies/Alien (1979)/Alien (1979).mkv"]);
     expect(plan(library("/Media/TV Shows/Lost/Season 01/Lost - S01E01.mkv", "/Downloads/Lost.S01E02.mkv", "/Downloads/Heat.1995.mkv"), " /media/movies ", "/media/ TV Shows /").changes.map((c) => c.to)).toEqual([
       "/Media/movies/Heat (1995)/Heat (1995).mkv",
       "/Media/TV Shows/Lost/Season 01/Lost - S01E02.mkv",
@@ -461,10 +480,90 @@ describe("planLayout", () => {
     expect(r.skipped.map((s) => s.why)).toEqual([
       "can't tell if it's Wonder Woman 1984 (2020)",
       "can't tell if it's Heat [1995]",
-      "The Matrix (1999) already has The Matrix (1999) - pt1.avi",
-      "Amélie (2001) already has Amélie (2001).mkv",
+      "another copy is at /Movies/The Matrix (1999)/The Matrix (1999) - pt1.avi",
+      "another copy is at /Movies/Amélie (2001)/Amélie (2001).mkv",
       "another copy of Saw (2004) is in this plan",
     ]);
+  });
+
+  it("trusts a folder's name only when it names the same thing as the file: no collections, rival titles, pilots in packs, disc or sample folders", () => {
+    const r = plan(
+      library(
+        "/Movies/Oscars 2024 4K/Oppenheimer.2023.2160p.UHD.BluRay.x265-GRP.mkv",
+        "/Downloads/1917.2019.1080p.BluRay.x264-SPARKS/sparks-1917-1080p.mkv",
+        "/Downloads/Sherlock.S01.1080p.BluRay.x264-GRP/Sherlock.Unaired.Pilot.2010.1080p.BluRay.x264-GRP.mkv",
+        "/Downloads/Alien.1979.1080p.BluRay.x264-GRP/alien.resurrection.mkv",
+        "/Downloads/Heat.1995.DVDRip.XviD-GRP/CD1/Heat.1995.DVDRip.XviD-GRP.avi",
+        "/Downloads/Heat.1995.2160p.UHD.BluRay.REMUX-GRP/Sample/heat.1995.2160p.remux-grp.mkv",
+        "/Downloads/Breaking.Bad.Complete.Season.1.1080p.BluRay/s01e01.mkv",
+      ),
+    );
+
+    expect(r.changes).toEqual([]);
+  });
+
+  it("keeps out of show folders that are tagged, doubled or nested elsewhere", () => {
+    const r = plan(
+      library(
+        "/TV Shows/Doctor Who [2005]/Season 01/Doctor Who - S01E01.mkv",
+        "/TV Shows/Lost (2004)/Season 01/Lost (2004) - S01E01.mkv",
+        "/TV Shows/Lost (2004) {tvdb-73739}/Season 02/Lost (2004) - S02E01.mkv",
+        "/TV Shows/Kids/Bluey (2018)/Season 01/Bluey (2018) - S01E01.mkv",
+        "/TV Shows/Breaking.Bad.S01.720p.BluRay.x264-DEMAND/Breaking.Bad.S01E02.720p.BluRay.x264-DEMAND.mkv",
+        "/TV Shows/The Office {tvdb-73244}/Season 01/The Office - S01E01.mkv",
+        ["/Downloads/Doctor.Who.S26E01.mkv", { size: 9 }],
+        ["/Downloads/Lost.2004.S01E03.mkv", { size: 8 }],
+        ["/Downloads/Bluey.2018.S01E02.mkv", { size: 7 }],
+        ["/Downloads/Breaking.Bad.S01E03.1080p.WEB.mkv", { size: 6 }],
+        ["/Downloads/The Office {tvdb-78107} - S01E02.mkv", { size: 5 }],
+      ),
+    );
+
+    expect(r.changes).toEqual([]);
+    expect(r.skipped).toHaveLength(5);
+  });
+
+  it("keeps out of movie folders that are tagged as another film, doubled, or already hold a copy elsewhere, and reads title years across the plan", () => {
+    const r = plan(
+      library(
+        "/Movies/Pinocchio (2022) {imdb-tt4593060}/poster.jpg",
+        "/Movies/Heat (1995)/poster.jpg",
+        "/Movies/Heat (1995) {imdb-tt0113277}/poster.jpg",
+        "/Movies/Sci-Fi/Alien (1979)/Alien (1979).mkv",
+        "/Movies/The Matrix (1999)/The Matrix (1999).mkv",
+        "/Movies/The Matrix (1999)/the.matrix.1999.cd2.avi",
+        ["/Downloads/Pinocchio (2022) {imdb-tt1488589}.mkv", { size: 20 }],
+        ["/Downloads/Heat.1995.720p.WEB.mkv", { size: 19 }],
+        ["/Downloads/Alien.1979.1080p.mkv", { size: 18 }],
+        ["/Downloads/Death.Race.2000.1975.1080p.mkv", { size: 9 }],
+        ["/Downloads/Death.Race.2000.720p.mkv", { size: 10 }],
+        ["/Downloads/Aliens.1986.CD1.DVDRip.XviD-GRP.avi", { size: 7 }],
+        ["/Downloads/Aliens.1986.Special.Edition.CD2.DVDRip.XviD-GRP.avi", { size: 6 }],
+        ["/Downloads/Heat.1986.CD1.DVDRip.avi", { size: 5 }],
+        ["/Downloads/Heat.1986.CD2.720p.mkv", { size: 4 }],
+      ),
+    );
+
+    expect(moves(r).map(([, to]) => to)).toEqual([
+      "/Movies/Death Race 2000 (1975)/Death Race 2000 (1975).mkv",
+      "/Movies/Aliens (1986)/Aliens (1986) - pt1.avi",
+      "/Movies/Heat (1986)/Heat (1986) - pt1.avi",
+    ]);
+    expect(r.skipped.map((s) => s.path)).toEqual([
+      "/Movies/The Matrix (1999)/the.matrix.1999.cd2.avi",
+      "/Downloads/Pinocchio (2022) {imdb-tt1488589}.mkv",
+      "/Downloads/Heat.1995.720p.WEB.mkv",
+      "/Downloads/Alien.1979.1080p.mkv",
+      "/Downloads/Death.Race.2000.720p.mkv",
+      "/Downloads/Aliens.1986.Special.Edition.CD2.DVDRip.XviD-GRP.avi",
+      "/Downloads/Heat.1986.CD2.720p.mkv",
+    ]);
+  });
+
+  it("skips a video whose new name would pass 255 bytes", () => {
+    const r = plan(library(`/Downloads/${"Wordsmith.".repeat(26)}Tale.2019.1080p.mkv`));
+
+    expect(r.skipped.map((s) => s.why)).toEqual(["its new name would be too long"]);
   });
 
   it("skips a video whose subtitles differ only in case, since both would get one name", () => {

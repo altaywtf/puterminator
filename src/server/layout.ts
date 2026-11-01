@@ -3,34 +3,41 @@ import { type ProposeInput, sidecarsOf } from "./changes";
 import type { WalkedFile } from "./tree";
 
 const MAX_LAYOUT_CHANGES = 200;
+const MAX_NAME_BYTES = 255;
 const YEAR_CANDIDATE = /([([])?((?:19|20)\d{2})([)\]])?/g;
 const BARE_YEAR = /(?<![0-9])(?:19|20)\d{2}(?![0-9])/g;
 const PAREN_YEAR = /\(((?:19|20)\d{2})\)/g;
-const BRACKETS = /[[\]{}()]/;
+const BRACKETS = /[[\]{}()【】「」『』〔〕（）［］]/;
+const DOMAIN = /\b[a-z0-9-]{2,}\.(?:com|org|net|info|xyz|lol|ru)\b/i;
+const COLLECTION = /\b(?:complete|collection|box[\s._-]?set|trilogy|anthology|quadrilogy)\b/i;
 const TAGS = /\s*(?:\[[^\]]*\]|\{[^}]*\})/g;
 const RELEASE = /\b(2160p|1080p|1080i|720p|576p|480p|4k|uhd|x26[45]|h\.?26[45]|hevc|avc|xvid|divx|web-?dl|webrip|web|bluray|blu-ray|brrip|bdrip|hdtv|dvdrip|hdrip|remux|proper|repack|multi|dual|limited|internal)\b/i;
-const TRACKER_PREFIX = /^www\.(?:[a-z0-9-]+\.)+[a-z]{2,6}\s*-\s*/i;
-const EPISODE_NAME = /^(.*?)(?:^|[\s._\-–]+)s(\d{1,2})[\s._-]?e(\d{1,3})(?:(-e?|e)(\d{1,3}))?(?=$|[\s._\-–])(.*)$/i;
-const MORE_EPISODES = /^[\s._]*[-–]\s*e?\d{1,3}(?![0-9p])/i;
+const TRACKER_PREFIX = /^www\.(?:[a-z0-9]+(?:-[a-z0-9]+)*\.)+(?:com|org|net|to|me|info|io|cc|tv|ws|xyz|lol|ru|co|uk|nl|se|in)\s*-\s*/i;
+const EPISODE_NAME = /^(.*?)(?:^|[\s._\-–—]+)s(\d{1,2})[\s._-]?e(\d{1,3})(?:(-e?|e)(\d{1,3}))?(?=$|[\s._\-–—])(.*)$/i;
+const MORE_EPISODES = /^[\s._]*(?:[-–—&+]|and\b)\s*e?\d{1,3}(?![0-9p])/i;
 
 const EPISODIC =
-  /(?<![a-z0-9])s\d{1,2}[\s._-]?e\d{1,4}(?![0-9])|(?<![a-z0-9])\d{1,2}x\d{2}(?![0-9])|(?<![a-z0-9])(?:e|ep|episode)[\s._-]?\d{1,4}(?![0-9])|(?<![a-z0-9])(?:s\d{1,2}|season[\s._-]?\d{1,2}|staffel[\s._-]?\d{1,2}|saison[\s._-]?\d{1,2})(?![0-9a-z])|(?:^|\s)[-–]\s*\d{1,4}(?=$|[\s.[(])/i;
+  /(?<![a-z0-9])s\d{1,2}[\s._-]?e\d{1,4}(?![0-9])|(?<![a-z0-9])\d{1,2}x\d{2}(?![0-9])|(?<![\p{L}0-9])(?:e|ep|episode|[ée]pisode|folge)\.?[\s._-]*\d{1,4}(?![0-9])|(?<![a-z0-9])(?:s\d{1,2}|season[\s._-]?\d{1,2}|staffel[\s._-]?\d{1,2}|saison[\s._-]?\d{1,2})(?![0-9a-z])|(?:^|[\s_])[-–—][\s_]*\d{1,4}(?=$|[\s._[(])|(?<![a-z0-9])\d{1,2}[\s._]*of[\s._]*\d{1,2}(?![0-9])|第\s*[0-9０-９一二三四五六七八九十百]+\s*[集话話回期]/iu;
 
-const DATED = /(?<![0-9])(?:(?:19|20)\d{2}[.\-_ ]\d{1,2}[.\-_ ]\d{1,2}|\d{1,2}[.\-_ ]\d{1,2}[.\-_ ](?:19|20)\d{2})(?![0-9])/;
-const RANGE = /(?:19|20)\d{2}\s*[-–]\s*(?:19|20)\d{2}/;
+const DATED =
+  /(?<![0-9])(?:(?:19|20)\d{2}[.\-_ ]\d{1,2}[.\-_ ]\d{1,2}|\d{1,2}[.\-_ ]\d{1,2}[.\-_ ](?:19|20)\d{2})(?![0-9])|(?<![a-z])(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?[\s._-]+(?:\d{1,2}(?:st|nd|rd|th)?[\s._,-]+)?(?:19|20)\d{2}(?![0-9])/i;
+
+const RANGE = /(?:19|20)\d{2}[\s._]*[-–—][\s._]*(?:19|20)\d{2}/;
 const ID_TAG = /\{(?:imdb|tmdb|tvdb)-[^}]+\}|\[(?:imdb|tmdb|tvdb)id-[^\]]+\]/gi;
-const SPLIT = /(?:^|[\s._-])(?:part|pt|cd|disc|disk)[\s._-]*(?:\d|[a-d](?![a-z]))/i;
+const SPLIT = /(?:^|[\s._-])(?:part|pt|cd|disc|disk)[\s._-]*(?:\d|(?:[a-d]|one|two|three|four|five|six|i{1,3}|iv|v|vi)(?![a-z]))/i;
 const PART_WORD = /^(?:part|pt|cd|disc|disk|episode|ep|chapter|vol|volume|one|two|three|four|five|i{1,3}|iv|v|vi)$/;
 const DISC = /(?:^|[\s._-])(?:cd|disc|disk)[\s._-]?(\d)(?![0-9])/gi;
 const EDITION = /\{edition-([^}]+)\}|\b(director'?s[\s._]cut|final[\s._]cut|extended(?:[\s._](?:cut|edition))?|theatrical(?:[\s._]cut)?|unrated|uncut|special[\s._]edition|ultimate[\s._](?:cut|edition)|remastered|imax)\b/gi;
-const EXTRA = /-(trailer|featurette|deleted|deletedscene|scene|short|interview|behindthescenes|clip|other|extra)s?$/i;
-const SEASON_FOLDER = /^(?:season|series|s)[\s._-]*0*(\d{1,4})$/i;
+const EXTRA = /-(trailer|featurette|deleted|deletedscene|scene|short|interview|behindthescenes|clip|other|extra|sample)s?$/i;
+const EXTRAS_FOLDER = /^(?:samples?|extras?|featurettes?|behind the scenes|deleted scenes|trailers?|interviews?|scenes|shorts|others?|bonus)$/i;
+const DISC_FOLDER = /^(?:cd|disc|disk|dvd)[\s._-]?\d{1,2}$/i;
+const SEASON_FOLDER = /^(?:season|series|s|staffel|saison|temporada|stagione)[\s._-]*0*(\d{1,4})$/i;
 const SPECIALS = /^specials$/i;
 const SEASON_PACK = /^(.+?)[\s._-]+(?:s|season[\s._-]*)(\d{1,2})(?![0-9a-z])(.*)$/i;
 const MOVIE_FOLDER = /^([^()[\]{}]+?) \(((?:19|20)\d{2})\)((?:\s*(?:\{[^}]*\}|\[[^\]]*\]))*)$/;
 const ILLEGAL = /[<>:"/\\|?*]/g;
 
-type Episode = { kind: "episode"; show: string; year: string | null; season: number; first: number; last: number };
+type Episode = { kind: "episode"; show: string; year: string | null; season: number; first: number; last: number; ids: string };
 
 type Movie = { kind: "movie"; title: string; year: string; part: number | null; edition: string | null; ids: string };
 
@@ -130,14 +137,14 @@ const movieOf = (stem: string): Movie | null => {
 
     if (/[0-9]$/.test(title) || /^[0-9]/.test(tail) || Number(value) > latestYear()) return [];
 
-    if (!pretty(title) || BRACKETS.test(title) || beforeRelease(title) !== title || SPLIT.test(title)) return [];
+    if (!pretty(title) || BRACKETS.test(title) || DOMAIN.test(title) || COLLECTION.test(title) || /\s[-–—]\s/.test(title) || beforeRelease(title) !== title || SPLIT.test(title)) return [];
 
     if ([...title.matchAll(BARE_YEAR)].some((y) => y.index > 0 && !blank(title.slice(y.index + 4)))) return [];
     const head = beforeRelease(tail);
     const discs = [...head.matchAll(DISC)];
 
     if (SPLIT.test(tail.slice(head.length)) || discs.length > 1 || !blank(head.replace(ID_TAG, " ").replace(EDITION, " ").replace(DISC, " "))) return [];
-    const edition = [...head.matchAll(EDITION)].at(0);
+    const edition = [...tail.matchAll(EDITION)].at(0);
 
     return [
       {
@@ -161,7 +168,7 @@ const episodeParts = (stem: string) => {
   const [, lead = "", season = "", first = "", joint = "", second = "", rest = ""] = m;
   const last = second ? Number(second) : Number(first);
 
-  if (second && (joint.toLowerCase() === "e" ? last !== Number(first) + 1 : last <= Number(first))) return null;
+  if (second && (second.length !== first.length || (joint.toLowerCase() === "e" ? last !== Number(first) + 1 : last <= Number(first)))) return null;
 
   if (MORE_EPISODES.test(rest) || EPISODIC.test(rest) || SPLIT.test(rest)) return null;
 
@@ -175,18 +182,19 @@ const episodeOf = (stem: string, pack: Pack | null): Episode | null => {
   const { lead: raw, ...range } = parts;
   const lead = raw.replace(ID_TAG, " ");
 
-  if (beforeRelease(lead) !== lead || EPISODIC.test(lead) || RANGE.test(lead)) return null;
+  if (beforeRelease(lead) !== lead || EPISODIC.test(lead) || RANGE.test(lead) || DOMAIN.test(lead) || COLLECTION.test(lead)) return null;
   const year = trailingYear(lead);
   const text = year ? year.before : lead;
 
   if (BRACKETS.test(text)) return null;
   const own = pretty(text);
+  const ids = (raw.match(ID_TAG) ?? []).join(" ");
 
-  if (!own) return pack && pack.season === range.season ? { kind: "episode", show: pack.show, year: pack.year, ...range } : null;
+  if (!own) return pack && pack.season === range.season ? { kind: "episode", show: pack.show, year: pack.year, ...range, ids } : null;
 
-  if (pack && showKey(pack.show) !== showKey(own)) return null;
+  if (pack && (showKey(pack.show) !== showKey(own) || (pack.year && year && pack.year !== year.value))) return null;
 
-  return { kind: "episode", show: own, year: year?.value ?? pack?.year ?? null, ...range };
+  return { kind: "episode", show: own, year: year?.value ?? pack?.year ?? null, ...range, ids };
 };
 
 /** A video's identity from its own name, or null unless the whole name fits one of the shapes it knows:
@@ -205,7 +213,7 @@ const packOf = (folder: string): Pack | null => {
   const m = folder.match(SEASON_PACK);
   const lead = m?.[1] ?? "";
 
-  if (!m || EPISODIC.test(lead) || BRACKETS.test(lead) || beforeRelease(lead) !== lead || !blank(beforeRelease(m[3] ?? ""))) return null;
+  if (!m || EPISODIC.test(lead) || BRACKETS.test(lead) || RANGE.test(lead) || COLLECTION.test(lead) || beforeRelease(lead) !== lead || !blank(beforeRelease(m[3] ?? ""))) return null;
   const year = trailingYear(lead);
   const show = pretty(year ? year.before : lead);
 
@@ -246,6 +254,7 @@ const normalRoot = (path: string) => {
  * folder of the user's under the movies root, and skips anything it can't name with certainty.
  */
 export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: string, showsRoot: string, within: string): LayoutResult | { error: string } {
+  const realFolders = new Set(snapshot.flatMap((f) => (f.file_type === "FOLDER" ? [f.path] : [])));
   const folderPaths = new Map(snapshot.flatMap((f) => (f.file_type === "FOLDER" ? [[pathKey(f.path), f.path]] : [])));
   const wantedMovies = normalRoot(moviesRoot);
   const wantedShows = normalRoot(showsRoot);
@@ -255,7 +264,11 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
     path
       .split("/")
       .filter(Boolean)
-      .reduce((real, part) => folderPaths.get(pathKey(`${real}/${part}`)) ?? `${real}/${part}`, "");
+      .reduce((real, part) => {
+        const next = `${real}/${part}`;
+
+        return realFolders.has(next) ? next : (folderPaths.get(pathKey(next)) ?? next);
+      }, "");
 
   if (!wantedMovies || !wantedShows) return { error: "Name a folder for movies and one for shows, like '/Movies' and '/TV Shows'." };
 
@@ -292,54 +305,99 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
   const videoSlots = new Map(snapshot.flatMap((f) => (f.file_type === "VIDEO" ? [[pathKey(`${parentOf(f.path)}/${stemOf(f.name)}`), f.id]] : [])));
   const isSeasonFolder = (name: string) => SEASON_FOLDER.test(name) || SPECIALS.test(name);
   const seasonNumber = (name: string) => (SPECIALS.test(name) ? 0 : Number(name.match(SEASON_FOLDER)?.[1] ?? Number.NaN));
-  const underSeasonFolder = (path: string) => parentOf(path).split("/").some(isSeasonFolder);
-  const isRelease = (name: string) => RELEASE.test(name) && (parseMedia(`${name}.mkv`) !== null || packOf(name) !== null);
+  const foldersOf = (path: string) => parentOf(path).split("/").filter(Boolean);
   const movieKey = (title: string, year: string) => `${showKey(title)}|${year}`;
-  const showsByKey = new Map<string, Array<{ name: string; year: string | null }>>();
-  const moviesByKey = new Map<string, string>();
-  const moviesByTitle = new Map<string, string>();
-  const looseMovieFolders = new Map<string, string>();
-  const plannedEpisodes = new Map<string, Array<{ first: number; last: number }>>();
-  const plannedMovies = new Map<string, Array<number | null>>();
+  const folderYear = (name: string) => name.match(/[([]((?:19|20)\d{2})[)\]](?:\s*(?:\{[^}]*\}|\[[^\]]*\]))*\s*$/)?.[1] ?? null;
 
-  for (const f of childrenOf(shows)) {
-    if (f.file_type !== "FOLDER") continue;
-    const year = [...f.name.matchAll(PAREN_YEAR)].at(-1)?.[1] ?? null;
+  const idsOf = (name: string) =>
+    (name.match(ID_TAG) ?? [])
+      .map((t) => t.toLowerCase().replace(/[[\]{}]/g, "").replace("id-", "-"))
+      .toSorted()
+      .join(" ");
 
-    showsByKey.set(showKey(f.name), [...(showsByKey.get(showKey(f.name)) ?? []), { name: f.name, year }]);
+  const folderIdentity = (name: string): Media | Pack | null => (RELEASE.test(name) ? (parseMedia(`${name}.mkv`) ?? packOf(name)) : null);
+
+  const inExtras = (path: string) => {
+    const dirs = foldersOf(path);
+
+    return dirs.some((d, i) => i > 0 && EXTRAS_FOLDER.test(d) && (MOVIE_FOLDER.test(dirs[i - 1] ?? "") || folderIdentity(dirs[i - 1] ?? "") !== null));
+  };
+
+  const matches = (folder: Media | Pack, media: Media) =>
+    "kind" in folder && folder.kind === "movie" ? media.kind === "movie" && movieKey(folder.title, folder.year) === movieKey(media.title, media.year) : media.kind === "episode" && showKey(folder.show) === showKey(media.show);
+
+  type ShowFolder = { name: string; key: string; year: string | null; ids: string };
+
+  const showFolders: ShowFolder[] = childrenOf(shows).flatMap((f) => (f.file_type === "FOLDER" ? [{ name: f.name, key: showKey(f.name), year: folderYear(f.name), ids: idsOf(f.name) }] : []));
+  const showElsewhere = new Map<string, string>();
+
+  for (const f of snapshot) {
+    if (f.file_type !== "FOLDER" || !isUnder(f.path, shows) || isSeasonFolder(f.name)) continue;
+    const direct = same(parentOf(f.path), shows);
+    const identity = folderIdentity(f.name);
+    const key = direct ? (identity && "show" in identity ? showKey(identity.show) : null) : showKey(f.name);
+
+    if (key && !showElsewhere.has(key)) showElsewhere.set(key, f.path);
   }
 
-  for (const f of childrenOf(movies)) {
-    const m = f.file_type === "FOLDER" ? f.name.match(MOVIE_FOLDER) : null;
+  const movieFolders = snapshot.flatMap((f) => {
+    const m = f.file_type === "FOLDER" && isUnder(f.path, movies) ? f.name.match(MOVIE_FOLDER) : null;
 
-    if (f.file_type === "FOLDER" && !m) looseMovieFolders.set(showKey(f.name.replace(BARE_YEAR, " ")), f.name);
+    return m ? [{ name: f.name, path: f.path, key: movieKey(m[1] ?? "", m[2] ?? ""), title: showKey(m[1] ?? ""), ids: idsOf(f.name) }] : [];
+  });
 
-    if (!m) continue;
-    moviesByKey.set(movieKey(m[1] ?? "", m[2] ?? ""), f.name);
-    moviesByTitle.set(showKey(m[1] ?? ""), f.name);
-  }
+  const looseMovieFolders = new Map(childrenOf(movies).flatMap((f) => (f.file_type === "FOLDER" && !MOVIE_FOLDER.test(f.name) && !folderIdentity(f.name) ? [[showKey(f.name), f.name]] : [])));
+
+  const copiesInMovies = videosUnder(movies).flatMap((g) => {
+    const own = parseMedia(g.name);
+    const strict = nameOf(parentOf(g.path)).match(MOVIE_FOLDER);
+    const release = folderIdentity(nameOf(parentOf(g.path)));
+    const media = own?.kind === "movie" ? own : release && "kind" in release && release.kind === "movie" ? release : null;
+    const key = strict ? movieKey(strict[1] ?? "", strict[2] ?? "") : media ? movieKey(media.title, media.year) : null;
+
+    return key ? [{ f: g, key, part: media?.part ?? (/ - pt(\d+)\./i.exec(g.name) ? Number(/ - pt(\d+)\./i.exec(g.name)?.[1]) : null), edition: media?.edition ?? null, ext: extOf(g.name), folder: parentOf(g.path) }] : [];
+  });
+
+  const titlesSeen = new Map([
+    ...allVideos.flatMap((v): Array<[string, string]> => {
+      const m = parseMedia(v.f.name);
+
+      return m?.kind === "movie" ? [[showKey(m.title), v.f.name]] : [];
+    }),
+    ...movieFolders.map((m): [string, string] => [m.title, m.name]),
+  ]);
 
   const videos = allVideos.flatMap((v) => (!scope || isUnder(v.f.path, scope) ? [v.f] : [])).toSorted((a, b) => b.size - a.size || a.path.localeCompare(b.path));
+  const plannedEpisodes = new Map<string, Array<{ first: number; last: number }>>();
+  const plannedMovies = new Map<string, Array<{ part: number | null; edition: string | null; ext: string }>>();
+  const createdMovies = new Map<string, string>();
   const changes: LayoutChange[] = [];
   const skipped: LayoutResult["skipped"] = [];
   let budget = MAX_LAYOUT_CHANGES;
   let remaining = 0;
 
-  const showFolderFor = (show: string, year: string | null): { name: string } | { why: string } => {
-    const titled = year ? (showsByKey.get(showKey(`${show} ${year}`)) ?? []) : [];
-
-    if (titled.length > 0) return titled.length === 1 && titled[0]?.year === null ? { name: titled[0].name } : { why: `can't tell if it belongs in ${titled[0]?.name ?? show}` };
+  const showFolderFor = (show: string, year: string | null, ids: string): { name: string } | { why: string } => {
     const key = showKey(show);
-    const known = showsByKey.get(key) ?? [];
-    const exact = known.find((k) => k.year === year);
+    const titledKey = year ? showKey(`${show} ${year}`) : null;
+    const elsewhere = showElsewhere.get(key) ?? (titledKey ? showElsewhere.get(titledKey) : undefined);
+
+    if (elsewhere) return { why: `${show} may already be in ${elsewhere}` };
+    const titled = titledKey ? showFolders.filter((k) => k.key === titledKey) : [];
+    const known = showFolders.filter((k) => k.key === key);
+    const exact = known.filter((k) => k.year === year);
+
+    if (titled.length > 0) return titled.length === 1 && titled[0]?.year === null && exact.length === 0 ? { name: titled[0].name } : { why: `can't tell if it belongs in ${titled[0]?.name ?? show}` };
+
+    if (exact.length > 1) return { why: `can't tell which of ${exact.map((k) => k.name).join(" and ")} it belongs in` };
+    const match = exact[0] && (year || known.length === 1) ? exact[0] : undefined;
+
+    if (match) return match.ids && ids && match.ids !== idsOf(ids) ? { why: `${match.name} is tagged as another show` } : { name: match.name };
     const yearless = known.find((k) => k.year === null);
 
-    if (exact && (year || known.length === 1)) return { name: exact.name };
-
     if (year ? yearless : known.length > 0) return { why: `can't tell if it belongs in ${(yearless ?? known[0])?.name ?? show}` };
-    const created = { name: showLabel(show, year), year };
+    const created = { name: showLabel(show, year), key, year, ids: "" };
 
-    showsByKey.set(key, [...known, created]);
+    showFolders.push(created);
 
     return { name: created.name };
   };
@@ -366,6 +424,13 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
 
   const place = (f: WalkedFile, target: string) => {
     if (target === f.path) return false;
+
+    if ([nameOf(target), nameOf(parentOf(target))].some((n) => new TextEncoder().encode(n).length > MAX_NAME_BYTES)) {
+      skipped.push({ path: f.path, why: "its new name would be too long" });
+
+      return false;
+    }
+
     const slot = pathKey(`${parentOf(target)}/${stemOf(nameOf(target))}`);
     const holder = occupied.get(pathKey(target)) ?? videoSlots.get(slot);
 
@@ -404,16 +469,15 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
 
   const leave = (f: WalkedFile, why: string) => void skipped.push({ path: f.path, why });
 
-  const fromReleaseFolder = (f: WalkedFile, parent: string) => {
-    const folder = parseMedia(`${nameOf(parent)}.mkv`);
+  const fromReleaseFolder = (f: WalkedFile, parent: string, folder: Media | Pack | null) => {
+    if (!folder || !("kind" in folder) || folder.kind !== "movie" || realVideos(childrenOf(parent)).length !== 1 || [scope, movies, shows, ""].some((p) => same(p, parent))) return null;
     const stem = stemOf(f.name);
     const words = showKey(beforeRelease(stem)).split(" ").filter(Boolean);
-
-    if (folder?.kind !== "movie" || !isRelease(nameOf(parent)) || realVideos(childrenOf(parent)).length !== 1 || [scope, movies, shows, ""].some((p) => same(p, parent))) return null;
     const title = showKey(folder.title).split(" ");
-    const extra = words.filter((w) => !title.includes(w));
+    const folderWords = new Set(showKey(nameOf(parent)).split(" "));
+    const named = ` ${words.join(" ")} `.includes(` ${title.join(" ")} `) && words.every((w) => title.includes(w) || folderWords.has(w));
 
-    return ` ${words.join(" ")} `.includes(` ${title.join(" ")} `) && !/\p{Nd}/u.test(beforeRelease(stem)) && !EPISODIC.test(stem) && !extra.some((w) => PART_WORD.test(w)) ? folder : null;
+    return named && !/\p{Nd}/u.test(beforeRelease(stem)) && !EPISODIC.test(stem) && !words.some((w) => !title.includes(w) && PART_WORD.test(w)) ? folder : null;
   };
 
   for (const f of videos) {
@@ -421,7 +485,13 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
     const parent = parentOf(f.path);
     const parentName = nameOf(parent);
 
-    if ((isUnder(f.path, shows) && !same(parent, shows)) || underSeasonFolder(f.path)) continue;
+    if ((isUnder(f.path, shows) && !same(parent, shows)) || foldersOf(f.path).some(isSeasonFolder) || inExtras(f.path)) continue;
+
+    if (foldersOf(f.path).some((d) => DISC_FOLDER.test(d))) {
+      leave(f, "it sits in a disc folder");
+      continue;
+    }
+
     const pack = packOf(parentName);
     const own = parseMedia(f.name, pack);
 
@@ -429,7 +499,8 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
     const movieFolder = parentName.match(MOVIE_FOLDER);
 
     if (movieFolder && !EPISODIC.test(f.name) && f.name.toLowerCase().startsWith(`${movieFolder[1]} (${movieFolder[2]})`.toLowerCase())) continue;
-    const media = own ?? (pack ? null : fromReleaseFolder(f, parent));
+    const folder = folderIdentity(parentName);
+    const media = own ?? (pack ? null : fromReleaseFolder(f, parent, folder));
 
     if (!media) {
       leave(f, "its name doesn't say which movie or episode it is");
@@ -441,13 +512,18 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
       continue;
     }
 
-    if (!movieFolder && isUnder(f.path, movies) && !same(parent, movies) && !(same(parentOf(parent), movies) && isRelease(parentName))) {
+    if (!movieFolder && isUnder(f.path, movies) && !same(parent, movies) && !(same(parentOf(parent), movies) && folder && matches(folder, media))) {
       leave(f, `it sits in ${parentName}, a folder of yours`);
       continue;
     }
 
+    if (folder && !matches(folder, media)) {
+      leave(f, `its name and its folder's name disagree`);
+      continue;
+    }
+
     if (media.kind === "episode") {
-      const show = showFolderFor(media.show, media.year);
+      const show = showFolderFor(media.show, media.year, media.ids);
 
       if ("why" in show) {
         leave(f, show.why);
@@ -476,31 +552,51 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
 
     const key = movieKey(media.title, media.year);
     const inPlace = movieFolder !== null && isUnder(f.path, movies);
-
-    const lookalike = inPlace ? undefined : (moviesByTitle.get(showKey(`${media.title} ${media.year}`)) ?? looseMovieFolders.get(showKey(media.title)));
+    const lookalike = inPlace ? undefined : (titlesSeen.get(showKey(`${media.title} ${media.year}`)) ?? looseMovieFolders.get(showKey(media.title)) ?? looseMovieFolders.get(showKey(`${media.title} ${media.year}`)));
 
     if (lookalike) {
       leave(f, `can't tell if it's ${lookalike}`);
       continue;
     }
 
-    const folder = inPlace ? parent : `${movies}/${moviesByKey.get(key) ?? nameOf(parentOf(targetPath(media, ext, movies, shows)))}`;
-    const existing = inPlace ? [] : realVideos(childrenOf(folder)).filter((g) => g.id !== f.id);
-    const arrivals = plannedMovies.get(pathKey(folder)) ?? [];
+    const sibling = (c: (typeof copiesInMovies)[number]) => inPlace && media.part !== null && c.part !== null && c.part !== media.part && same(c.folder, parent) && c.ext === ext && c.edition === media.edition;
+    const copy = copiesInMovies.find((c) => c.f.id !== f.id && c.key === key && !sibling(c));
+
+    if (copy) {
+      leave(f, `another copy is at ${copy.f.path}`);
+      continue;
+    }
+
+    const homes = movieFolders.filter((m) => m.key === key && same(parentOf(m.path), movies));
+
+    if (!inPlace && homes.length > 1) {
+      leave(f, `can't tell which of ${homes.map((m) => m.name).join(" and ")} it belongs in`);
+      continue;
+    }
+
+    if (!inPlace && homes[0]?.ids && media.ids && homes[0].ids !== idsOf(media.ids)) {
+      leave(f, `${homes[0].name} is tagged as another movie`);
+      continue;
+    }
+
+    const target = inPlace ? parent : `${movies}/${homes[0]?.name ?? createdMovies.get(key) ?? nameOf(parentOf(targetPath(media, ext, movies, shows)))}`;
+    const existing = inPlace ? [] : videosUnder(target).filter((g) => g.id !== f.id);
+    const arrivals = plannedMovies.get(pathKey(target)) ?? [];
 
     if (existing[0]) {
-      leave(f, `${nameOf(folder)} already has ${existing[0].name}`);
+      leave(f, `${nameOf(target)} already has ${existing[0].name}`);
       continue;
     }
 
-    if (arrivals.some((part) => !media.part || !part || part === media.part)) {
-      leave(f, `another copy of ${nameOf(folder)} is in this plan`);
+    if (arrivals.some((a) => !(media.part && a.part && a.part !== media.part && a.edition === media.edition && a.ext === ext))) {
+      leave(f, `another copy of ${nameOf(target)} is in this plan`);
       continue;
     }
 
-    if (!inPlace) moviesByKey.set(key, nameOf(folder));
-
-    if (place(f, `${folder}/${nameOf(folder).replace(TAGS, "").trim()}${movieSuffix(media)}.${ext}`)) plannedMovies.set(pathKey(folder), [...arrivals, media.part]);
+    if (place(f, `${target}/${nameOf(target).replace(TAGS, "").trim()}${movieSuffix(media)}.${ext}`)) {
+      plannedMovies.set(pathKey(target), [...arrivals, { part: media.part, edition: media.edition, ext }]);
+      createdMovies.set(key, nameOf(target));
+    }
   }
 
   return { changes, skipped, remaining };

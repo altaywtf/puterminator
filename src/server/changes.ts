@@ -172,7 +172,7 @@ export const sidecarsOf = (snapshot: ReadonlyArray<WalkedFile>, video: WalkedFil
   const siblings = snapshot.flatMap((f) => (f.parent_id === video.parent_id && f.file_type === "VIDEO" && f.id !== video.id ? [stemOf(f.name)] : []));
 
   const longer = siblings.flatMap((s) => {
-    const next = s.toLowerCase().startsWith(stem) ? s.slice(stem.length).match(/^[._ -][^._ -]+/)?.[0] : undefined;
+    const next = s.toLowerCase().startsWith(stem) ? s.slice(stem.length).match(/^[._ -]+[^._ -]+/)?.[0] : undefined;
 
     return next ? [`${stem}${next.toLowerCase()}`] : [];
   });
