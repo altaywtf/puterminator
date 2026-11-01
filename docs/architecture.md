@@ -47,7 +47,7 @@ sequenceDiagram
 
 ## Plans
 
-The model can only propose. Every write to put.io starts from a browser frame.
+The model can only propose library changes; every trash, rename, move and restore starts from a browser frame. The one write a tool makes is asking put.io for download links.
 
 ```mermaid
 stateDiagram-v2
@@ -61,7 +61,7 @@ stateDiagram-v2
   undone --> undoing: retry failed steps
 ```
 
-- A run is one put.io write per change, in order, then a rescan. Writes are never retried automatically: a lost response could mean put.io already applied it, so the step is marked "may have happened" and undo reverses it too.
+- A run applies the changes one at a time, in order (a move may also create folders and rename), then rescans. Writes are never retried automatically: a lost response could mean put.io already applied it, so the step is marked "may have happened" and undo reverses it too.
 - Trash goes to put.io's trash. With trash off in the account, trash steps fail instead of deleting for good.
 
 ## Durable Object storage

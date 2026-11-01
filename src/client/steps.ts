@@ -23,7 +23,9 @@ const decodeOutput = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Jso
 const decodeToolError = Schema.decodeUnknownOption(Schema.Struct({ error: Schema.String }));
 const decodeLinkedFiles = Schema.decodeUnknownOption(Schema.Struct({ files: Schema.Finite }));
 const decodeFolderCount = Schema.decodeUnknownOption(Schema.Struct({ count: Schema.Finite }));
-const decodeMatches = Schema.decodeUnknownOption(Schema.Struct({ total: Schema.Finite, items: Schema.Array(Schema.Struct({ path: Schema.String })) }));
+const decodeTotal = Schema.decodeUnknownOption(Schema.Struct({ total: Schema.Finite }));
+const decodeItems = Schema.decodeUnknownOption(Schema.Struct({ items: Schema.Array(Schema.Json) }));
+const decodeItemPath = Schema.decodeUnknownOption(Schema.Struct({ path: Schema.String }));
 const decodePath = Schema.decodeUnknownOption(Schema.Struct({ path: Schema.NonEmptyString }));
 const decodeCategory = Schema.decodeUnknownOption(Schema.Struct({ category: Schema.String }));
 const decodeQuery = Schema.decodeUnknownOption(Schema.Struct({ query: Schema.NonEmptyString }));
@@ -73,9 +75,13 @@ export function describeStep(name: string, input: Schema.Json, output: string | 
 
     return {
       title: `open ${path}`,
-      detail: Option.match(Option.flatMap(out, decodeFolderCount), {
+      detail: Option.match(out, {
         onNone: () => null,
-        onSome: ({ count }) => `${fmt(count)} ${count === 1 ? "item" : "items"}`,
+        onSome: (o) => {
+          const count = Option.match(decodeFolderCount(o), { onNone: () => 0, onSome: ({ count }) => count });
+
+          return `${fmt(count)} ${count === 1 ? "item" : "items"}`;
+        },
       }),
       lines: [],
     };
@@ -90,12 +96,13 @@ export function describeStep(name: string, input: Schema.Json, output: string | 
 
     const query = Option.map(decodeQuery(input), ({ query }) => `"${query}"`);
     const what = [category, query].flatMap(Option.toArray).join(" ");
-    const matches = Option.flatMap(out, decodeMatches);
+    const total = Option.map(out, (o) => Option.match(decodeTotal(o), { onNone: () => 0, onSome: ({ total }) => total }));
+    const items = Option.match(Option.flatMap(out, decodeItems), { onNone: () => [], onSome: ({ items }) => items });
 
     return {
       title: `search ${what || "files"}`,
-      detail: Option.match(matches, { onNone: () => null, onSome: ({ total }) => `${fmt(total)} matches` }),
-      lines: Option.match(matches, { onNone: () => [], onSome: ({ items }) => items.slice(0, 6).map((i) => i.path) }),
+      detail: Option.match(total, { onNone: () => null, onSome: (n) => `${fmt(n)} matches` }),
+      lines: items.slice(0, 6).flatMap((i) => Option.toArray(Option.map(decodeItemPath(i), ({ path }) => path))),
     };
   }
 

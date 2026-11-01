@@ -45,7 +45,7 @@ Add a test only when it catches something existing coverage misses, and prove it
 - The Durable Object class `Puterminator`, its `putio-<user_id>` instance names and the v1 SQLite tables in [`store.ts`](src/server/store.ts) hold users' data. Renaming any of them strands it.
 - Tool input schemas stay valid under strict tool use: no optional keys, no numeric bounds, closed objects (`Schema.Finite`, not `Schema.Int`).
 - History is append-only; editing a stored message breaks thinking signatures and the prompt cache.
-- The model only proposes. put.io writes start from browser frames (`apply`, `retry`, `undo`), and writes are never retried automatically.
+- The model only proposes library changes: trash, rename, move and restore start from browser frames (`apply`, `retry`, `undo`) and are never retried automatically. The one write a tool makes is asking put.io for download links.
 - No code comments: the `uinaf/no-comments` lint rule enforces it. Names, types and tests carry intent; the commit message carries the why.
 
 ## Needs the user

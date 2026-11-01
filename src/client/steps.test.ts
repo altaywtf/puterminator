@@ -19,6 +19,12 @@ describe("describeStep", () => {
     expect(d.lines).toHaveLength(6);
   });
 
+  it("keeps what it can read from a partly malformed result", () => {
+    const d = describeStep("search_files", {}, '{"total":2,"items":[{"path":"/Heat.mkv"},{}]}');
+    expect([d.detail, d.lines]).toEqual(["2 matches", ["/Heat.mkv"]]);
+    expect(describeStep("list_folder", { path: "/Movies" }, "{}").detail).toBe("0 items");
+  });
+
   it("shows a tool error and a non-JSON result as the failure line", () => {
     expect(describeStep("list_folder", { path: "movies" }, '{"error":"No scan yet."}')).toEqual({
       title: "couldn’t run list_folder",

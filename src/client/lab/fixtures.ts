@@ -2,7 +2,7 @@ import { Match } from "effect";
 import type { Change, Plan, Question, Run } from "../../shared/actions";
 import type { Audit } from "../../shared/audit";
 import { FileFlag, type Library } from "../../shared/contract";
-import type { ListFolderOutput, SearchFilesOutput } from "../../shared/tools";
+import type { DownloadLinksOutput, ListFolderOutput, SearchFilesOutput } from "../../shared/tools";
 
 const GB = 2 ** 30;
 const MB = 2 ** 20;
@@ -117,6 +117,11 @@ const found = (paths: string[], total: number, bytes: string): SearchFilesOutput
   bytes,
   items: paths.map((path) => ({ path, type: "VIDEO", size: "", added: "2026-01-01", firstPlayed: null, junk: null })),
 });
+
+export const downloadLinks: Array<[string, DownloadLinksOutput]> = [
+  ["ready", { id: 7, files: 3 }],
+  ["put.io still working", { id: 8, files: null }],
+];
 
 export const searches: Array<[string, SearchFilesOutput]> = [
   ["junk", found(junk.map((j) => j.path), 12, "0.1 GB")],

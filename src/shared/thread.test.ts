@@ -26,6 +26,12 @@ const result = (is_error: boolean): MessageParam => ({
 const answer: MessageParam = { role: "assistant", content: [{ type: "text", text: "Score 71." }] };
 
 describe("toTurns", () => {
+  it("keeps a tool call's usable arguments when one value isn't valid JSON", () => {
+    const odd: MessageParam = { role: "assistant", content: [{ type: "tool_use", id: "t9", name: "list_folder", input: { path: "/Movies", extra: Number.POSITIVE_INFINITY } }] };
+    const item = toTurns([ask, odd], null, false).flatMap((t) => t.items).find((i) => i.kind === "tool");
+    expect(item?.kind === "tool" && item.input).toEqual({ path: "/Movies", extra: null });
+  });
+
   it("shows the user's text, not the app's context block", () => {
     const [turn] = toTurns([ask], null, false);
     expect(turn).toEqual({ key: "m0", role: "user", items: [{ kind: "user", key: "m0", text: "Audit my library" }] });

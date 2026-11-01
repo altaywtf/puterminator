@@ -6,7 +6,7 @@ import { Library } from "../../shared/contract";
 import { planCard, questionCard, runCard } from "../actions";
 import { toolCard } from "../cards";
 import { Message } from "../main";
-import { audits, folders, library, plans, questions, runs, searches, undos } from "./fixtures";
+import { audits, downloadLinks, folders, library, plans, questions, runs, searches, undos } from "./fixtures";
 
 const Model = Schema.Struct({ expanded: Schema.Array(Schema.String), library: Library, plans: Schema.Record(Schema.String, PlanRecord) });
 
@@ -24,6 +24,7 @@ const CASES: Array<{ tool: string; group: string; name: string; output: string }
   ...audits.map(([name, a]) => ({ tool: "scan_library", group: "score", name, output: JSON.stringify(a) })),
   ...folders.map(([name, o]) => ({ tool: "list_folder", group: "folder", name, output: JSON.stringify(o) })),
   ...searches.map(([name, o]) => ({ tool: "search_files", group: "search", name, output: JSON.stringify(o) })),
+  ...downloadLinks.map(([name, o]) => ({ tool: "make_download_links", group: "download links", name, output: JSON.stringify(o) })),
 ];
 
 const specimen = (h: H, model: Model, c: (typeof CASES)[number], i: number): Html =>
@@ -58,7 +59,7 @@ const view = (model: Model, h: H): Document => ({
         [
           h.h1([h.Class("m-0 font-display text-[28px] font-medium text-accent")], ["lab"]),
           ...actionSections(h, model),
-          ...["score", "folder", "search"].map((group) =>
+          ...["score", "folder", "search", "download links"].map((group) =>
             h.section(
               [h.Class("grid gap-8")],
               [

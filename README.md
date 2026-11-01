@@ -13,7 +13,7 @@ pnpm lab               # every card in every fixture state on http://localhost:5
 pnpm verify            # typecheck, lint, knip, test, build
 ```
 
-- In the fake, sign-in runs the real OAuth routes. Prompts with "audit", "clean", "junk", "folder", "largest" or "download" call tools; anything else streams a long reply you can stop. `FAKE_UNCONFIGURED=1 pnpm dev:fake` shows the unconfigured state.
+- In the fake, sign-in runs the real OAuth routes. Prompts with "audit", "clean", "junk", "folder", "largest", "download" or "link" call tools, "which" or "keep" asks a question, and anything else streams a long reply you can stop. `FAKE_UNCONFIGURED=1 pnpm dev:fake` shows the unconfigured state.
 - Against the real APIs: `cp .env.example .env`, fill it in, then `pnpm dev`. `pnpm dev:client` adds Vite HMR, proxying the Worker routes to `:1337`.
 - The put.io OAuth app is registered at <https://app.put.io/oauth> with the callback `<public URL>/auth/callback`.
 
