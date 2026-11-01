@@ -2,7 +2,7 @@ import * as Option from "effect/Option";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { FileFlag } from "../shared/contract";
 import { has, type Index, indexOf, isFolder, isRegular, type Node, putioUrl } from "./library";
-import { Message, type Model, PLAYER_ID, treeNodeId } from "./main";
+import { Message, type Model, PLAYER_CLOSE_ID, PLAYER_ID, treeNodeId } from "./main";
 import { bytes, isPlayable } from "./cards";
 import { fmt, size } from "./steps";
 
@@ -81,11 +81,19 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, prefix: string, last: b
   if (!open) return [row];
   const kids = n.children.map((c) => ix.nodes.get(c)).filter((c) => c !== undefined);
   const inner = `${prefix}${last ? "   " : "│  "}`;
-  const shown = kids.slice(0, TREE_CAP);
+  const allKey = `tree.${n.id}.all`;
+  const shown = model.expanded.includes(allKey) ? kids : kids.slice(0, TREE_CAP);
   return [
     row,
-    ...shown.flatMap((c, i) => treeRow(h, model, ix, c, inner, i === shown.length - 1 && kids.length <= TREE_CAP)),
-    ...(kids.length > TREE_CAP ? [h.div([h.Class("px-4 whitespace-pre text-fg-4")], [`${inner}└─ … ${fmt(kids.length - TREE_CAP)} more`])] : []),
+    ...shown.flatMap((c, i) => treeRow(h, model, ix, c, inner, i === shown.length - 1 && shown.length === kids.length)),
+    ...(shown.length < kids.length
+      ? [
+          h.button(
+            [h.Type("button"), h.Class("px-4 text-start whitespace-pre text-fg-4 transition-colors duration-160 hover:text-accent"), h.OnClick(Message.ToggledStep({ key: allKey }))],
+            [`${inner}└─ … ${fmt(kids.length - shown.length)} more`],
+          ),
+        ]
+      : []),
   ];
 };
 
@@ -163,7 +171,7 @@ export const playerView = (h: H, model: Model) => {
               [
                 h.span([h.Class("min-w-0 grow truncate text-fg-2"), h.Title(p.name)], [`▶ ${p.name}`]),
                 h.a([h.Href(putioUrl(p.id)), h.Target("_blank"), h.Rel("noopener noreferrer"), h.Class("hit text-fg-3 hover:text-fg")], ["put.io ↗"]),
-                h.button([h.Type("button"), h.Class("hit text-fg-3 hover:text-fg"), h.AriaLabel("close player"), h.OnClick(Message.ClosedPlayer())], ["esc"]),
+                h.button([h.Type("button"), h.Id(PLAYER_CLOSE_ID), h.Class("hit text-fg-3 hover:text-fg"), h.AriaLabel("close player"), h.OnClick(Message.ClosedPlayer())], ["esc"]),
               ],
             ),
             h.div(

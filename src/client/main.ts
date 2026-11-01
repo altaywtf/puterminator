@@ -126,7 +126,7 @@ export const Message = defineMessageUnion({
   ClickedStop: {},
   ArmedStop: {},
   SentFrame: {},
-  FailedFrame: { error: Schema.String },
+  FailedFrame: { error: Schema.String, unsent: Schema.optionalKey(Schema.String) },
   ToggledStep: { key: Schema.String },
   ClickedSignOut: {},
   CompletedEffect: {},
@@ -157,9 +157,11 @@ export const managedResources = ManagedResource.make<Model, Message>()((entry) =
         const onError = () => resume(Effect.fail(new Error("Could not reach the agent")));
         socket.addEventListener("open", onOpen, { once: true });
         socket.addEventListener("error", onError, { once: true });
+        // Runs only when the attempt is abandoned, as on timeout; the socket must not linger.
         return Effect.sync(() => {
           socket.removeEventListener("open", onOpen);
           socket.removeEventListener("error", onError);
+          socket.close();
         });
       }).pipe(
         Effect.timeoutOrElse({ duration: CONNECT_TIMEOUT, orElse: () => Effect.fail(new Error("Agent connection timed out")) }),
@@ -200,7 +202,9 @@ export const SendFrame = Command.define("SendFrame", {
     AgentSocket.get.pipe(
       Effect.flatMap((socket) => Effect.try(() => socket.send(encodeClientFrame(event)))),
       Effect.as(Message.SentFrame()),
-      Effect.orElseSucceed(() => Message.FailedFrame({ error: "not connected. try again in a moment." })),
+      Effect.orElseSucceed(() =>
+        Message.FailedFrame({ error: "not connected. try again in a moment.", ...(event.type === "send" ? { unsent: event.text } : {}) }),
+      ),
     ),
 });
 
@@ -264,6 +268,37 @@ export const FocusComposer = Command.define("FocusComposer", {
 
 export const treeNodeId = (id: number) => `tree-${id}`;
 export const PLAYER_ID = "player";
+export const PLAYER_CLOSE_ID = "player-close";
+
+// Commands run after the render that makes the background inert, which drops focus; so remember it as it moves.
+let lastFocus: Element | null = null;
+if (typeof document !== "undefined")
+  document.addEventListener("focusin", (e) => {
+    if (e.target instanceof Element && !e.target.closest("[role=dialog]")) lastFocus = e.target;
+  });
+let beforePlayer: Element | null = null;
+
+/** Focus moves into the player when it opens and back to what opened it when it closes. */
+export const FocusPlayer = Command.define("FocusPlayer", {
+  args: { open: Schema.Boolean },
+  messages: [Message.CompletedEffect],
+  execute: ({ open }) => {
+    if (open) beforePlayer = lastFocus;
+    return Render.afterCommit.pipe(
+      Effect.flatMap(() =>
+        Effect.sync(() => {
+          if (open) {
+            document.getElementById(PLAYER_CLOSE_ID)?.focus({ preventScroll: true });
+          } else {
+            if (beforePlayer instanceof HTMLElement && beforePlayer.isConnected) beforePlayer.focus({ preventScroll: true });
+            beforePlayer = null;
+          }
+        }),
+      ),
+      Effect.as(Message.CompletedEffect()),
+    );
+  },
+});
 
 const StreamResponse = Schema.Struct({ hls: Schema.String });
 
@@ -460,7 +495,14 @@ export const update = (model: Model, message: Message): UpdateReturn =>
           },
     ArmedStop: () => ({ model: modifyFields(model, { stopArmed: () => true }) }),
     SentFrame: () => ({ model }),
-    FailedFrame: ({ error }) => ({ model: modifyFields(model, { error: () => error, sending: () => false, stopping: () => false }) }),
+    FailedFrame: ({ error, unsent }) => ({
+      model: modifyFields(model, {
+        error: () => error,
+        sending: () => false,
+        stopping: () => false,
+        draft: (d) => (d === "" && unsent ? unsent : d),
+      }),
+    }),
     ToggledStep: ({ key }) => ({
       model: modifyFields(model, { expanded: (ks) => (ks.includes(key) ? ks.filter((k) => k !== key) : [...ks, key]) }),
     }),
@@ -490,7 +532,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     }),
     OpenedPlayer: ({ id, name }) => ({
       model: modifyFields(model, { player: () => ({ id, name, src: null, failed: false }) }),
-      commands: [FetchStream({ id })],
+      commands: [FetchStream({ id }), FocusPlayer({ open: true })],
     }),
     GotStream: ({ id, src }) =>
       model.player?.id === id
@@ -498,7 +540,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         : { model },
     FailedStream: ({ id }) =>
       model.player?.id === id ? { model: modifyFields(model, { player: (p) => (p ? { ...p, failed: true } : p) }) } : { model },
-    ClosedPlayer: () => ({ model: modifyFields(model, { player: () => null }), commands: [DetachPlayer()] }),
+    ClosedPlayer: () => ({
+      model: modifyFields(model, { player: () => null }),
+      commands: [DetachPlayer(), FocusPlayer({ open: false })],
+    }),
     FailedAvatar: () => ({ model: modifyFields(model, { avatarFailed: () => true }) }),
     ClickedSignOut: () => ({ model, commands: [SignOut()] }),
     CompletedEffect: () => ({ model }),

@@ -49,6 +49,7 @@ export const questionCard = (h: H, ctx: Ctx, q: Question, live = false, settled 
   const chosen = q.options.filter((o) => on(ctx, answerKey(q, o.id)));
   const answered = settled || (q.multi ? on(ctx, sentKey(q)) && chosen.length > 0 : chosen.length > 0);
   const mono = "font-mono text-[13px] leading-[1.7]";
+  const busy = ctx.agent?.busy ? "wait for the reply to finish" : null;
   if (answered)
     return h.p([h.Class(`m-0 flex min-w-0 gap-2 ${mono}`)], [
       h.span([h.Class("flex-none text-ok"), h.AriaHidden(true)], ["✓"]),
@@ -69,6 +70,7 @@ export const questionCard = (h: H, ctx: Ctx, q: Question, live = false, settled 
             h.Type("button"),
             h.Role(q.multi ? "checkbox" : "radio"),
             h.AriaChecked(picked),
+            ...(!q.multi && busy ? [h.Disabled(true), h.Title(busy)] : []),
             h.Class("group -mx-2 grid grid-cols-[1rem_minmax(0,auto)_minmax(0,1fr)] items-baseline gap-x-2 rounded-md px-2 text-start transition-colors duration-160 hover:bg-hover focus-visible:bg-hover"),
             h.OnClick(q.multi ? toggle(answerKey(q, o.id)) : Message.ClickedStarter({ text: o.label })),
           ],
@@ -84,7 +86,7 @@ export const questionCard = (h: H, ctx: Ctx, q: Question, live = false, settled 
       ...(q.multi
         ? [
             h.button(
-              [h.Type("button"), h.Disabled(chosen.length === 0), h.Class("hit transition-colors duration-160 enabled:text-accent enabled:hover:text-accent-bright"), h.OnClick(Message.ClickedStarter({ text: chosen.map((o) => o.label).join(", ") }))],
+              [h.Type("button"), h.Disabled(chosen.length === 0 || busy !== null), ...(busy ? [h.Title(busy)] : []), h.Class("hit transition-colors duration-160 enabled:text-accent enabled:hover:text-accent-bright"), h.OnClick(Message.ClickedStarter({ text: chosen.map((o) => o.label).join(", ") }))],
               [chosen.length === 0 ? "pick one or more" : `↵ send ${fmt(chosen.length)}`],
             ),
           ]
@@ -127,7 +129,7 @@ const line = (h: H, kind: "del" | "add", text: string, meta: string, active: boo
     [h.Class(`grid grid-cols-[1.25rem_minmax(0,1fr)_auto] gap-x-2 px-3 ${active ? bg : "opacity-40"}`)],
     [
       h.span([h.Class(`select-none ${active ? fg : "text-fg-4"}`), h.AriaHidden(true)], [sign]),
-      h.span([h.Class(`truncate ${active ? "text-fg" : "text-fg-3 line-through decoration-fg-4"}`)], [text]),
+      h.span([h.Class(`min-w-0 [overflow-wrap:anywhere] ${active ? "text-fg" : "text-fg-3 line-through decoration-fg-4"}`)], [text]),
       h.span([h.Class("text-fg-4 tabular-nums")], [meta]),
     ],
   );
@@ -153,7 +155,7 @@ const diffChange = (h: H, ctx: Ctx, plan: Plan, hunk: Hunk, c: Change) => {
       h.Role("checkbox"),
       h.AriaChecked(active),
       h.Disabled(locked),
-      h.AriaLabel(`${c.op} ${name}`),
+      h.AriaLabel(`${c.op} ${slash(c, c.path)}${c.to ? ` to ${slash(c, c.to)}` : ""}`),
       h.Title(locked ? "follows what it belongs to" : active ? "click to leave this out" : "click to put it back"),
       h.Class("grid w-full text-start transition-[filter] duration-160 enabled:hover:brightness-125"),
       h.OnClick(toggle(offKey(plan, c.id))),

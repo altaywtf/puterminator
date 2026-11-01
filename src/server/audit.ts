@@ -191,7 +191,7 @@ export function audit(files: WalkedFile[], rootName: string, truncated: boolean,
     duplicates: {
       groups: dupGroups.length,
       wastedBytes: wasted,
-      examples: dupGroups.slice(0, 8).map((g) => ({ keep: g[0]!.path, drop: g.slice(1).map((f) => f.path), size: g[0]!.size })),
+      examples: dupGroups.slice(0, 8).map((g) => ({ keep: g[0]!.path, drop: g.slice(1, 6).map((f) => f.path), size: g[0]!.size })),
     },
     neverPlayed: {
       count: never.length,

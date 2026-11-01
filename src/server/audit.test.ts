@@ -131,6 +131,13 @@ describe("duplicates", () => {
     expect(audit([messy, clean], "Your Files", false).duplicates.examples[0]!.keep).toBe(clean.path);
   });
 
+  it("lists a few copies per group, however many there are, and counts them all as waste", () => {
+    const copies = Array.from({ length: 50 }, (_, i) => file(`/Dump/${i}/Heat (1995).mkv`, { crc32: "aaaa1111", size: 2 ** 30 }));
+    const a = audit(copies, "Your Files", false);
+    expect(a.duplicates.examples[0]!.drop).toHaveLength(5);
+    expect(a.duplicates.wastedBytes).toBe(49 * 2 ** 30);
+  });
+
   it("keeps the bigger copy and counts the smaller as waste", () => {
     const big = file("/Series/The.Office.S02E01.1080p.WEB.mkv", { size: 2 * 2 ** 30 });
     const small = file("/Series/The.Office.S02E01.720p.HDTV.x264.mkv", { size: 2 ** 30 });

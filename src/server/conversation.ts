@@ -511,7 +511,7 @@ export const makeAgent = (deps: AgentDeps) =>
           tools,
           partialEveryMs: deps.partialEveryMs ?? 60,
           onUsage: (tokens) => store.charge(m, tokens),
-          canContinue: () => store.used(m) < credits.cap,
+          canContinue: () => !asked && store.used(m) < credits.cap,
         });
         yield* Stream.runForEach(events, (event) =>
           Effect.gen(function* () {

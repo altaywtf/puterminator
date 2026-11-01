@@ -64,9 +64,9 @@ const status = (h: H, model: Model) =>
       ];
 
 /** One 56px topbar row over the content; no inset panel, no shadow. */
-const frame = (h: H, topbarEnd: Html[], children: Html[], busy = false) =>
+const frame = (h: H, topbarEnd: Html[], children: Html[], busy = false, inert = false) =>
   h.div(
-    [h.Class("grid h-dvh grid-rows-[auto_minmax(0,1fr)] bg-bg text-fg"), ...(busy ? [h.AriaBusy(true)] : [])],
+    [h.Class("grid h-dvh grid-rows-[auto_minmax(0,1fr)] bg-bg text-fg"), ...(busy ? [h.AriaBusy(true)] : []), ...(inert ? [h.Inert(true)] : [])],
     [
       h.header(
         [h.Class("flex-none")],
@@ -159,16 +159,22 @@ const accountMenu = (h: H, model: Model, username: string, url: string | null) =
   ),
 ];
 
+/** While the player is open, everything behind it is inert, so focus stays in the dialog. */
 const shell = (h: H, model: Model, children: Html[]) =>
-  frame(
-    h,
-    [
-      h.span([h.Class("grow")], []),
-      ...status(h, model),
-      ...(model.agent?.username ? accountMenu(h, model, model.agent.username, model.avatarFailed ? null : (model.agent.avatarUrl ?? null)) : []),
-    ],
-    [liveStatus(h, model), ...children, ...treeDrawer(h, model), ...playerView(h, model)],
-  );
+  h.div([h.Class("contents")], [
+    frame(
+      h,
+      [
+        h.span([h.Class("grow")], []),
+        ...status(h, model),
+        ...(model.agent?.username ? accountMenu(h, model, model.agent.username, model.avatarFailed ? null : (model.agent.avatarUrl ?? null)) : []),
+      ],
+      [liveStatus(h, model), ...children, ...treeDrawer(h, model)],
+      false,
+      model.player !== null,
+    ),
+    ...playerView(h, model),
+  ]);
 
 /** The shell's frame while /api/me resolves, so the swap to sign-in or the thread keeps its shape. */
 const loadingView = (h: H) => h.div([h.Class("h-dvh bg-bg"), h.AriaBusy(true)], [h.span([h.Class("sr-only"), h.Role("status")], ["loading"])]);

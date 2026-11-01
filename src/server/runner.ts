@@ -242,6 +242,7 @@ export const runTurn = <T extends EffectTool<any>>(
             const results = await runner.generateToolResponse();
             if (fatal) throw fatal;
             if (results) Queue.offerUnsafe(queue, { type: "tool_results", message: results });
+            if (input.canContinue && !input.canContinue()) break;
           }
         },
         catch: (e) => fatal ?? mapAnthropicError(e),
