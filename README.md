@@ -1,6 +1,6 @@
 # puterminator
 
-A chat agent for your put.io library: it reads the tree, scores naming, structure, junk and duplicates, answers questions, makes download links, and proposes trash, rename and move changes that you approve as a diff. Live at <https://puterminator.uinaf.dev>.
+A chat agent for your put.io library: it reads the tree, scores naming, structure, junk and duplicates, answers questions, makes download links, and proposes trash, rename and move changes that you approve as a diff. Live at <https://puterminator.com>.
 
 Built on a Cloudflare Worker with one Durable Object per put.io user ([Alchemy](https://alchemy.run)), [Effect](https://effect.website) 4, [`@putdotio/sdk`](https://github.com/putdotio/putio-sdk-typescript), the Anthropic SDK's Tool Runner and [Foldkit](https://foldkit.dev). How it fits together: [docs/architecture.md](docs/architecture.md). Working on it as an agent: [AGENTS.md](AGENTS.md).
 
@@ -34,5 +34,6 @@ op run --env-file .env.op -- pnpm run deploy   # manual deploy
 
 - Every `Config` read in [`config.ts`](src/server/config.ts) becomes a secret binding, and a deploy deletes live secrets that aren't read through `Config`. A missing required key stops the deploy; a short `SESSION_SECRET` leaves the Worker up with sign-in disabled. Rotating `SESSION_SECRET` signs everyone out.
 - Alchemy keeps state in memory and re-adopts the live `puterminator` script by its tags on every deploy. Its Cloudflare credentials are the `uinaf-cloudflare-workers-deploy` payload in `uinaf/vault` locally: Workers Scripts Write and Account Settings Read on the account, Workers Routes Write and Zone Read on `uinaf.dev`.
+- `puterminator.com` is a custom domain in `uinaf/infra`; the Worker answers OAuth and WebSocket origins as `https://puterminator.com` ([`worker.ts`](src/server/worker.ts)). The Alchemy-managed `puterminator.uinaf.dev` redirects there.
 - Rollback is `pnpm run deploy` from an earlier commit. `wrangler rollback` fails on this script.
 - Upgrade `effect`, foldkit, alchemy and `@putdotio/sdk` together; [`pnpm-workspace.yaml`](pnpm-workspace.yaml) pins one `effect` for the whole graph.

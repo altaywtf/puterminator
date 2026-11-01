@@ -9,6 +9,7 @@ import { upstreamFetch } from "./dev";
 import { makeHandler, type RouteDeps } from "./routes";
 
 const DOMAIN = "puterminator.uinaf.dev";
+const PUBLIC_ORIGIN = "https://puterminator.com";
 const LIVE_SCRIPT_NAME = "puterminator";
 const BUNDLED_WORKERD_MAX_COMPATIBILITY_DATE = "2026-10-19";
 
@@ -39,7 +40,9 @@ export default Cloudflare.Worker(
       fetch: Effect.gen(function* () {
         const request = yield* HttpServerRequest;
 
-        return yield* handle(request, yield* publicUrl);
+        const url = yield* publicUrl;
+
+        return yield* handle(request, URL.canParse(url) && new URL(url).hostname === DOMAIN ? PUBLIC_ORIGIN : url);
       }),
     };
   }),

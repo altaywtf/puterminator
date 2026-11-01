@@ -1,6 +1,6 @@
 # AGENTS.md
 
-puterminator is a chat agent for one person's put.io library, live at <https://puterminator.uinaf.dev>. The brand is always lowercase. How the pieces fit: [docs/architecture.md](docs/architecture.md).
+puterminator is a chat agent for one person's put.io library, live at <https://puterminator.com>. The brand is always lowercase. How the pieces fit: [docs/architecture.md](docs/architecture.md).
 
 ## Where code goes
 

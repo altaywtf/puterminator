@@ -39,7 +39,7 @@ jobs:
       contents: read
     environment:
       name: production
-      url: https://puterminator.uinaf.dev
+      url: https://puterminator.com
     concurrency:
       group: deploy-production
       cancel-in-progress: false
@@ -67,12 +67,12 @@ jobs:
         run: |
           want="$(grep -o '/assets/index-[^"]*\.js' dist/index.html)"
           deadline=$(($(date +%s) + 180))
-          until curl -sf --max-time 10 https://puterminator.uinaf.dev/ | grep -qF "$want"; do
+          until curl -sf --max-time 10 https://puterminator.com/ | grep -qF "$want"; do
             if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "puterminator.uinaf.dev did not serve $want within 3m"
+              echo "puterminator.com did not serve $want within 3m"
               exit 1
             fi
             sleep 10
           done
-          curl -sf --max-time 10 "https://puterminator.uinaf.dev$want" -o /dev/null
-          curl -sf --max-time 10 https://puterminator.uinaf.dev/api/me | grep -q '"configured":true'
+          curl -sf --max-time 10 "https://puterminator.com$want" -o /dev/null
+          curl -sf --max-time 10 https://puterminator.com/api/me | grep -q '"configured":true'
