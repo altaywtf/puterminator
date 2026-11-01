@@ -3,6 +3,7 @@ import { FileFlag, type Library } from "../shared/contract";
 import { ancestors, indexOf, isRegular, resolve } from "./library";
 
 const { folder, video, played, junk } = FileFlag;
+
 const lib: Library = {
   rootId: 0,
   rootName: "Your Files",

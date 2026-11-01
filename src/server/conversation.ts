@@ -4,7 +4,10 @@ import * as Exit from "effect/Exit";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, type Library } from "../shared/contract";
@@ -64,23 +67,20 @@ const gb = (b: number) =>
 const decodeFrame = Schema.decodeUnknownOption(ClientFrame);
 const toMessage = Schema.decodeUnknownSync(MessageParam);
 const toBlocks = Schema.decodeUnknownSync(Schema.Array(ContentBlock));
-// Stored rows are Anthropic's own messages, appended verbatim; the opaque schema keeps every field.
-const toAnthropic = (m: MessageParam) => m as unknown as BetaMessageParam;
+const isToolUse = Schema.is(Schema.Struct({ type: Schema.Literal("tool_use"), id: Schema.String }));
+
+// SAFETY: stored rows are Anthropic's own messages, appended verbatim; the opaque schema keeps every field.
+const toAnthropic = (m: MessageParam) => m as BetaMessageParam;
 
 const NO_CREDITS = "this month's credits are spent. they refill on the 1st.";
 const BROKE = "something broke on my side. try again in a moment.";
 
-export const errorMessage = (e: TurnError) => {
-  switch (e._tag) {
-    case "AnthropicRateLimited":
-    case "AnthropicOverloaded":
-      return "the model is busy. try again in a minute.";
-    case "PutioUnauthorized":
-      return "put.io signed you out. sign in again.";
-    default:
-      return BROKE;
-  }
-};
+const errorMessage = (e: TurnError) =>
+  Match.value(e).pipe(
+    Match.tag("AnthropicRateLimited", "AnthropicOverloaded", () => "the model is busy. try again in a minute."),
+    Match.tag("PutioUnauthorized", () => "put.io signed you out. sign in again."),
+    Match.orElse(() => BROKE),
+  );
 
 export interface AgentDeps {
   readonly store: Store;
@@ -114,15 +114,16 @@ export const makeAgent = (deps: AgentDeps) =>
     let turnFiber: Fiber.Fiber<unknown, unknown> | null = null;
     const thumbs = new Map<number, string | null>();
     let running = false;
-    /** One question per turn: the model stops after asking, and a second ask in the same turn is refused. */
     let asked = false;
-    /** Read calls made this turn; an identical repeat gets a pointer to the first result instead. */
     const calls = new Set<string>();
-    const once = <R>(name: string, input: unknown, run: Effect.Effect<string, PutioError, R>): Effect.Effect<string, PutioError, R> =>
+
+    const once = <R>(name: string, input: Schema.Json, run: Effect.Effect<string, PutioError, R>): Effect.Effect<string, PutioError, R> =>
       Effect.suspend(() => {
         const key = `${name}:${JSON.stringify(input)}`;
+
         if (calls.has(key)) return Effect.succeed(JSON.stringify({ error: "You already made this exact call this turn. Use that result." }));
         calls.add(key);
+
         return run;
       });
 
@@ -136,21 +137,24 @@ export const makeAgent = (deps: AgentDeps) =>
       const m = month(yield* Clock.currentTimeMillis);
       const credits: Credits = { month: m, used: store.used(m), cap: deps.monthlyTokenCap };
       const c = state.credits;
+
       if (c.month !== m || c.used !== credits.used || c.cap !== credits.cap) setState({ ...state, credits });
+
       return credits;
     });
 
     let last: MessageParam | null = store.history().at(-1) ?? null;
+
     const append = (m: MessageParam) => {
       store.append(m);
       last = m;
       broadcast({ type: "message", message: m });
     };
 
-    // A stopped, failed or evicted turn can leave a tool_use without its result, which the API rejects next turn.
     const closeDanglingTools = () => {
-      if (last?.role !== "assistant" || typeof last.content === "string") return;
-      const ids = last.content.flatMap((b) => (b.type === "tool_use" && typeof b.id === "string" ? [b.id] : []));
+      if (last?.role !== "assistant" || Predicate.isString(last.content)) return;
+      const ids = last.content.flatMap((b) => (isToolUse(b) ? [b.id] : []));
+
       if (ids.length === 0) return;
       append({
         role: "user",
@@ -161,18 +165,20 @@ export const makeAgent = (deps: AgentDeps) =>
     const noSnapshot = JSON.stringify({ error: "No snapshot yet. Run scan_library first." });
     const otherFolder = JSON.stringify({ error: "The last scan is of another folder. Run scan_library first." });
     const scannedHere = () => store.secret("snapshot_root") === String(state.folder.id);
-    /** The snapshot when it is of the target folder, else the error the model gets. */
-    const snapshotHere = (): Array<WalkedFile> | string => {
+
+    const snapshotHere = (): Result.Result<Array<WalkedFile>, string> => {
       const all = store.snapshot();
-      return !all.length ? noSnapshot : scannedHere() ? all : otherFolder;
+
+      return !all.length ? Result.fail(noSnapshot) : scannedHere() ? Result.succeed(all) : Result.fail(otherFolder);
     };
 
-    /** The snapshot as the browser's file index; null before the first scan. */
     const library = (): Library | null => {
       const files = store.snapshot();
       const top = files.find((f) => f.depth === 1);
+
       if (!top || top.parent_id == null) return null;
       const junk = junkFinder(files);
+
       return {
         rootId: top.parent_id,
         rootName: state.lastAudit?.rootName ?? state.folder.name,
@@ -190,7 +196,6 @@ export const makeAgent = (deps: AgentDeps) =>
       };
     };
 
-    /** Reads the whole tree under the target folder, saves it and scores it. */
     const scan = Effect.gen(function* () {
       const { id, name } = state.folder;
       const tree = buildTree(yield* listAll, id);
@@ -198,11 +203,11 @@ export const makeAgent = (deps: AgentDeps) =>
       const a = audit(tree.files, id === 0 ? name : tree.rootName, false, new Date(yield* Clock.currentTimeMillis), id === 0 ? "" : tree.rootName);
       setState({ ...state, lastAudit: { at: a.at, rootName: a.rootName, score: a.score, items: a.totals.items } });
       const lib = library();
+
       if (lib) broadcast({ type: "library", library: lib });
+
       return a;
     });
-
-    // ---------- plans: proposed by the model, applied only from a browser frame ----------
 
     const plans = new Map(store.plans().map((p) => [p.record.plan.id, p]));
     const runFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
@@ -218,94 +223,129 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const current = (r: PlanRecord) => r.undo ?? r.run;
     const withCurrent = (r: PlanRecord, run: Run): PlanRecord => (r.undo ? { ...r, undo: run } : { ...r, run });
+
     const failUnfinished = (run: Run, error: string): Run => ({
       ...run,
       steps: run.steps.map((s) =>
-        s.state === "running" ? { ...s, state: "failed", error, maybeApplied: true } : s.state === "queued" ? { ...s, state: "failed", error } : s,
+        Match.value(s.state).pipe(
+          Match.withReturnType<Run["steps"][number]>(),
+          Match.when("running", () => ({ ...s, state: "failed", error, maybeApplied: true })),
+          Match.when("queued", () => ({ ...s, state: "failed", error })),
+          Match.orElse(() => s),
+        ),
       ),
     });
 
-    /** Runs the current run's queued steps in order (the undo once there is one), one put.io change each,
-        then rescans. Stopping fails what's left. */
     const runSteps = (planId: string) => {
       const token = store.token();
       const first = plans.get(planId);
       const run = first && current(first.record);
+
       if (!first || !run) return;
       const undoing = !!first.record.undo;
+
       const update = (f: (run: Run) => Run, status: StoredRecord["record"]["status"] = undoing ? "undoing" : "applying") => {
         const cur = plans.get(planId);
         const r = cur && current(cur.record);
+
         if (cur && r) saveRecord({ ...cur, reported: false, record: withCurrent({ ...cur.record, status }, f(r)) });
       };
+
       const finished = undoing ? "undone" : "done";
+
       const setStep = (change: string, state: Run["steps"][number]["state"], error: string | null = null, maybe = false) =>
         update((run) => ({
           ...run,
-          steps: run.steps.map((s) => (s.change === change ? { change, state, error, ...(maybe || s.maybeApplied ? { maybeApplied: true } : {}) } : s)),
+          steps: run.steps.map((s) => {
+            if (s.change !== change) return s;
+            const step = { change, state, error };
+
+            return maybe || s.maybeApplied ? { ...step, maybeApplied: true } : step;
+          }),
         }));
+
       const refused =
         !token ? "put.io signed you out; sign in again"
         : first.folder && first.folder.id !== state.folder.id ? `made in ${first.folder.name}; switch back to it first`
         : !scannedHere() ? "the last scan is of another folder; scan again first"
         : null;
+
       if (!token || refused) return update((r) => failUnfinished(r, refused ?? ""), finished);
       const parents = first.parents ?? {};
+
       const original = undoing
         ? run.changes.flatMap((c): Array<[string, number]> => {
             const id = parents[c.id];
+
             return c.op === "move" && c.to && id !== undefined ? [[parentOf(c.to), id]] : [];
           })
         : [];
+
       const work = Effect.gen(function* () {
         const folders = folderIds(store.snapshot(), state.folder.id, original);
         const queued = run.steps.filter((s) => s.state === "queued");
         const needsTrash = queued.some((s) => run.changes.find((c) => c.id === s.change)?.op === "trash");
         const trashOn = needsTrash ? yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)) : true;
+
         for (const step of queued) {
           const change = run.changes.find((c) => c.id === step.change);
           const fileId = first.ids[step.change];
+
           if (!change || fileId === undefined) continue;
+
           if (change.op === "trash" && !trashOn) {
             setStep(step.change, "failed", "trash is off in your put.io settings, so this would delete for good");
             continue;
           }
+
           setStep(step.change, "running");
           const exit = yield* Effect.exit(applyChange(change, fileId, folders));
+
           if (Exit.isSuccess(exit)) setStep(step.change, "done");
           else {
             const err = Exit.findErrorOption(exit);
-            setStep(step.change, "failed", err._tag === "Some" ? stepMessage(err.value) : "didn’t finish", err._tag === "None" || maybeApplied(err.value));
+
+            if (Option.isSome(err)) setStep(step.change, "failed", stepMessage(err.value), maybeApplied(err.value));
+            else setStep(step.change, "failed", "didn’t finish", true);
           }
         }
+
         yield* scan.pipe(Effect.ignore);
+
         const restored = new Set(
           (current(plans.get(planId)?.record ?? first.record)?.steps ?? []).flatMap((s) => {
             const id = first.ids[s.change];
+
             return s.state === "done" && id !== undefined && run.changes.find((c) => c.id === s.change)?.op === "restore" ? [id] : [];
           }),
         );
+
         const missing = () => {
           const have = new Set(store.snapshot().map((f) => f.id));
+
           return [...restored].some((id) => !have.has(id));
         };
+
         for (let i = 0; i < 3 && missing(); i++) {
           yield* Effect.sleep(deps.restoreRecheckMs ?? 5000);
           yield* scan.pipe(Effect.ignore);
         }
+
         update((r) => r, finished);
       });
+
       deps.background(
         Effect.withFiber((fiber) => {
           runFibers.set(planId, fiber);
+
           return work.pipe(
             Effect.provide(putioLayer(token, deps.putioFetch)),
             Effect.catchDefect((defect) => Effect.logError("run crashed", defect)),
             Effect.ensuring(
               Effect.sync(() => {
                 runFibers.delete(planId);
-                // Stopped or crashed mid-run: whatever didn't finish is failed, so retry can pick it up.
                 const status = plans.get(planId)?.record.status;
+
                 if (status !== "applying" && status !== "undoing") return;
                 update((r) => failUnfinished(r, "stopped"), finished);
                 deps.background(scan.pipe(Effect.ignore, Effect.provide(putioLayer(token, deps.putioFetch))));
@@ -316,11 +356,12 @@ export const makeAgent = (deps: AgentDeps) =>
       );
     };
 
-    /** The only way a plan reaches put.io: an apply frame from the user's browser. */
     const apply = (planId: string, exclude: ReadonlyArray<string>) => {
       const p = plans.get(planId);
+
       if (!p || p.record.status !== "proposed" || runFibers.size > 0) return;
       const changes = p.record.plan.changes.filter((c) => !exclude.includes(c.id) && !exclude.includes(c.id.replace(/s\d+$/, "")));
+
       if (changes.length === 0) return;
       const run: Run = { id: planId, title: p.record.plan.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
       saveRecord({ ...p, reported: false, record: { ...p.record, status: "applying", run } });
@@ -330,18 +371,20 @@ export const makeAgent = (deps: AgentDeps) =>
     const retry = (planId: string) => {
       const p = plans.get(planId);
       const run = p && current(p.record);
+
       if (!p || !run || (p.record.status !== "done" && p.record.status !== "undone") || runFibers.size > 0) return;
       const steps = run.steps.map((s) => (s.state === "failed" ? { ...s, state: "queued" as const, error: null } : s));
       saveRecord({ ...p, reported: false, record: withCurrent({ ...p.record, status: p.record.undo ? "undoing" : "applying" }, { ...run, steps }) });
       runSteps(planId);
     };
 
-    /** Reverses the run's done steps, last first: trash comes back from put.io's trash, renames and moves go back. */
     const undo = (planId: string) => {
       const p = plans.get(planId);
       const run = p?.record.run;
+
       if (!p || !run || p.record.status !== "done" || runFibers.size > 0) return;
       const changes = undoChanges(run);
+
       if (changes.length === 0) return;
       const back: Run = { id: planId, title: run.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
       saveRecord({ ...p, reported: false, record: { ...p.record, status: "undoing", undo: back } });
@@ -350,32 +393,34 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const discard = (planId: string) => {
       const p = plans.get(planId);
+
       if (p?.record.status === "proposed") saveRecord({ ...p, reported: false, record: { ...p.record, status: "discarded" } });
     };
 
-    // An eviction mid-run leaves steps marked running; they never finished.
     for (const p of plans.values()) {
       const run = current(p.record);
+
       if (run && (p.record.status === "applying" || p.record.status === "undoing"))
         saveRecord({ ...p, record: withCurrent({ ...p.record, status: p.record.undo ? "undone" : "done" }, failUnfinished(run, "interrupted")) });
     }
 
-    /** What happened to plans since the model last heard, for the next <context>. */
     const planNews = () =>
       [...plans.values()].flatMap((p) => {
         const { status } = p.record;
+
         if (p.reported || status === "proposed" || status === "applying" || status === "undoing") return [];
         saveRecord({ ...p, reported: true });
+
         if (status === "discarded") return [`The user discarded plan "${p.record.plan.title}".`];
         const steps = current(p.record)?.steps ?? [];
         const failed = steps.filter((s) => s.state === "failed");
         const verb = status === "undone" ? "undid" : "applied";
+
         return [
           `The user ${verb} plan "${p.record.plan.title}": ${steps.length - failed.length} done, ${failed.length} failed${failed[0]?.error ? ` (${failed[0].error})` : ""}. The snapshot was rescanned.`,
         ];
       });
 
-    // Inputs have no optional or default fields and no numeric bounds, so they stay valid under strict tool use.
     const tools = [
       effectTool({
         name: "scan_library",
@@ -388,6 +433,7 @@ export const makeAgent = (deps: AgentDeps) =>
             input,
             Effect.gen(function* () {
               if (!store.token()) return JSON.stringify({ error: "Not signed in to put.io." });
+
               return JSON.stringify(yield* scan);
             }),
           ),
@@ -400,11 +446,14 @@ export const makeAgent = (deps: AgentDeps) =>
           once("list_folder", path, Effect.sync(() => {
             const clean = path.replace(/\/+$/, "");
             const all = snapshotHere();
-            if (typeof all === "string") return all;
+
+            if (Result.isFailure(all)) return all.failure;
             const depth = clean ? clean.split("/").length : 1;
-            const rows = all
+
+            const rows = all.success
               .filter((f) => f.depth === depth && (clean ? f.path.startsWith(`${clean}/`) : true))
               .sort((a, b) => a.name.localeCompare(b.name));
+
             return JSON.stringify({
               path: clean || "/",
               count: rows.length,
@@ -424,17 +473,26 @@ export const makeAgent = (deps: AgentDeps) =>
         run: ({ query, category, limit }) =>
           once("search_files", { query, category, limit }, Effect.sync(() => {
             const here = snapshotHere();
-            if (typeof here === "string") return here;
-            let rows = here;
+
+            if (Result.isFailure(here)) return here.failure;
+            let rows = here.success;
             const junkReason = junkFinder(rows);
             const q = query.trim().toLowerCase();
+
             if (q) rows = rows.filter((f) => f.path.toLowerCase().includes(q));
+
             if (category === "junk") rows = rows.filter((f) => junkReason(f));
+
             if (category === "never_played") rows = rows.filter((f) => f.file_type === "VIDEO" && !f.first_accessed_at);
+
             if (category === "messy_names") rows = rows.filter((f) => f.file_type === "VIDEO" && isMessyName(f.name));
+
             if (category === "folders") rows = rows.filter((f) => f.file_type === "FOLDER");
+
             if (category === "large") rows = rows.filter((f) => f.file_type !== "FOLDER");
+
             if (category === "large" || category === "never_played") rows.sort((a, b) => b.size - a.size);
+
             return JSON.stringify({
               total: rows.length,
               bytes: gb(rows.reduce((a, f) => a + (f.file_type === "FOLDER" ? 0 : f.size), 0)),
@@ -457,10 +515,13 @@ export const makeAgent = (deps: AgentDeps) =>
         run: (input) =>
           Effect.sync(() => {
             const all = snapshotHere();
-            if (typeof all === "string") return all;
-            const out = validatePlan(all, input, newId());
+
+            if (Result.isFailure(all)) return all.failure;
+            const out = validatePlan(all.success, input, newId());
+
             if ("error" in out) return JSON.stringify(out);
             saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true });
+
             return JSON.stringify(out.plan);
           }),
       }),
@@ -472,22 +533,30 @@ export const makeAgent = (deps: AgentDeps) =>
         run: ({ paths }) =>
           Effect.gen(function* () {
             const here = snapshotHere();
-            if (typeof here === "string") return here;
+
+            if (Result.isFailure(here)) return here.failure;
+
             if (!store.token()) return JSON.stringify({ error: "Not signed in to put.io." });
+
             if (paths.length === 0 || paths.length > 50) return JSON.stringify({ error: "Give 1 to 50 paths." });
-            const byPath = new Map(here.map((f) => [f.path, f.id]));
+            const byPath = new Map(here.success.map((f) => [f.path, f.id]));
             const clean = paths.map((p) => `/${p.trim().replace(/^\/+|\/+$/g, "")}`);
             const missing = clean.filter((p) => !byPath.has(p));
+
             if (missing.length > 0) return JSON.stringify({ error: `Not in the snapshot: ${missing.slice(0, 5).join(", ")}` });
             const id = yield* createDownloadLinks([...new Set(clean.map((p) => byPath.get(p)!))]);
+
             for (let i = 0; i < 10; i++) {
               const job = yield* downloadLinks(id);
+
               if (job.status === "done") return JSON.stringify({ id, files: job.links.length } satisfies DownloadLinksOutput);
+
               if (job.status === "error") return JSON.stringify({ error: job.message });
               yield* Effect.sleep(deps.linksPollMs ?? 1000);
             }
+
             return JSON.stringify({ id, files: null } satisfies DownloadLinksOutput);
-          }).pipe(Effect.catch((e) => (e._tag === "PutioUnauthorized" ? Effect.fail(e) : Effect.succeed(JSON.stringify({ error: stepMessage(e) }))))),
+          }).pipe(Effect.catchTag(["PutioRateLimited", "PutioFailed"], (e) => Effect.succeed(JSON.stringify({ error: stepMessage(e) })))),
       }),
       effectTool({
         name: "ask_user",
@@ -497,8 +566,10 @@ export const makeAgent = (deps: AgentDeps) =>
           Effect.sync(() => {
             if (asked) return JSON.stringify({ error: "You already asked this turn. Stop now; the answer arrives as the next message." });
             const q = validateQuestion(input, newId());
+
             if ("error" in q) return JSON.stringify(q);
             asked = true;
+
             return JSON.stringify({ ...q, next: "Asked. End your turn now without repeating the question; the answer arrives as the user's next message." });
           }),
       }),
@@ -508,6 +579,7 @@ export const makeAgent = (deps: AgentDeps) =>
       Effect.gen(function* () {
         const credits = yield* refreshCredits;
         const lastAudit = state.lastAudit;
+
         const context = [
           `Target folder: ${state.folder.name} (id ${state.folder.id}).`,
           lastAudit
@@ -516,6 +588,7 @@ export const makeAgent = (deps: AgentDeps) =>
           `Credits left this month: ${Math.max(0, Math.floor((credits.cap - credits.used) / 1000))}.`,
           ...planNews(),
         ].join(" ");
+
         closeDanglingTools();
         append({
           role: "user",
@@ -524,13 +597,16 @@ export const makeAgent = (deps: AgentDeps) =>
             { type: "text", text: `<context>${context}</context>` },
           ],
         });
+
         if (credits.used >= credits.cap) {
           append({ role: "assistant", content: [{ type: "text", text: NO_CREDITS }] });
+
           return;
         }
 
         setState({ ...state, busy: true });
         const m = credits.month;
+
         const events = runTurn({
           model: deps.model,
           system: SYSTEM,
@@ -540,20 +616,25 @@ export const makeAgent = (deps: AgentDeps) =>
           onUsage: (tokens) => store.charge(m, tokens),
           canContinue: () => !asked && store.used(m) < credits.cap,
         });
+
         yield* Stream.runForEach(events, (event) =>
           Effect.gen(function* () {
             switch (event.type) {
               case "partial":
                 broadcast({ type: "partial", content: toBlocks(event.content) });
+
                 return;
               case "assistant": {
                 yield* refreshCredits;
                 append(toMessage({ role: "assistant", content: event.message.content }));
                 broadcast({ type: "partial", content: null });
+
                 return;
               }
+
               case "tool_results":
                 append(toMessage(event.message));
+
                 return;
             }
           }),
@@ -564,7 +645,7 @@ export const makeAgent = (deps: AgentDeps) =>
       converse(text).pipe(
         Effect.catch((e: TurnError) =>
           Effect.gen(function* () {
-            if (e._tag === "PutioUnauthorized") store.deleteToken();
+            if (Predicate.isTagged(e, "PutioUnauthorized")) store.deleteToken();
             else yield* Effect.logError("turn failed", e);
             broadcast({ type: "error", message: errorMessage(e) });
           }),
@@ -581,6 +662,7 @@ export const makeAgent = (deps: AgentDeps) =>
             turnFiber = null;
             running = false;
             broadcast({ type: "partial", content: null });
+
             if (state.busy) setState({ ...state, busy: false });
           }).pipe(Effect.andThen(refreshCredits)),
         ),
@@ -590,10 +672,12 @@ export const makeAgent = (deps: AgentDeps) =>
       running = true;
       asked = false;
       calls.clear();
+
       if (folder.id !== state.folder.id) setState({ ...state, folder });
       deps.background(
         Effect.withFiber((fiber) => {
           turnFiber = fiber;
+
           return turn(text);
         }),
       );
@@ -604,9 +688,9 @@ export const makeAgent = (deps: AgentDeps) =>
 
     return {
       state: () => state,
-      /** First frames for a new socket. The instance name never goes out. */
       greeting: (): Array<ServerEvent> => {
         const lib = library();
+
         return [
           { type: "state", state },
           { type: "history", messages: store.history() },
@@ -614,52 +698,64 @@ export const makeAgent = (deps: AgentDeps) =>
           ...[...plans.values()].map((p) => ({ type: "plan" as const, record: p.record })),
         ];
       },
-      /** One browser frame. Frames that fail to decode are dropped. */
       receive: (raw: string) =>
         Effect.gen(function* () {
           const event = decodeFrame(raw);
+
           if (Option.isNone(event)) return;
           const e = event.value;
+
           switch (e.type) {
             case "stop":
               if (turnFiber) yield* Fiber.interrupt(turnFiber);
+
               return;
             case "apply":
               if (!running && !state.busy) apply(e.plan, e.exclude);
+
               return;
             case "retry":
               if (!running && !state.busy) retry(e.plan);
+
               return;
             case "undo":
               if (!running && !state.busy) undo(e.plan);
+
               return;
             case "discard":
               discard(e.plan);
+
               return;
             case "newThread":
               if (running || state.busy || runFibers.size > 0) return;
               store.archiveHistory();
               last = null;
+
               for (const p of plans.values()) if (!p.reported) saveRecord({ ...p, reported: true });
               broadcast({ type: "history", messages: [] });
+
               return;
             case "stopRun": {
               const f = runFibers.get(e.plan);
+
               if (f) yield* Fiber.interrupt(f);
+
               return;
             }
+
             case "send":
               if (running || state.busy) return;
               start(e.text, e.folder);
+
               return;
           }
         }),
-      /** Called by the Worker after OAuth. Never reachable from the browser. */
       setAuth: (token: string, username: string, avatarUrl: string | null) =>
         Effect.sync(() => {
           store.deleteToken();
           store.setToken(token);
           setState({ ...state, username, avatarUrl });
+
           return sessionGen();
         }),
       signOut: Effect.sync(() => {
@@ -668,13 +764,15 @@ export const makeAgent = (deps: AgentDeps) =>
         deps.disconnect();
       }),
       sessionGen: Effect.sync(() => sessionGen()),
-      /** A file's screenshot URL, or null for none, no token or a failed read. Cached per activation. */
       thumbnail: (id: number) =>
         Effect.suspend(() => {
           const token = store.token();
+
           if (!token) return Effect.succeed<string | null>(null);
           const hit = thumbs.get(id);
+
           if (hit !== undefined) return Effect.succeed(hit);
+
           return fileMedia(id).pipe(
             Effect.map((f) => f.screenshot),
             Effect.tap((url) => Effect.sync(() => thumbs.set(id, url))),
@@ -682,12 +780,12 @@ export const makeAgent = (deps: AgentDeps) =>
             Effect.provide(putioLayer(token, deps.putioFetch)),
           );
         }),
-      /** An HLS URL for a video in the snapshot, signed with the download token; null otherwise. */
-      /** A download-links job made by this account's put.io token; put.io refuses other accounts' ids. */
       downloadLinks: (id: number) =>
         Effect.suspend(() => {
           const token = store.token();
+
           if (!token) return Effect.succeed<DownloadLinksResponse | null>(null);
+
           return downloadLinks(id).pipe(
             Effect.catch(() => Effect.succeed<DownloadLinksResponse | null>(null)),
             Effect.provide(putioLayer(token, deps.putioFetch)),
@@ -697,8 +795,10 @@ export const makeAgent = (deps: AgentDeps) =>
         Effect.suspend(() => {
           const token = store.token();
           const isVideo = store.snapshot().some((f) => f.id === id && f.file_type === "VIDEO");
+
           if (!token || !isVideo) return Effect.succeed<string | null>(null);
           const cached = store.secret("download_token");
+
           return (cached ? Effect.succeed(cached) : downloadToken.pipe(Effect.tap((t) => Effect.sync(() => store.setSecret("download_token", t))))).pipe(
             Effect.map((t): string | null => hlsUrl(id, t, deps.putioBase)),
             Effect.catch(() => Effect.succeed<string | null>(null)),
@@ -708,4 +808,3 @@ export const makeAgent = (deps: AgentDeps) =>
     };
   });
 
-export type Agent = Effect.Success<ReturnType<typeof makeAgent>>;

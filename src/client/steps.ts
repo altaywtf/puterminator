@@ -19,29 +19,28 @@ const decodeAudit = Schema.decodeUnknownOption(Schema.fromJsonString(Audit));
 export const auditOf = (output: string | null): Option.Option<Audit> =>
   output === null ? Option.none() : decodeAudit(output);
 
-type Out = Record<string, unknown> | null;
-
-const parse = (s: string | null): Out => {
-  if (!s) return null;
-  try {
-    const v: unknown = JSON.parse(s);
-    return typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : { error: s };
-  } catch {
-    return { error: s };
-  }
-};
-
-const num = (v: unknown) => (typeof v === "number" ? v : 0);
-const record = (v: unknown): Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+const decodeOutput = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.JsonObject));
+const decodeToolError = Schema.decodeUnknownOption(Schema.Struct({ error: Schema.String }));
+const decodeLinkedFiles = Schema.decodeUnknownOption(Schema.Struct({ files: Schema.Finite }));
+const decodeFolderCount = Schema.decodeUnknownOption(Schema.Struct({ count: Schema.Finite }));
+const decodeMatches = Schema.decodeUnknownOption(Schema.Struct({ total: Schema.Finite, items: Schema.Array(Schema.Struct({ path: Schema.String })) }));
+const decodePath = Schema.decodeUnknownOption(Schema.Struct({ path: Schema.NonEmptyString }));
+const decodeCategory = Schema.decodeUnknownOption(Schema.Struct({ category: Schema.String }));
+const decodeQuery = Schema.decodeUnknownOption(Schema.Struct({ query: Schema.NonEmptyString }));
 
 export type StepText = { title: string; detail: string | null; lines: string[] };
 
 /** One-line summary of a tool step: what ran, a short result, and detail lines for the folded body. */
-export function describeStep(name: string, inputValue: unknown, output: string | null): StepText {
-  const input = record(inputValue);
-  const out = parse(output);
-  if (out && typeof out.error === "string") return { title: `couldn’t run ${name}`, detail: null, lines: [out.error] };
+export function describeStep(name: string, input: Schema.Json, output: string | null): StepText {
+  const out = decodeOutput(output);
+
+  const failure = Option.match(out, {
+    onNone: () => (output ? Option.some(output) : Option.none()),
+    onSome: (o) => Option.map(decodeToolError(o), ({ error }) => error),
+  });
+
+  if (Option.isSome(failure)) return { title: `couldn’t run ${name}`, detail: null, lines: [failure.value] };
+
   if (name === "scan_library") {
     return Option.match(auditOf(output), {
       onNone: () => ({ title: "read the library", detail: null, lines: [] }),
@@ -57,33 +56,55 @@ export function describeStep(name: string, inputValue: unknown, output: string |
       }),
     });
   }
+
   if (name === "make_download_links") {
-    const files = out && typeof out.files === "number" ? out.files : null;
-    return { title: "ask put.io for download links", detail: files === null ? null : `${fmt(files)} ${files === 1 ? "file" : "files"}`, lines: [] };
-  }
-  if (name === "list_folder") {
-    const path = typeof input.path === "string" && input.path ? input.path : "/";
-    return { title: `open ${path}`, detail: out ? `${fmt(num(out.count))} ${num(out.count) === 1 ? "item" : "items"}` : null, lines: [] };
-  }
-  if (name === "search_files") {
-    const category = typeof input.category === "string" && input.category !== "any" ? input.category.replace("_", " ") : null;
-    const query = typeof input.query === "string" && input.query ? `"${input.query}"` : null;
-    const what = [category, query].filter((s) => s !== null).join(" ");
-    const items = Array.isArray(out?.items) ? out.items : [];
     return {
-      title: `search ${what || "files"}`,
-      detail: out ? `${fmt(num(out.total))} matches` : null,
-      lines: items.slice(0, 6).flatMap((i) => {
-        const path = record(i).path;
-        return typeof path === "string" ? [path] : [];
+      title: "ask put.io for download links",
+      detail: Option.match(Option.flatMap(out, decodeLinkedFiles), {
+        onNone: () => null,
+        onSome: ({ files }) => `${fmt(files)} ${files === 1 ? "file" : "files"}`,
       }),
+      lines: [],
     };
   }
+
+  if (name === "list_folder") {
+    const path = Option.match(decodePath(input), { onNone: () => "/", onSome: ({ path }) => path });
+
+    return {
+      title: `open ${path}`,
+      detail: Option.match(Option.flatMap(out, decodeFolderCount), {
+        onNone: () => null,
+        onSome: ({ count }) => `${fmt(count)} ${count === 1 ? "item" : "items"}`,
+      }),
+      lines: [],
+    };
+  }
+
+  if (name === "search_files") {
+    const category = decodeCategory(input).pipe(
+      Option.map(({ category }) => category),
+      Option.filter((c) => c !== "any"),
+      Option.map((c) => c.replace("_", " ")),
+    );
+
+    const query = Option.map(decodeQuery(input), ({ query }) => `"${query}"`);
+    const what = [category, query].flatMap(Option.toArray).join(" ");
+    const matches = Option.flatMap(out, decodeMatches);
+
+    return {
+      title: `search ${what || "files"}`,
+      detail: Option.match(matches, { onNone: () => null, onSome: ({ total }) => `${fmt(total)} matches` }),
+      lines: Option.match(matches, { onNone: () => [], onSome: ({ items }) => items.slice(0, 6).map((i) => i.path) }),
+    };
+  }
+
   return { title: name, detail: null, lines: [] };
 }
 
 /** `name(input)` as the step body's first mono line. */
-export const callLine = (name: string, input: unknown) => {
+export const callLine = (name: string, input: Schema.Json) => {
   const args = JSON.stringify(input ?? {});
+
   return `${name}(${args === "{}" ? "" : args})`;
 };

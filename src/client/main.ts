@@ -25,25 +25,25 @@ const MAX_PROMPT = 4000;
 export const COMPOSER_ID = "composer";
 export const THREAD_ID = "thread";
 export const LENGTH_ERROR = `keep it under ${MAX_PROMPT.toLocaleString("en-US")} characters.`;
-
-// MODEL
+const NOT_CONNECTED = "not connected. try again in a moment.";
 
 export const Session = defineTaggedUnion({
   Loading: {},
   SignedOut: { configured: Schema.Boolean },
   SignedIn: {},
-  /** /api/me failed or returned garbage; not the same as "not configured". */
   Failed: {},
 });
+
 export type Session = typeof Session.Type;
 
-export const Connection = defineTaggedUnion({
+const Connection = defineTaggedUnion({
   Idle: {},
   Connecting: {},
   Connected: {},
   Lost: {},
 });
-export type Connection = typeof Connection.Type;
+
+type Connection = typeof Connection.Type;
 
 export const Model = Schema.Struct({
   session: Session,
@@ -51,32 +51,24 @@ export const Model = Schema.Struct({
   attempts: Schema.Int,
   agent: Schema.NullOr(AgentState),
   history: Schema.Array(MessageParam),
-  /** False until the first history frame; the empty home must not flash before it. */
   synced: Schema.Boolean,
   partial: Schema.NullOr(Schema.Array(ContentBlock)),
   error: Schema.NullOr(Schema.String),
-  /** Set by a send until the server answers; stops a double tap from sending twice. */
   sending: Schema.Boolean,
   stopping: Schema.Boolean,
-  /** False for a moment after a send, so a double click on send never lands on stop. */
   stopArmed: Schema.Boolean,
   draft: Schema.String,
   expanded: Schema.Array(Schema.String),
   clock: ThinkingClock,
-  /** The last scan, as the server sent it; indexed lazily in library.ts. */
   library: Schema.NullOr(Library),
-  /** Plans the agent proposed, by id, as the server last reported them. */
   plans: Schema.Record(Schema.String, PlanRecord),
   treeOpen: Schema.Boolean,
   treeExpanded: Schema.Array(Schema.Finite),
   treeFocus: Schema.NullOr(Schema.Finite),
-  /** The put.io avatar didn't load; the topbar shows the initial instead. */
   avatarFailed: Schema.Boolean,
-  /** The video playing in the overlay; `src` arrives from /api/files/:id/stream. */
   player: Schema.NullOr(
     Schema.Struct({ id: Schema.Finite, name: Schema.String, src: Schema.NullOr(Schema.String), failed: Schema.Boolean }),
   ),
-  /** put.io download links by job id, fetched when the user asks to see them. */
   links: Schema.Record(
     Schema.String,
     Schema.Union([
@@ -86,15 +78,14 @@ export const Model = Schema.Struct({
     ]),
   ),
 });
+
 export type Model = typeof Model.Type;
 
-/** The folder the next prompt targets: the agent's last one, else the whole library. */
-export const targetFolder = (model: Model): Folder => model.agent?.folder ?? ROOT_FOLDER;
+const targetFolder = (model: Model): Folder => model.agent?.folder ?? ROOT_FOLDER;
 export const isBusy = (model: Model) => model.agent?.busy === true;
+
 /** Busy, or a send the server has not answered yet. */
 export const isLocked = (model: Model) => model.sending || isBusy(model);
-
-// MESSAGE
 
 export const Message = defineMessageUnion({
   GotMe: { me: Me },
@@ -104,7 +95,6 @@ export const Message = defineMessageUnion({
   ReleasedSocket: {},
   FailedSocket: {},
   ClosedSocket: {},
-  /** `attempts` ties a timer to the failure that scheduled it; stale timers are ignored. */
   RetriedConnect: { attempts: Schema.Int },
   ReceivedState: { state: AgentState },
   ReceivedHistory: { messages: Schema.Array(MessageParam) },
@@ -113,7 +103,6 @@ export const Message = defineMessageUnion({
   ReceivedError: { message: Schema.String },
   ReceivedLibrary: { library: Library },
   ReceivedPlan: { record: PlanRecord },
-  /** `exclude` holds the changes the user unticked; the server applies the rest. */
   ClickedApply: { plan: Schema.String, exclude: Schema.Array(Schema.String) },
   ClickedDiscard: { plan: Schema.String },
   ClickedStopRun: { plan: Schema.String },
@@ -123,7 +112,6 @@ export const Message = defineMessageUnion({
   ToggledTree: {},
   ClosedTree: {},
   ToggledTreeNode: { id: Schema.Finite },
-  /** Opens the tree with every ancestor expanded and scrolls the file into view. */
   RevealedFile: { id: Schema.Finite, ancestors: Schema.Array(Schema.Finite) },
   OpenedPlayer: { id: Schema.Finite, name: Schema.String },
   GotStream: { id: Schema.Finite, src: Schema.String },
@@ -145,11 +133,11 @@ export const Message = defineMessageUnion({
   ClickedSignOut: {},
   CompletedEffect: {},
 });
+
 export type Message = typeof Message.Type;
 
-// RESOURCES
-
 const AgentSocket = ManagedResource.tag<WebSocket>()("AgentSocket");
+
 type AgentSocketService = ManagedResource.ServiceOf<typeof AgentSocket>;
 
 const agentUrl = () => `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/agent`;
@@ -171,12 +159,14 @@ export const managedResources = ManagedResource.make<Model, Message>()((entry) =
         const onError = () => resume(Effect.fail(new Error("Could not reach the agent")));
         socket.addEventListener("open", onOpen, { once: true });
         socket.addEventListener("error", onError, { once: true });
-        // Runs only when the attempt is abandoned, as on timeout; the socket must not linger.
-        return Effect.sync(() => {
+
+        const abandonAttempt = Effect.sync(() => {
           socket.removeEventListener("open", onOpen);
           socket.removeEventListener("error", onError);
           socket.close();
         });
+
+        return abandonAttempt;
       }).pipe(
         Effect.timeoutOrElse({ duration: CONNECT_TIMEOUT, orElse: () => Effect.fail(new Error("Agent connection timed out")) }),
       ),
@@ -187,18 +177,20 @@ export const managedResources = ManagedResource.make<Model, Message>()((entry) =
   }),
 }));
 
-// COMMANDS
-
 const decodeMe = Schema.decodeUnknownEffect(Me);
 
 const getJson = (path: string) =>
   Effect.tryPromise(async () => {
     const response = await fetch(path, { headers: { accept: "application/json" } });
+
     if (!response.ok) throw new Error(`${path} returned ${response.status}`);
-    return (await response.json()) as unknown;
+
+    const body: unknown = await response.json();
+
+    return body;
   });
 
-export const FetchMe = Command.define("FetchMe", {
+const FetchMe = Command.define("FetchMe", {
   messages: [Message.GotMe, Message.FailedMe],
   execute: getJson("/api/me").pipe(
     Effect.flatMap(decodeMe),
@@ -209,7 +201,7 @@ export const FetchMe = Command.define("FetchMe", {
 
 const encodeClientFrame = Schema.encodeSync(ClientFrame);
 
-export const SendFrame = Command.define("SendFrame", {
+const SendFrame = Command.define("SendFrame", {
   args: { event: ClientEvent },
   messages: [Message.SentFrame, Message.FailedFrame],
   execute: ({ event }) =>
@@ -217,13 +209,12 @@ export const SendFrame = Command.define("SendFrame", {
       Effect.flatMap((socket) => Effect.try(() => socket.send(encodeClientFrame(event)))),
       Effect.as(Message.SentFrame()),
       Effect.orElseSucceed(() =>
-        Message.FailedFrame({ error: "not connected. try again in a moment.", ...(event.type === "send" ? { unsent: event.text } : {}) }),
+        event.type === "send" ? Message.FailedFrame({ error: NOT_CONNECTED, unsent: event.text }) : Message.FailedFrame({ error: NOT_CONNECTED }),
       ),
     ),
 });
 
-/** Bounded backoff: 1s, 2s, 4s, then every 10s, like the v1 PartySocket. */
-export const RetryConnect = Command.define("RetryConnect", {
+const RetryConnect = Command.define("RetryConnect", {
   args: { attempts: Schema.Int },
   messages: [Message.RetriedConnect],
   execute: ({ attempts }) =>
@@ -232,7 +223,7 @@ export const RetryConnect = Command.define("RetryConnect", {
     ),
 });
 
-export const SignOut = Command.define("SignOut", {
+const SignOut = Command.define("SignOut", {
   messages: [Message.CompletedEffect],
   execute: Effect.tryPromise(() => fetch("/auth/logout", { method: "POST" })).pipe(
     Effect.ignore,
@@ -241,7 +232,7 @@ export const SignOut = Command.define("SignOut", {
   ),
 });
 
-export const ArmStop = Command.define("ArmStop", {
+const ArmStop = Command.define("ArmStop", {
   messages: [Message.ArmedStop],
   execute: Effect.sleep(Duration.millis(300)).pipe(Effect.as(Message.ArmedStop())),
 });
@@ -256,6 +247,7 @@ const focusAfterCommit = (selector: string, allowed: () => boolean) =>
         Effect.flatMap(() =>
           Effect.sync(() => {
             const el = document.querySelector(selector);
+
             if (ok && el instanceof HTMLElement) el.focus({ preventScroll: true });
           }),
         ),
@@ -264,18 +256,19 @@ const focusAfterCommit = (selector: string, allowed: () => boolean) =>
     Effect.as(Message.CompletedEffect()),
   );
 
-/**
- * `always`: the user asked for the composer. `idle`: only if nothing holds focus.
- * `keep`: after a send or stop; touch keeps the soft keyboard shut unless it was already open.
- */
-export const FocusComposer = Command.define("FocusComposer", {
+const FocusComposer = Command.define("FocusComposer", {
   args: { when: Schema.Literals(["always", "idle", "keep"]) },
   messages: [Message.CompletedEffect],
   execute: ({ when }) => {
-    // Read before the commit: the send can unmount the focused node.
-    const composerHadFocus = document.activeElement?.id === COMPOSER_ID;
+    const composerFocusedBeforeCommit = document.activeElement?.id === COMPOSER_ID;
+
     return focusAfterCommit(`#${COMPOSER_ID}`, () =>
-      when === "always" ? true : when === "idle" ? finePointer() && nothingFocused() : finePointer() || composerHadFocus,
+      Match.value(when).pipe(
+        Match.when("always", () => true),
+        Match.when("idle", () => finePointer() && nothingFocused()),
+        Match.when("keep", () => finePointer() || composerFocusedBeforeCommit),
+        Match.exhaustive,
+      ),
     );
   },
 });
@@ -284,20 +277,21 @@ export const treeNodeId = (id: number) => `tree-${id}`;
 export const PLAYER_ID = "player";
 export const PLAYER_CLOSE_ID = "player-close";
 
-// Commands run after the render that makes the background inert, which drops focus; so remember it as it moves.
 let lastFocus: Element | null = null;
+
 if (typeof document !== "undefined")
   document.addEventListener("focusin", (e) => {
     if (e.target instanceof Element && !e.target.closest("[role=dialog]")) lastFocus = e.target;
   });
+
 let beforePlayer: Element | null = null;
 
-/** Focus moves into the player when it opens and back to what opened it when it closes. */
-export const FocusPlayer = Command.define("FocusPlayer", {
+const FocusPlayer = Command.define("FocusPlayer", {
   args: { open: Schema.Boolean },
   messages: [Message.CompletedEffect],
   execute: ({ open }) => {
     if (open) beforePlayer = lastFocus;
+
     return Render.afterCommit.pipe(
       Effect.flatMap(() =>
         Effect.sync(() => {
@@ -316,7 +310,7 @@ export const FocusPlayer = Command.define("FocusPlayer", {
 
 const StreamResponse = Schema.Struct({ hls: Schema.String });
 
-export const FetchLinks = Command.define("FetchLinks", {
+const FetchLinks = Command.define("FetchLinks", {
   args: { id: Schema.Finite },
   messages: [Message.GotLinks, Message.FailedLinks],
   execute: ({ id }) =>
@@ -331,7 +325,7 @@ export const FetchLinks = Command.define("FetchLinks", {
     ),
 });
 
-export const CopyText = Command.define("CopyText", {
+const CopyText = Command.define("CopyText", {
   args: { text: Schema.String },
   messages: [Message.CompletedEffect],
   execute: ({ text }) =>
@@ -341,7 +335,7 @@ export const CopyText = Command.define("CopyText", {
     ),
 });
 
-export const FetchStream = Command.define("FetchStream", {
+const FetchStream = Command.define("FetchStream", {
   args: { id: Schema.Finite },
   messages: [Message.GotStream, Message.FailedStream],
   execute: ({ id }) =>
@@ -352,7 +346,6 @@ export const FetchStream = Command.define("FetchStream", {
     ),
 });
 
-// One player at a time; hls.js loads on the first play.
 let hls: { destroy: () => void } | null = null;
 
 const detach = () => {
@@ -360,7 +353,7 @@ const detach = () => {
   hls = null;
 };
 
-export const AttachPlayer = Command.define("AttachPlayer", {
+const AttachPlayer = Command.define("AttachPlayer", {
   args: { id: Schema.Finite, src: Schema.String },
   messages: [Message.CompletedEffect, Message.FailedStream],
   execute: ({ id, src }) =>
@@ -368,16 +361,15 @@ export const AttachPlayer = Command.define("AttachPlayer", {
       Effect.flatMap(() =>
         Effect.tryPromise(async () => {
           const video = document.getElementById(PLAYER_ID);
+
           if (!(video instanceof HTMLVideoElement)) return;
           detach();
-          // hls.js wherever MSE exists: Chrome's native HLS rejects put.io's playlists (MEDIA_ERR_SRC_NOT_SUPPORTED).
-          // Native HLS only where MSE is missing, which is iOS Safari.
-          const mse = "MediaSource" in window || "ManagedMediaSource" in window;
-          const { default: Hls } = mse ? await import("hls.js/light") : { default: null };
+          const hasMediaSource = "MediaSource" in window || "ManagedMediaSource" in window;
+          const { default: Hls } = hasMediaSource ? await import("hls.js/light") : { default: null };
+
           if (Hls?.isSupported()) {
             const player = new Hls();
             hls = player;
-            // Wait for the playlist, so a dead stream shows the failure state instead of a black box.
             await new Promise<void>((resolve, reject) => {
               player.on(Hls.Events.MANIFEST_PARSED, () => resolve());
               player.on(Hls.Events.ERROR, (_event, data) => (data.fatal ? reject(new Error(data.details)) : undefined));
@@ -393,6 +385,7 @@ export const AttachPlayer = Command.define("AttachPlayer", {
           } else {
             throw new Error("no HLS support");
           }
+
           void video.play().catch(() => undefined);
         }),
       ),
@@ -401,12 +394,12 @@ export const AttachPlayer = Command.define("AttachPlayer", {
     ),
 });
 
-export const DetachPlayer = Command.define("DetachPlayer", {
+const DetachPlayer = Command.define("DetachPlayer", {
   messages: [Message.CompletedEffect],
   execute: Effect.sync(detach).pipe(Effect.as(Message.CompletedEffect())),
 });
 
-export const ScrollTreeNode = Command.define("ScrollTreeNode", {
+const ScrollTreeNode = Command.define("ScrollTreeNode", {
   args: { id: Schema.Finite },
   messages: [Message.CompletedEffect],
   execute: ({ id }) =>
@@ -422,10 +415,10 @@ export const ScrollTreeNode = Command.define("ScrollTreeNode", {
     ),
 });
 
-// Scroll state lives in the DOM, so the stick-to-bottom check does too: follow new content only
-// when the reader was within 160px of the end before it rendered.
-let lastHeight = 0;
-export const ScrollThread = Command.define("ScrollThread", {
+const STICK_TO_BOTTOM_PX = 160;
+let previousScrollHeight = 0;
+
+const ScrollThread = Command.define("ScrollThread", {
   args: { force: Schema.Boolean },
   messages: [Message.CompletedEffect],
   execute: ({ force }) =>
@@ -433,23 +426,26 @@ export const ScrollThread = Command.define("ScrollThread", {
       Effect.flatMap(() =>
         Effect.sync(() => {
           const el = document.getElementById(THREAD_ID);
+
           if (!el) return;
-          if (force || lastHeight - el.scrollTop - el.clientHeight < 160) el.scrollTop = el.scrollHeight;
-          lastHeight = el.scrollHeight;
+
+          if (force || previousScrollHeight - el.scrollTop - el.clientHeight < STICK_TO_BOTTOM_PX) el.scrollTop = el.scrollHeight;
+          previousScrollHeight = el.scrollHeight;
         }),
       ),
       Effect.as(Message.CompletedEffect()),
     ),
 });
 
-// UPDATE
-
 type UpdateReturn = Update.Return<Model, Message, AgentSocketService>;
 
 const send = (model: Model, raw: string): UpdateReturn => {
   const text = raw.trim();
-  if (!text || isLocked(model) || model.connection._tag !== "Connected") return { model };
+
+  if (!text || isLocked(model) || !Connection.guards.Connected(model.connection)) return { model };
+
   if (text.length > MAX_PROMPT) return { model: modifyFields(model, { error: () => LENGTH_ERROR }) };
+
   return {
     model: modifyFields(model, { draft: () => "", error: () => null, sending: () => true, stopArmed: () => false }),
     commands: [
@@ -463,6 +459,7 @@ const send = (model: Model, raw: string): UpdateReturn => {
 
 const lost = (model: Model): UpdateReturn => {
   const attempts = model.attempts + 1;
+
   return {
     model: modifyFields(model, {
       connection: () => Connection.Lost(),
@@ -491,9 +488,9 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     }),
     ReleasedSocket: () => ({ model }),
     FailedSocket: () => lost(model),
-    ClosedSocket: () => (model.connection._tag === "Connected" ? lost(model) : { model }),
+    ClosedSocket: () => (Connection.guards.Connected(model.connection) ? lost(model) : { model }),
     RetriedConnect: ({ attempts }) =>
-      model.connection._tag === "Lost" && attempts === model.attempts
+      Connection.guards.Lost(model.connection) && attempts === model.attempts
         ? { model: modifyFields(model, { connection: () => Connection.Connecting() }) }
         : { model },
     ReceivedState: ({ state }) => ({
@@ -587,6 +584,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     FailedLinks: ({ id, message }) => ({ model: modifyFields(model, { links: (ls) => ({ ...ls, [id]: { state: "failed" as const, message } }) }) }),
     ClickedCopyLinks: ({ id }) => {
       const entry = model.links[id];
+
       return { model, commands: entry?.state === "done" ? [CopyText({ text: entry.links.join("\n") })] : [] };
     },
     ClosedPlayer: () => ({
@@ -597,8 +595,6 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     ClickedSignOut: () => ({ model, commands: [SignOut()] }),
     CompletedEffect: () => ({ model }),
   });
-
-// INIT
 
 export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSocketService> = () => ({
   model: {
@@ -628,8 +624,6 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
   commands: [FetchMe()],
 });
 
-// SUBSCRIPTIONS
-
 const decodeServerFrame = Schema.decodeUnknownExit(ServerFrame);
 
 const toMessage = (event: ServerEvent, at: number): Message =>
@@ -645,23 +639,25 @@ const toMessage = (event: ServerEvent, at: number): Message =>
     }),
   );
 
-// A frame that fails to decode is dropped, mirroring the server's handling of client frames.
 const socketMessages = (socket: WebSocket) =>
   Stream.callback<Message>((queue) =>
     Effect.acquireRelease(
       Effect.sync(() => {
         const onFrame = (event: MessageEvent) => {
           const exit = decodeServerFrame(event.data);
+
           if (Exit.isSuccess(exit)) Queue.offerUnsafe(queue, toMessage(exit.value, Date.now()));
-          // The cause can echo library file names; keep it out of production consoles.
           else if (import.meta.env.DEV) console.warn("dropped a malformed agent frame", exit.cause);
         };
+
         const onClose = () => {
           Queue.offerUnsafe(queue, Message.ClosedSocket());
           Queue.endUnsafe(queue);
         };
+
         socket.addEventListener("message", onFrame);
         socket.addEventListener("close", onClose);
+
         return { onFrame, onClose };
       }),
       ({ onFrame, onClose }) =>
@@ -676,7 +672,7 @@ export const subscriptions = Subscription.make<Model, Message, AgentSocketServic
   agentFrames: entry(
     { isConnected: Schema.Boolean },
     {
-      modelToDependencies: (model) => ({ isConnected: model.connection._tag === "Connected" }),
+      modelToDependencies: (model) => ({ isConnected: Connection.guards.Connected(model.connection) }),
       dependenciesToStream: ({ isConnected }) =>
         Stream.when(
           Stream.unwrap(

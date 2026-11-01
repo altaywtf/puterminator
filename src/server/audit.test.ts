@@ -3,8 +3,10 @@ import { audit, isMessyName, junkFinder, mediaKey, showOf } from "./audit";
 import { buildTree, type WalkedFile } from "./tree";
 
 let id = 1;
+
 const file = (path: string, over: Partial<WalkedFile> = {}): WalkedFile => {
   const name = path.slice(path.lastIndexOf("/") + 1);
+
   return {
     id: id++,
     parent_id: 0,
@@ -139,6 +141,7 @@ describe("duplicates", () => {
       "Your Files",
       false,
     );
+
     expect(a.duplicates.groups).toBe(1);
   });
 
@@ -152,6 +155,7 @@ describe("duplicates", () => {
       "Your Files",
       false,
     );
+
     expect(a.duplicates.groups).toBe(1);
     expect(a.duplicates.wastedBytes).toBe(180 * 2 ** 20);
   });
@@ -220,17 +224,17 @@ describe("buildTree", () => {
   const f = (id: number, parent_id: number, name: string, file_type = "FILE") => ({
     id, parent_id, name, file_type, size: 1, extension: null, crc32: null, created_at: "2026-01-01", first_accessed_at: null,
   });
-  // put.io's parent_id=-1 listing is flat and unordered: children can come before their folders.
-  const flat = [f(3, 2, "ep1.mkv", "VIDEO"), f(2, 1, "Season 01", "FOLDER"), f(1, 0, "Show", "FOLDER"), f(4, 0, "loose.txt")];
+
+  const childrenBeforeFolders = [f(3, 2, "ep1.mkv", "VIDEO"), f(2, 1, "Season 01", "FOLDER"), f(1, 0, "Show", "FOLDER"), f(4, 0, "loose.txt")];
 
   it("rebuilds paths under Your Files", () => {
-    const { files } = buildTree(flat, 0);
+    const { files } = buildTree(childrenBeforeFolders, 0);
     expect(files.map((x) => x.path).sort()).toEqual(["/Show", "/Show/Season 01", "/Show/Season 01/ep1.mkv", "/loose.txt"]);
     expect(files.find((x) => x.id === 3)!.depth).toBe(3);
   });
 
   it("scopes to a target folder", () => {
-    const { files, rootName } = buildTree(flat, 1);
+    const { files, rootName } = buildTree(childrenBeforeFolders, 1);
     expect(rootName).toBe("Show");
     expect(files.map((x) => x.path).sort()).toEqual(["/Season 01", "/Season 01/ep1.mkv"]);
   });

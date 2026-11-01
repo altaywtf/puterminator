@@ -4,7 +4,9 @@ import type { HttpServerRequest } from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
-import type { Folder, Me } from "../shared/contract";
+import * as Result from "effect/Result";
+import type * as Schema from "effect/Schema";
+import type { Me } from "../shared/contract";
 import type { DownloadLinksResponse } from "../shared/tools";
 import type { AppConfig } from "./config";
 import { accountInfo, authorizeUrl, exchangeCode, putioLayer } from "./putio";
@@ -38,7 +40,7 @@ export interface RouteDeps {
 }
 
 const text = (body: string, status: number) => HttpServerResponse.text(body, { status });
-const json = (body: unknown, status = 200) => HttpServerResponse.jsonUnsafe(body, { status });
+const json = (body: Schema.Json, status = 200) => HttpServerResponse.jsonUnsafe(body, { status });
 
 /** Every Worker route. `publicUrl` is the Worker's own URL: the custom domain, or localhost under dev. */
 export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, publicUrl: string) =>
@@ -51,25 +53,31 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
     const current = (raw: string | undefined) =>
       Effect.gen(function* () {
         const session = auth ? yield* verifySession(auth.sessionSecret, raw) : Option.none();
+
         if (Option.isNone(session)) return session;
         const gen = yield* deps.agentFor(session.value.uid).sessionGen();
+
         return (session.value.gen ?? 0) === gen ? session : Option.none();
       });
 
     if (path === "/api/me") {
       const session = yield* current(request.cookies[SESSION_COOKIE]);
       const me: Me = { configured: auth !== null, signedIn: Option.isSome(session) };
+
       return json(me);
     }
 
     if (!auth || !origin) {
       if (path.startsWith("/auth/")) return HttpServerResponse.redirect("/");
+
       return json({ error: "sign-in is not configured" }, 503);
     }
+
     const callback = `${origin}/auth/callback`;
 
     if (path === "/auth/login") {
       const state = crypto.randomUUID();
+
       return HttpServerResponse.redirect(authorizeUrl(auth.putioClientId, callback, state, deps.config.devUpstream ?? undefined)).pipe(
         HttpServerResponse.setCookieUnsafe(STATE_COOKIE, state, cookieOptions(STATE_MAX_AGE_SEC)),
       );
@@ -78,7 +86,9 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
     if (path === "/auth/callback") {
       const code = url.searchParams.get("code");
       const state = url.searchParams.get("state");
+
       if (!code || !state || state !== request.cookies[STATE_COOKIE]) return text("Sign-in expired. Try again.", 400);
+
       const signedIn = yield* Effect.gen(function* () {
         const token = yield* exchangeCode({
           clientId: auth.putioClientId,
@@ -86,16 +96,22 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
           redirectUri: callback,
           code,
         });
+
         const info = yield* accountInfo.pipe(Effect.provide(putioLayer(token, deps.putioFetch)));
+
         return { token, info };
       }).pipe(Effect.provide(putioLayer(undefined, deps.putioFetch)), Effect.result);
-      if (signedIn._tag === "Failure") {
+
+      if (Result.isFailure(signedIn)) {
         yield* Effect.logWarning("sign-in failed", signedIn.failure._tag);
+
         return text("Sign-in failed. Try again.", 502);
       }
+
       const uid = `putio-${signedIn.success.info.userId}`;
       const gen = yield* deps.agentFor(uid).setAuth(signedIn.success.token, signedIn.success.info.username, signedIn.success.info.avatarUrl);
       const session = yield* signSession(auth.sessionSecret, uid, gen);
+
       return HttpServerResponse.redirect("/").pipe(
         HttpServerResponse.setCookieUnsafe(SESSION_COOKIE, session, cookieOptions(SESSION_MAX_AGE_SEC)),
         HttpServerResponse.expireCookieUnsafe(STATE_COOKIE, { path: "/", httpOnly: true, secure: true, sameSite: "lax" }),
@@ -106,6 +122,7 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
 
     if (path === "/auth/logout" && request.method === "POST") {
       if (Option.isSome(session)) yield* deps.agentFor(session.value.uid).signOut();
+
       return json({ ok: true }).pipe(
         HttpServerResponse.expireCookieUnsafe(SESSION_COOKIE, { path: "/", httpOnly: true, secure: true, sameSite: "lax" }),
       );
@@ -115,29 +132,38 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
     const agent = deps.agentFor(session.value.uid);
 
     const media = path.match(/^\/api\/files\/(\d{1,15})\/(thumb|stream)$/);
+
     if (media && request.method === "GET") {
       const id = Number(media[1]);
+
       if (media[2] === "thumb") {
         const url = yield* agent.thumbnail(id);
         const dev = deps.config.devUpstream;
-        return url && (/^https:\/\//.test(url) || (dev !== null && url.startsWith(`${dev}/`)))
+
+        return url && (url.startsWith("https://") || (dev !== null && url.startsWith(`${dev}/`)))
           ? HttpServerResponse.redirect(url).pipe(HttpServerResponse.setHeader("cache-control", "private, max-age=3600"))
           : HttpServerResponse.empty({ status: 404 }).pipe(HttpServerResponse.setHeader("cache-control", "private, max-age=3600"));
       }
+
       const hls = yield* agent.stream(id);
+
       return hls ? json({ hls }).pipe(HttpServerResponse.setHeader("cache-control", "no-store")) : json({ error: "no stream" }, 404);
     }
 
     const links = path.match(/^\/api\/download-links\/(\d{1,15})$/);
+
     if (links && request.method === "GET") {
       const result = yield* agent.downloadLinks(Number(links[1]));
+
       return (result ? json(result) : json({ error: "no such links" }, 404)).pipe(HttpServerResponse.setHeader("cache-control", "no-store"));
     }
 
     if (path === "/agent" || path.startsWith("/agent/")) {
       if (request.headers.upgrade?.toLowerCase() !== "websocket") return text("Expected a WebSocket upgrade.", 426);
       const from = request.headers.origin;
+
       if (from && from !== origin) return text("bad origin", 403);
+
       return yield* agent.fetch(request);
     }
 

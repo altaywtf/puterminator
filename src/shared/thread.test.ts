@@ -9,6 +9,7 @@ const ask: MessageParam = {
     { type: "text", text: "<context>Target folder: Your Files (id 0).</context>" },
   ],
 };
+
 const call: MessageParam = {
   role: "assistant",
   content: [
@@ -16,10 +17,12 @@ const call: MessageParam = {
     { type: "tool_use", id: "t1", name: "scan_library", input: {} },
   ],
 };
+
 const result = (is_error: boolean): MessageParam => ({
   role: "user",
   content: [{ type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text: '{"score":71}' }], is_error }],
 });
+
 const answer: MessageParam = { role: "assistant", content: [{ type: "text", text: "Score 71." }] };
 
 describe("toTurns", () => {

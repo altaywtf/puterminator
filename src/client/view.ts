@@ -1,4 +1,6 @@
+import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import { createKeyedLazy, type Document, type Html, type HtmlBuilder } from "foldkit/html";
 import { creditsLeft } from "../shared/contract";
 import { type Item, type Turn, toTurns } from "../shared/thread";
@@ -12,29 +14,30 @@ import { callLine, describeStep, fmt } from "./steps";
 import { thoughtSeconds } from "./thinking";
 
 type H = HtmlBuilder<Message>;
+
 type ToolItem = Extract<Item, { kind: "tool" }>;
+
 type ThinkingItem = Extract<Item, { kind: "thinking" }>;
 
-/** First-run commands: what to type, and what it does. Each line sends its prompt. */
-export const STARTERS: Array<[prompt: string, does: string]> = [
+const STARTERS: Array<[prompt: string, does: string]> = [
   ["audit my library", "score naming, junk, duplicates"],
   ["find junk files", "tracker filler, samples, .nfo"],
   ["what did i never play?", "the biggest files nobody opened"],
   ["clean up my downloads", "a diff you approve before anything moves"],
 ];
 
-/** Credits left at which the composer starts showing the count. */
 const LOW_CREDITS = 100;
 
-// The reading column: 46rem of content plus the gutter.
+const FAILURES_BEFORE_NOTICE = 2;
+
 const COLUMN = "mx-auto grid w-full max-w-[calc(46rem+40px)] px-5 max-[480px]:px-4";
 
-// On-screen keyboards rarely send Shift+Enter, so on touch Enter is a newline and the button sends.
-const COARSE = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+const ENTER_INSERTS_NEWLINE = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
 
-// ---------- atoms ----------
+const isConnected = Predicate.isTagged("Connected");
 
-/** puterminator's own mark: colored, no frame. */
+const isLost = Predicate.isTagged("Lost");
+
 const mark = (h: H, px: number) =>
   h.img([
     h.Src(logoUrl),
@@ -49,21 +52,16 @@ const mark = (h: H, px: number) =>
 const dot = (h: H, tone: "live" | "ok" | "warn" | "error" | null = null) =>
   h.span([h.Class(`dot ${tone ? `dot-${tone}` : ""}`), h.AriaHidden(true)], []);
 
-
-// ---------- shell ----------
-
-/** Silent while connected; the topbar only speaks up when the agent is out of reach. */
 const status = (h: H, model: Model) =>
-  model.connection._tag === "Connected"
+  isConnected(model.connection)
     ? []
     : [
         h.span([h.Class("flex items-center gap-2 text-meta text-fg-3")], [
-          dot(h, model.connection._tag === "Lost" ? "warn" : null),
-          model.connection._tag === "Lost" ? "reconnecting" : "connecting",
+          dot(h, isLost(model.connection) ? "warn" : null),
+          isLost(model.connection) ? "reconnecting" : "connecting",
         ]),
       ];
 
-/** One 56px topbar row over the content; no inset panel, no shadow. */
 const frame = (h: H, topbarEnd: Html[], children: Html[], busy = false, inert = false) =>
   h.div(
     [h.Class("grid h-dvh grid-rows-[auto_minmax(0,1fr)] bg-bg text-fg"), ...(busy ? [h.AriaBusy(true)] : []), ...(inert ? [h.Inert(true)] : [])],
@@ -84,12 +82,11 @@ const frame = (h: H, topbarEnd: Html[], children: Html[], busy = false, inert = 
     ],
   );
 
-/** Always mounted, so screen readers announce changes; streamed text itself stays out of it. */
 const liveStatus = (h: H, model: Model) =>
   h.div(
     [h.Class("sr-only"), h.Role("status"), h.AriaLive("polite")],
     [
-      model.connection._tag === "Lost"
+      isLost(model.connection)
         ? "connection lost. reconnecting."
         : isBusy(model)
           ? "puterminator is working."
@@ -99,7 +96,6 @@ const liveStatus = (h: H, model: Model) =>
     ],
   );
 
-/** put.io's avatar, loaded straight from put.io; the initial stands in when there is none or it fails. */
 const avatar = (h: H, username: string, url: string | null) =>
   url
     ? h.img([
@@ -131,7 +127,6 @@ const menuItem = (h: H, text: string, message: Message) =>
     [text],
   );
 
-/** The avatar opens a native popover: who is signed in, the library tree, sign out. */
 const accountMenu = (h: H, model: Model, username: string, url: string | null) => [
   h.button(
     [
@@ -166,7 +161,6 @@ const accountMenu = (h: H, model: Model, username: string, url: string | null) =
   ),
 ];
 
-/** While the player is open, everything behind it is inert, so focus stays in the dialog. */
 const shell = (h: H, model: Model, children: Html[]) =>
   h.div([h.Class("contents")], [
     frame(
@@ -183,29 +177,26 @@ const shell = (h: H, model: Model, children: Html[]) =>
     ...playerView(h, model),
   ]);
 
-/** The shell's frame while /api/me resolves, so the swap to sign-in or the thread keeps its shape. */
 const loadingView = (h: H) => h.div([h.Class("h-dvh bg-bg"), h.AriaBusy(true)], [h.span([h.Class("sr-only"), h.Role("status")], ["loading"])]);
-
-// ---------- sign in ----------
 
 type SignIn = "ready" | "unconfigured" | "failed";
 
-/** What the terminal printed: a status line per state, the way a CLI answers `login`. */
 const signInOutput = (h: H, kind: SignIn): Html[] =>
-  kind === "ready"
-    ? [h.span([h.Class("text-fg-3")], ["# terminates the mess in your put.io"]), h.span([h.Class("text-fg-3")], ["# asks before it touches anything"])]
-    : kind === "unconfigured"
-      ? [h.span([h.Class("text-warn")], ["! sign-in isn’t wired up yet"])]
-      : [h.span([h.Class("text-danger"), h.Role("alert")], ["! couldn’t reach puterminator"])];
+  Match.value(kind).pipe(
+    Match.when("ready", () => [h.span([h.Class("text-fg-3")], ["# terminates the mess in your put.io"]), h.span([h.Class("text-fg-3")], ["# asks before it touches anything"])]),
+    Match.when("unconfigured", () => [h.span([h.Class("text-warn")], ["! sign-in isn’t wired up yet"])]),
+    Match.when("failed", () => [h.span([h.Class("text-danger"), h.Role("alert")], ["! couldn’t reach puterminator"])]),
+    Match.exhaustive,
+  );
 
 const signInAction = (h: H, kind: SignIn) =>
-  kind === "ready"
-    ? h.a([h.Href("/auth/login"), h.Class("btn btn-primary justify-self-start")], ["continue with put.io ↗"])
-    : kind === "unconfigured"
-      ? h.button([h.Type("button"), h.Disabled(true), h.Class("btn justify-self-start")], ["continue with put.io"])
-      : h.button([h.Type("button"), h.Class("btn justify-self-start"), h.OnClick(Message.ClickedRetryMe())], ["try again"]);
+  Match.value(kind).pipe(
+    Match.when("ready", () => h.a([h.Href("/auth/login"), h.Class("btn btn-primary justify-self-start")], ["continue with put.io ↗"])),
+    Match.when("unconfigured", () => h.button([h.Type("button"), h.Disabled(true), h.Class("btn justify-self-start")], ["continue with put.io"])),
+    Match.when("failed", () => h.button([h.Type("button"), h.Class("btn justify-self-start"), h.OnClick(Message.ClickedRetryMe())], ["try again"])),
+    Match.exhaustive,
+  );
 
-/** No box: the mascot, the wordmark, a few lines of terminal output, one button. */
 const signInView = (h: H, kind: SignIn) =>
   h.div(
     [h.Class("grid min-h-dvh place-items-center bg-bg p-6 text-fg")],
@@ -229,9 +220,6 @@ const signInView = (h: H, kind: SignIn) =>
     ],
   );
 
-// ---------- steps: one run log per stretch of tool work ----------
-
-/** The 10px slot at the start of every step row. */
 const slot = (h: H, child: Html) => h.span([h.Class("grid w-2.5 flex-none place-items-center")], [child]);
 const chev = (h: H) => h.span([h.Class("chev leading-none"), h.AriaHidden(true)], ["›"]);
 
@@ -256,8 +244,10 @@ const liveRow = (h: H, text: string, detail: string | null = null) =>
 const thinkingRow = (h: H, item: ThinkingItem, model: Model) => {
   const bodyId = `step-${item.key}`;
   const open = model.expanded.includes(item.key);
+
   if (item.streaming) return h.keyed("div")(item.key, [h.Class("enter-soft")], [liveRow(h, "thinking")]);
   const seconds = thoughtSeconds(model.clock, item.key);
+
   return h.keyed("div")(item.key, [h.Class("grid")], [
     toggle(h, item.key, open, bodyId, [h.span([h.Class("name")], [seconds === null ? "thought for a few seconds" : `thought for ${seconds}s`])]),
     ...(open ? [stepBody(h, bodyId, [h.div([h.Class("max-w-[64ch] text-[12px] whitespace-pre-wrap")], [item.text])])] : []),
@@ -269,6 +259,7 @@ const toolRow = (h: H, item: ToolItem, model: Model) => {
   const open = model.expanded.includes(item.key);
   const d = describeStep(item.name, item.input, item.output);
   const body = stepBody(h, bodyId, [mono(h, callLine(item.name, item.input)), ...d.lines.map((l) => mono(h, l, "text-fg-3"))]);
+
   const head =
     item.state === "running"
       ? liveRow(h, d.title, d.detail)
@@ -277,15 +268,16 @@ const toolRow = (h: H, item: ToolItem, model: Model) => {
           h.span([h.Class(`name min-w-0 truncate ${item.state === "error" ? "text-danger" : ""}`)], [d.title]),
           ...detailSpan(h, item.state === "error" && item.output === null ? "didn’t finish" : d.detail),
         ]);
+
   return h.keyed("div")(item.key, [h.Class(`grid min-w-0 ${item.state === "running" ? "enter-soft" : ""}`)], [head, ...(open || item.state === "running" ? [body] : [])]);
 };
 
 const runLog = (h: H, key: string, rows: Html[]) => h.keyed("div")(`log.${key}`, [h.Class("grid min-w-0")], rows);
 
-/** Finished work folds into one quiet line; the steps open on tap. */
 const doneLog = (h: H, model: Model, key: string, summary: string, rows: Html[]) => {
   const k = `log.${key}`;
   const open = model.expanded.includes(k);
+
   return h.keyed("div")(k, [h.Class("grid min-w-0")], [
     h.button(
       [h.Type("button"), h.Class("step-head hit"), h.AriaExpanded(open), h.OnClick(Message.ToggledStep({ key: k }))],
@@ -295,13 +287,8 @@ const doneLog = (h: H, model: Model, key: string, summary: string, rows: Html[])
   ]);
 };
 
-// ---------- score card ----------
-
-// ---------- thread ----------
-
 const lazyMarkdown = createKeyedLazy();
 
-/** Text stays prose; consecutive steps share one run log; a scan's score card closes its log. */
 const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live: boolean, settled: boolean): Html[] => {
   const out: Html[] = [];
   let rows: Html[] = [];
@@ -310,18 +297,20 @@ const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live
   let calls: string[] = [];
   let detail: string | null = null;
   let failed = 0;
+
   const flush = () => {
     if (rows.length > 0) {
-      // Reads like the shell line that ran: the tools, then what the last one found.
       const summary = `$ ${calls.length > 0 ? calls.join(" && ") : "think"}${failed > 0 ? "  # didn’t finish" : detail ? `  # ${detail}` : ""}`;
       out.push(running ? runLog(h, logKey, rows) : doneLog(h, model, logKey, summary, rows));
     }
+
     rows = [];
     running = false;
     calls = [];
     detail = null;
     failed = 0;
   };
+
   for (const item of turn.items) {
     switch (item.kind) {
       case "text":
@@ -340,24 +329,29 @@ const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live
         running ||= item.state === "running";
         calls.push(item.name);
         detail = describeStep(item.name, item.input, item.output).detail;
+
         if (item.state === "error") failed++;
         rows.push(toolRow(h, item, model));
         const card = item.state === "done" ? toolCard(h, model, item, live, settled) : null;
+
         if (card) {
           flush();
           out.push(h.keyed("div")(`card.${item.key}`, [], [card]));
         }
+
         break;
       }
+
       case "user":
         break;
     }
   }
+
   flush();
+
   return out.length > 0 ? out : [runLog(h, `${turn.key}.wait`, [liveRow(h, "working")])];
 };
 
-/** The agent's words sit in the column, no mark, no box; the user's bubble is what tells the voices apart. */
 const agentView = (h: H, turn: Turn, model: Model, caretKey: string | null, live: boolean, settled = false) =>
   h.keyed("article")(
     turn.key,
@@ -365,7 +359,6 @@ const agentView = (h: H, turn: Turn, model: Model, caretKey: string | null, live
     agentBody(h, turn, model, caretKey, live, settled),
   );
 
-/** The user's words sit on the right in a quiet block; that alone tells the voices apart. */
 const userView = (h: H, turn: Turn, live: boolean) =>
   h.keyed("article")(
     turn.key,
@@ -378,7 +371,6 @@ const userView = (h: H, turn: Turn, live: boolean) =>
     ],
   );
 
-/** The starters as a terminal listing: `$ prompt` and a `# what it does` comment, one per line. */
 const starterRows = (h: H, enabled: boolean) =>
   h.div(
     [h.Class("grid overflow-hidden rounded-xl border border-line bg-sunk py-2 font-mono text-mono leading-[1.7]")],
@@ -399,9 +391,8 @@ const starterRows = (h: H, enabled: boolean) =>
     ),
   );
 
-/** Shown once a retry has failed too, so a single blip stays in the topbar. */
 const connectionNotice = (h: H, model: Model) =>
-  model.attempts < 2
+  model.attempts < FAILURES_BEFORE_NOTICE
     ? []
     : [
         h.div(
@@ -409,14 +400,13 @@ const connectionNotice = (h: H, model: Model) =>
           [
             dot(h, "warn"),
             h.span([h.Class("grow")], ["can’t reach the agent. retrying…"]),
-            ...(model.connection._tag === "Lost"
+            ...(isLost(model.connection)
               ? [h.button([h.Type("button"), h.Class("hit btn btn-sm"), h.OnClick(Message.RetriedConnect({ attempts: model.attempts }))], ["retry now"])]
               : []),
           ],
         ),
       ];
 
-// The length error renders in the composer, next to the field it is about.
 const statusRows = (h: H, model: Model) => [
   ...connectionNotice(h, model),
   ...(model.error === null || model.error === LENGTH_ERROR
@@ -424,15 +414,14 @@ const statusRows = (h: H, model: Model) => [
     : [h.div([h.Class("notice"), h.Role("alert")], [dot(h, "error"), h.span([], [model.error])])]),
 ];
 
-// ---------- composer ----------
-
 const composer = (h: H, model: Model, placeholder: string) => {
   const busy = isBusy(model);
-  const connected = model.connection._tag === "Connected";
+  const connected = isConnected(model.connection);
   const canSend = connected && !model.sending && model.draft.trim().length > 0;
   const tooLong = model.error === LENGTH_ERROR;
   const errorId = `${COMPOSER_ID}-error`;
   const credits = model.agent ? creditsLeft(model.agent.credits) : null;
+
   return h.form(
     [
       h.Class(
@@ -451,18 +440,17 @@ const composer = (h: H, model: Model, placeholder: string) => {
             h.Rows(1),
             h.Placeholder(placeholder),
             h.Autocomplete("off"),
-            h.EnterKeyHint(COARSE ? "enter" : "send"),
+            h.EnterKeyHint(ENTER_INSERTS_NEWLINE ? "enter" : "send"),
             ...(tooLong ? [h.AriaInvalid(true), h.AriaDescribedBy(errorId)] : []),
             h.Class(
               "block max-h-[160px] min-h-[32px] w-full resize-none border-0 bg-transparent p-0 py-1 text-[16px] leading-normal text-fg-strong caret-accent outline-none [field-sizing:content] placeholder:text-fg-3 focus-visible:outline-none pointer-fine:text-[15px]",
             ),
             h.OnInput((value) => Message.UpdatedDraft({ value })),
-            h.OnKeyDownPreventDefault((key, mods) => (key === "Enter" && !COARSE && !mods.shiftKey && !mods.altKey ? Option.some(Message.SubmittedDraft()) : Option.none())),
+            h.OnKeyDownPreventDefault((key, mods) => (key === "Enter" && !ENTER_INSERTS_NEWLINE && !mods.shiftKey && !mods.altKey ? Option.some(Message.SubmittedDraft()) : Option.none())),
           ]),
           ...(credits !== null && credits < LOW_CREDITS
             ? [h.span([h.Class("flex-none pb-1.5 text-meta text-fg-3 tabular-nums"), h.Title("credits left this month")], [`${fmt(credits)} credits left`])]
             : []),
-          // Keyed so send and stop are separate elements: focus and a second click never carry over.
           busy
             ? h.keyed("button")(
                 "stop",
@@ -496,17 +484,15 @@ const composer = (h: H, model: Model, placeholder: string) => {
   );
 };
 
-// ---------- page ----------
-
 const emptyThread = (h: H, model: Model) => {
-  const enabled = model.connection._tag === "Connected" && !isLocked(model);
+  const enabled = isConnected(model.connection) && !isLocked(model);
+
   return h.div(
     [h.Id(THREAD_ID), h.Class("flex-1 overflow-y-auto overscroll-contain")],
     [
       h.div(
         [h.Class(`${COLUMN} enter gap-8 pt-[16svh] pb-16`)],
         [
-          // First run: the agent says who it is and what it does, then offers the commands to start with.
           h.div(
             [h.Class("grid justify-items-start gap-4")],
             [
@@ -528,15 +514,16 @@ const emptyThread = (h: H, model: Model) => {
 const threadPage = (h: H, model: Model) => {
   const busy = isBusy(model);
   const turns = toTurns(model.history, model.partial, busy);
+
   if (!model.synced)
     return shell(h, model, [h.div([h.Id(THREAD_ID), h.Class("flex-1 overflow-y-auto")], [h.div([h.Class(`${COLUMN} pt-[10svh]`)], connectionNotice(h, model))])]);
+
   if (turns.length === 0) return shell(h, model, [emptyThread(h, model)]);
 
   const last = turns.at(-1);
   const lastItem = last?.items.at(-1);
   const liveText = model.partial?.at(-1)?.type === "text";
   const caretKey = liveText && lastItem?.kind === "text" && lastItem.key.startsWith("live.") ? lastItem.key : null;
-  // A sent message has no agent turn yet; show who is on it.
   const pending = busy && last?.role === "user";
 
   return shell(h, model, [
@@ -557,7 +544,6 @@ const threadPage = (h: H, model: Model) => {
         ),
       ],
     ),
-    // A flex row, not an overlay: the scroller shrinks as the draft grows. -mt-10 lets the fade overlap it.
     h.div(
       [h.Class("pointer-events-none relative -mt-10 flex-none bg-linear-to-b from-transparent to-bg to-35% pt-10 pb-[max(16px,env(safe-area-inset-bottom))]")],
       [h.div([h.Class(COLUMN)], [composer(h, model, "reply…")])],

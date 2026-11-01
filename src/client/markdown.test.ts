@@ -1,17 +1,21 @@
+import * as Predicate from "effect/Predicate";
 import type { Html } from "foldkit/html";
 import { describe, expect, it } from "vitest";
-import { FileFlag } from "../shared/contract";
+import { FileFlag, type Library } from "../shared/contract";
 import { renderMarkdown } from "./markdown";
 
-type Node = { sel?: string; text?: string; data?: { props?: Record<string, unknown>; attrs?: Record<string, unknown> }; children?: Node[] };
+type VNode = NonNullable<Html>;
 
-const walk = (n: Node): Node[] => [n, ...(n.children ?? []).flatMap(walk)];
-const nodes = (html: Html) => walk(html as unknown as Node);
+const elements = (n: Html | undefined): VNode[] => (n?.children ?? []).flatMap((c) => (Predicate.isString(c) ? [] : [c]));
+const walk = (n: VNode): VNode[] => [n, ...elements(n).flatMap(walk)];
+const nodes = (html: Html) => (html ? walk(html) : []);
 const tags = (html: Html) => nodes(html).flatMap((n) => (n.sel ? [n.sel.split(/[.#]/)[0]] : []));
 const text = (html: Html) => nodes(html).map((n) => n.text ?? "").join("");
+
 const hrefs = (html: Html) =>
   nodes(html).flatMap((n) => {
     const href = n.data?.props?.href ?? n.data?.attrs?.href;
+
     return href === undefined ? [] : [String(href)];
   });
 
@@ -32,15 +36,14 @@ describe("renderMarkdown", () => {
   });
 
   it("puts the streaming caret inside the last paragraph", () => {
-    const html = renderMarkdown("one\n\ntwo", true) as unknown as Node;
-    const last = html.children!.at(-1)!;
-    expect(last.sel?.startsWith("p")).toBe(true);
-    expect(last.children!.at(-1)!.sel).toContain("span");
+    const last = elements(renderMarkdown("one\n\ntwo", true)).at(-1);
+    expect(last?.sel?.startsWith("p")).toBe(true);
+    expect(elements(last).at(-1)?.sel).toContain("span");
   });
 
   it("links inline code that names one scanned file, and leaves the rest as code", () => {
-    const lib = { rootId: 0, rootName: "Your Files", files: [[1, 0, "Movies", 9, FileFlag.folder], [2, 1, "Heat.mkv", 9, FileFlag.video]] as const };
-    const html = renderMarkdown("keep `Heat.mkv`, not `Alien.mkv`", false, { ...lib, files: lib.files.map((f) => [...f]) as never });
+    const lib = { rootId: 0, rootName: "Your Files", files: [[1, 0, "Movies", 9, FileFlag.folder], [2, 1, "Heat.mkv", 9, FileFlag.video]] } satisfies Library;
+    const html = renderMarkdown("keep `Heat.mkv`, not `Alien.mkv`", false, lib);
     expect(hrefs(html)).toEqual(["https://app.put.io/files/2"]);
     expect(text(html)).toContain("Alien.mkv");
   });

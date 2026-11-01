@@ -1,3 +1,4 @@
+import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -10,9 +11,6 @@ import { art, type Mood, moodOf } from "./art";
 import { has, type Index, indexOf, isFolder, isRegular, type Node, putioUrl, resolve } from "./library";
 import { Message, type Model } from "./main";
 import { auditOf, fmt, size } from "./steps";
-
-// Cards: what a finished tool call looks like in the thread. One entry per tool in CARDS; the thread
-// asks toolCard and renders whatever comes back. /lab renders the same functions from fixtures.
 
 type H = HtmlBuilder<Message>;
 
@@ -39,6 +37,7 @@ export const term = (h: H, children: Html[], last = false) =>
 
 const nameLink = (h: H, n: Node, cls = "") => {
   const text = isFolder(n) ? `${n.name}/` : n.name;
+
   return isRegular(n)
     ? h.a(
         [h.Href(putioUrl(n.id)), h.Target("_blank"), h.Rel("noopener noreferrer"), h.Title(`${n.path} · open on put.io`), h.Class(`truncate no-underline transition-colors duration-160 hover:text-accent ${cls}`)],
@@ -47,7 +46,6 @@ const nameLink = (h: H, n: Node, cls = "") => {
     : h.span([h.Class(`truncate ${cls}`), h.Title(n.path)], [text]);
 };
 
-/** `ls -lh`, one line: size, a ▶ for videos (plays in place), the name (opens on put.io), why it's listed. */
 const lsRow = (h: H, n: Node, note: string | null = null) =>
   h.li([h.Class("grid grid-cols-[7ch_1.5ch_minmax(0,1fr)_auto] items-baseline gap-x-2 px-3 hover:bg-hover")], [
     h.span([h.Class("text-end text-fg-3 tabular-nums")], [bytes(n)]),
@@ -61,7 +59,7 @@ const lsRow = (h: H, n: Node, note: string | null = null) =>
     h.span([h.Class("max-w-[24ch] truncate text-fg-4 max-[520px]:hidden")], [note ?? ""]),
   ]);
 
-export const showMore = (h: H, key: string, open: boolean, hidden: number) =>
+const showMore = (h: H, key: string, open: boolean, hidden: number) =>
   hidden <= 0
     ? []
     : [
@@ -76,9 +74,9 @@ export const showMore = (h: H, key: string, open: boolean, hidden: number) =>
         ),
       ];
 
-/** Files a tool returned: the first few, then a toggle. */
 const lsList = (h: H, ctx: Ctx, key: string, rows: Array<[Node, string | null]>) => {
   const open = ctx.expanded.includes(key);
+
   return [
     h.ul([h.Class("m-0 grid list-none p-0")], (open ? rows : rows.slice(0, ROWS)).map(([n, note]) => lsRow(h, n, note))),
     ...showMore(h, key, open, rows.length - ROWS),
@@ -93,49 +91,57 @@ export const shareBar = (h: H, share: number, tone = "bg-accent/70") =>
     h.i([h.Class(`block h-full rounded-full ${tone}`), h.Style({ width: `${Math.min(100, Math.max(1.5, share * 100))}%` })], []),
   ]);
 
-/** A bar in block characters: filled ▇ up to the share, faint ░ for the rest. */
 const blocks = (h: H, share: number, width: number, tone = "text-accent/80") => {
   const full = Math.max(share > 0 ? 1 : 0, Math.round(Math.min(1, share) * width));
+
   return h.span([h.Class("whitespace-pre"), h.AriaHidden(true)], [
     h.span([h.Class(tone)], ["▇".repeat(full)]),
     h.span([h.Class("text-fg-4/40")], ["░".repeat(width - full)]),
   ]);
 };
 
-/** Junk, duplicates and never-played as report lines; each opens its files underneath. */
 const auditLines = (h: H, ctx: Ctx, ix: Index | null, key: string, a: Audit) => {
-  const lines: Array<[Tab, string, string, number]> = [
-    ["junk", "junk", `${fmt(a.junk.count)} ${a.junk.count === 1 ? "file" : "files"}`, a.junk.bytes],
-    ["duplicates", "duplicates", `${fmt(a.duplicates.groups)} ${a.duplicates.groups === 1 ? "group" : "groups"}`, a.duplicates.wastedBytes],
-    ["unplayed", "never played", `${fmt(a.neverPlayed.count)} ${a.neverPlayed.count === 1 ? "file" : "files"}`, a.neverPlayed.bytes],
+  const lines: Array<[tab: Tab, label: string, n: number, count: string, bytes: number]> = [
+    ["junk", "junk", a.junk.count, `${fmt(a.junk.count)} ${a.junk.count === 1 ? "file" : "files"}`, a.junk.bytes],
+    ["duplicates", "duplicates", a.duplicates.groups, `${fmt(a.duplicates.groups)} ${a.duplicates.groups === 1 ? "group" : "groups"}`, a.duplicates.wastedBytes],
+    ["unplayed", "never played", a.neverPlayed.count, `${fmt(a.neverPlayed.count)} ${a.neverPlayed.count === 1 ? "file" : "files"}`, a.neverPlayed.bytes],
   ];
+
   const tabKey = (t: Tab) => `audit.${key}.${t}`;
+
   const rows = (t: Tab): Array<[Node, string | null]> => {
     if (!ix) return [];
+
     if (t === "duplicates")
-      return a.duplicates.examples.flatMap((d) => {
+      return a.duplicates.examples.flatMap((d): Array<[Node, string]> => {
         const keep = resolve(ix, d.keep);
-        return [
-          ...(keep ? [[keep, `keep · ${parentPath(keep)}`] as [Node, string]] : []),
-          ...d.drop.flatMap((p) => {
-            const n = resolve(ix, p);
-            return n ? [[n, `drop · ${parentPath(n)}`] as [Node, string]] : [];
-          }),
-        ];
+
+        const drops = d.drop.flatMap((p): Array<[Node, string]> => {
+          const n = resolve(ix, p);
+
+          return n ? [[n, `drop · ${parentPath(n)}`]] : [];
+        });
+
+        return keep ? [[keep, `keep · ${parentPath(keep)}`], ...drops] : drops;
       });
-    return (t === "junk" ? a.junk.examples : a.neverPlayed.examples).flatMap((f) => {
+
+    return (t === "junk" ? a.junk.examples : a.neverPlayed.examples).flatMap((f): Array<[Node, string]> => {
       const n = resolve(ix, f.path);
-      return n ? [[n, f.why] as [Node, string]] : [];
+
+      return n ? [[n, f.why]] : [];
     });
   };
-  const shown = lines.filter(([t]) => (t === "junk" ? a.junk.count : t === "duplicates" ? a.duplicates.groups : a.neverPlayed.count) > 0);
+
+  const shown = lines.filter(([, , n]) => n > 0);
+
   return shown.length === 0
     ? []
     : [
         term(
           h,
-          shown.flatMap(([t, label, count, bytes]) => {
+          shown.flatMap(([t, label, , count, bytes]) => {
             const open = ctx.expanded.includes(tabKey(t));
+
             return [
               h.button(
                 [
@@ -172,18 +178,22 @@ const MOOD_LINE: Record<Mood, string> = {
   unplugged: "",
 };
 
+const CLEAN_SCORE = 90;
+
 const scoreCard = (h: H, ctx: Ctx, a: Audit, uid: string, live: boolean) => {
   const mood = moodOf(a);
+
   const subs: Array<[string, number]> = [
     ["naming", a.scores.naming],
     ["structure", a.scores.structure],
     ["junk", a.scores.junk],
     ["duplicates", a.scores.duplicates],
   ];
+
   const worst = Math.min(...subs.map((s) => s[1]));
-  // Above 90 the library is clean; naming its weakest area would contradict the mood line.
-  const worstName = mood !== "asleep" && worst < 100 && a.score < 90 ? subs.find((s) => s[1] === worst)?.[0] : undefined;
+  const worstName = mood !== "asleep" && worst < 100 && a.score < CLEAN_SCORE ? subs.find((s) => s[1] === worst)?.[0] : undefined;
   const verdict = [MOOD_LINE[mood], ...(worstName ? [`${worstName} needs the most work.`] : []), ...(a.truncated ? ["partial scan."] : [])].join(" ");
+
   return h.section(
     [
       h.Class(`${live ? "enter" : ""} grid gap-4 overflow-hidden rounded-xl border border-line bg-raised px-5 pt-4 pb-4 max-[480px]:px-4`),
@@ -191,7 +201,6 @@ const scoreCard = (h: H, ctx: Ctx, a: Audit, uid: string, live: boolean) => {
       h.DataAttribute("testid", "score-card"),
     ],
     [
-      // Number and verdict share one left edge; the mascot sits top-right, the same height as the number.
       h.div(
         [h.Class("grid grid-cols-[minmax(0,1fr)_auto] items-start gap-6")],
         [
@@ -218,9 +227,6 @@ const scoreCard = (h: H, ctx: Ctx, a: Audit, uid: string, live: boolean) => {
   );
 };
 
-
-// ---------- folder ----------
-
 export const panel = (h: H, label: string, live: boolean, children: Html[]) =>
   h.section([h.Class(`${live ? "enter" : ""} grid gap-3 overflow-hidden rounded-xl border border-line bg-raised px-5 pt-3 pb-4 max-[480px]:px-4`), h.AriaLabel(label)], children);
 
@@ -231,7 +237,6 @@ export const cardHead = (h: H, title: string, meta: string) =>
     h.span([h.Class("flex-none text-fg-4 tabular-nums")], [meta]),
   ]);
 
-/** `du -sh`: size, a block bar against the biggest sibling, the name. */
 const duRow = (h: H, n: Node, max: number) =>
   h.li([h.Class("grid grid-cols-[7ch_16ch_minmax(0,1fr)] items-baseline gap-x-3 px-3 hover:bg-hover max-[480px]:grid-cols-[7ch_8ch_minmax(0,1fr)]")], [
     h.span([h.Class("text-end text-fg-3 tabular-nums")], [bytes(n)]),
@@ -241,18 +246,23 @@ const duRow = (h: H, n: Node, max: number) =>
 
 const folderCard = (h: H, ctx: Ctx, key: string, out: ListFolderOutput, live: boolean): Html | null => {
   const ix = indexOfCtx(ctx);
+
   if (!ix) return null;
   const base = out.path === "/" ? "" : out.path;
   const folder = base ? resolve(ix, base) : null;
+
   const nodes = out.items.flatMap((i) => {
     const n = resolve(ix, `${base}/${i.name}`);
+
     return n ? [n] : [];
   });
+
   if (nodes.length === 0) return null;
   nodes.sort((a, b) => b.size - a.size);
   const total = folder ? folder.size : ix.total;
   const moreKey = `folder.${key}`;
   const all = ctx.expanded.includes(moreKey);
+
   return panel(h, "folder", live, [
     cardHead(h, folder ? `${folder.name}/` : ix.rootName, `${fmt(out.count)} ${out.count === 1 ? "item" : "items"} · ${size(total)}`),
     term(h, [
@@ -262,27 +272,28 @@ const folderCard = (h: H, ctx: Ctx, key: string, out: ListFolderOutput, live: bo
   ]);
 };
 
-// ---------- search ----------
-
 const searchCard = (h: H, ctx: Ctx, key: string, out: SearchFilesOutput, live: boolean): Html | null => {
   const ix = indexOfCtx(ctx);
+
   if (!ix) return null;
+
   const nodes = out.items.flatMap((i) => {
     const n = resolve(ix, i.path);
+
     return n ? [n] : [];
   });
+
   if (nodes.length === 0) return null;
+
   return panel(h, "files", live, [
     cardHead(h, `${fmt(out.total)} ${out.total === 1 ? "file" : "files"}`, out.bytes),
     term(h, lsList(h, ctx, `files.${key}`, nodes.map((n): [Node, string | null] => [n, isFolder(n) ? null : parentPath(n)])), true),
   ]);
 };
 
-// ---------- download links ----------
-
-/** The file name put.io puts at the end of a download link. */
 const linkName = (url: string) => {
   const last = url.split("?")[0]?.split("/").pop() ?? url;
+
   try {
     return decodeURIComponent(last);
   } catch {
@@ -290,36 +301,37 @@ const linkName = (url: string) => {
   }
 };
 
-/** put.io's links stay behind a click: they are bearer links, fetched only when the user asks. */
 const linksCard = (h: H, ctx: Ctx, out: DownloadLinksOutput, live: boolean): Html => {
   const entry = ctx.links?.[out.id];
   const meta = out.files === null ? "put.io is on it" : `${fmt(out.files)} ${out.files === 1 ? "file" : "files"}`;
   const ask = (label: string) => h.button([h.Type("button"), h.Class("btn btn-sm justify-self-start"), h.OnClick(Message.ClickedLinks({ id: out.id }))], [label]);
+
   const body =
-    entry?.state === "done"
-      ? [
-          term(h, [
-            h.ul(
-              [h.Class("m-0 grid list-none p-0")],
-              entry.links.map((url) =>
-                h.li([h.Class("flex min-w-0 items-baseline gap-2 px-3 hover:bg-hover")], [
-                  h.span([h.Class("flex-none text-fg-4"), h.AriaHidden(true)], ["↓"]),
-                  h.a([h.Href(url), h.Rel("noopener noreferrer"), h.Class("min-w-0 truncate text-fg no-underline transition-colors duration-160 hover:text-accent")], [linkName(url)]),
-                ]),
-              ),
-            ),
-          ], true),
-          h.button([h.Type("button"), h.Class("btn btn-sm justify-self-start"), h.OnClick(Message.ClickedCopyLinks({ id: out.id }))], ["copy all links"]),
-        ]
-      : entry?.state === "loading"
-        ? [h.p([h.Class("m-0 font-mono text-mono text-fg-3"), h.Role("status")], ["asking put.io…"])]
-        : entry?.state === "failed"
-          ? [h.p([h.Class("m-0 font-mono text-mono text-warn"), h.Role("alert")], [entry.message]), ask("try again")]
-          : [ask("show links")];
+    entry === undefined
+      ? [ask("show links")]
+      : Match.value(entry).pipe(
+          Match.discriminatorsExhaustive("state")({
+            done: ({ links }) => [
+              term(h, [
+                h.ul(
+                  [h.Class("m-0 grid list-none p-0")],
+                  links.map((url) =>
+                    h.li([h.Class("flex min-w-0 items-baseline gap-2 px-3 hover:bg-hover")], [
+                      h.span([h.Class("flex-none text-fg-4"), h.AriaHidden(true)], ["↓"]),
+                      h.a([h.Href(url), h.Rel("noopener noreferrer"), h.Class("min-w-0 truncate text-fg no-underline transition-colors duration-160 hover:text-accent")], [linkName(url)]),
+                    ]),
+                  ),
+                ),
+              ], true),
+              h.button([h.Type("button"), h.Class("btn btn-sm justify-self-start"), h.OnClick(Message.ClickedCopyLinks({ id: out.id }))], ["copy all links"]),
+            ],
+            loading: () => [h.p([h.Class("m-0 font-mono text-mono text-fg-3"), h.Role("status")], ["asking put.io…"])],
+            failed: ({ message }) => [h.p([h.Class("m-0 font-mono text-mono text-warn"), h.Role("alert")], [message]), ask("try again")],
+          }),
+        );
+
   return panel(h, "download links", live, [cardHead(h, "download links", meta), ...body]);
 };
-
-// ---------- registry ----------
 
 const decodeListFolder = Schema.decodeUnknownOption(Schema.fromJsonString(ListFolderOutput));
 const decodeSearchFiles = Schema.decodeUnknownOption(Schema.fromJsonString(SearchFilesOutput));
@@ -327,29 +339,32 @@ const decodePlan = Schema.decodeUnknownOption(Schema.fromJsonString(Plan));
 const decodeQuestion = Schema.decodeUnknownOption(Schema.fromJsonString(Question));
 const decodeLinks = Schema.decodeUnknownOption(Schema.fromJsonString(DownloadLinksOutput));
 
-/** `settled`: the user has spoken since this tool ran, so a question is answered. */
 type Card = (h: H, ctx: Ctx, key: string, output: string, live: boolean, settled: boolean) => Html | null;
 
-/** The proposal as the server last reported it: the diff, its run, or one line once discarded. */
 const planOrRun = (h: H, ctx: Ctx, plan: Plan, live: boolean): Html => {
   const record = ctx.plans[plan.id];
+
   if (record?.status === "discarded") return discardedLine(h, plan);
+
   if (record?.undo) return runCard(h, ctx, record.undo, live, { undo: true });
+
   if (record?.run) return runCard(h, ctx, record.run, live, { undoable: record.status === "done" });
+
   return planCard(h, ctx, plan, live);
 };
 
-const CARDS: Record<string, Card> = {
+const CARDS = {
   scan_library: (h, ctx, key, output, live) => Option.match(auditOf(output), { onNone: () => null, onSome: (a) => scoreCard(h, ctx, a, key, live) }),
   list_folder: (h, ctx, key, output, live) => Option.match(decodeListFolder(output), { onNone: () => null, onSome: (o) => folderCard(h, ctx, key, o, live) }),
   search_files: (h, ctx, key, output, live) => Option.match(decodeSearchFiles(output), { onNone: () => null, onSome: (o) => searchCard(h, ctx, key, o, live) }),
   propose_changes: (h, ctx, _key, output, live) => Option.match(decodePlan(output), { onNone: () => null, onSome: (p) => planOrRun(h, ctx, p, live) }),
   make_download_links: (h, ctx, _key, output, live) => Option.match(decodeLinks(output), { onNone: () => null, onSome: (o) => linksCard(h, ctx, o, live) }),
   ask_user: (h, ctx, _key, output, live, settled) => Option.match(decodeQuestion(output), { onNone: () => null, onSome: (q) => questionCard(h, ctx, q, live, settled) }),
-};
+} satisfies Record<string, Card>;
+
+const hasCard = (name: string): name is keyof typeof CARDS => Object.hasOwn(CARDS, name);
 
 /** The card for a finished tool call, or null when the tool has none or its output doesn't decode. */
 export const toolCard = (h: H, ctx: Ctx, tool: { name: string; key: string; output: string | null }, live: boolean, settled = false): Html | null => {
-  const card = CARDS[tool.name];
-  return card && tool.output !== null ? card(h, ctx, tool.key, tool.output, live, settled) : null;
+  return hasCard(tool.name) && tool.output !== null ? CARDS[tool.name](h, ctx, tool.key, tool.output, live, settled) : null;
 };

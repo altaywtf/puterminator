@@ -14,8 +14,9 @@ import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Match from "effect/Match";
+import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import type { Folder } from "../shared/contract";
 import type { DownloadLinksResponse } from "../shared/tools";
 import { PUTIO_API } from "./dev";
 import type { PutioFile } from "./tree";
@@ -35,7 +36,6 @@ export class PutioRateLimited extends Schema.TaggedError<PutioRateLimited>()("Pu
 /** Any other put.io failure: transport, status or decoding. */
 export class PutioFailed extends Schema.TaggedError<PutioFailed>()("PutioFailed", {
   message: Schema.String,
-  /** put.io answered and refused, so nothing changed. Absent when the write may have gone through. */
   refused: Schema.optionalKey(Schema.Boolean),
 }) {}
 
@@ -47,6 +47,7 @@ export const putioLayer = (accessToken: string | undefined, fetchImpl: typeof fe
 
 const minutesLeft = (e: PutioRateLimited) => {
   const minutes = Math.max(1, Math.ceil(e.retryAfterMs / 60_000));
+
   return `about ${minutes} minute${minutes === 1 ? "" : "s"}`;
 };
 
@@ -55,12 +56,7 @@ export const rateLimitMessage = (e: PutioRateLimited) => `put.io rate limit: try
 const MAX_WAIT_MS = 10_000;
 const MAX_ATTEMPTS = 4;
 
-/**
- * Every call here is a read, so retrying a 429 is safe. put.io allows a fixed number of requests
- * per window and `x-ratelimit-reset` is when it refills (epoch seconds). Waits beyond 10 s, or a
- * fifth 429, surface as PutioRateLimited instead of holding the Durable Object.
- */
-export const read = <A, R>(
+const read = <A, R>(
   label: string,
   effect: Effect.Effect<A, PutioSdkError, R>,
 ): Effect.Effect<A, PutioError, R> => {
@@ -68,22 +64,29 @@ export const read = <A, R>(
     effect.pipe(
       Effect.catch((err) => {
         if (isPutioAuthError(err)) return Effect.fail(new PutioUnauthorized({ status: err.status }));
+
         if (!isPutioRateLimitError(err)) {
           const status = "status" in err ? ` → ${err.status}` : "";
+
           return Effect.fail(new PutioFailed({ message: `put.io ${label}${status}` }));
         }
+
         return Effect.gen(function* () {
           const now = yield* Clock.currentTimeMillis;
-          const reset = Number(err.reset);
-          const waitMs = Number.isFinite(reset) && reset > 0 ? reset * 1000 - now : 1000 * 2 ** attempt;
+          const resetAtSec = Number(err.reset);
+          const waitMs = Number.isFinite(resetAtSec) && resetAtSec > 0 ? resetAtSec * 1000 - now : 1000 * 2 ** attempt;
+
           if (attempt >= MAX_ATTEMPTS || waitMs > MAX_WAIT_MS) {
             return yield* new PutioRateLimited({ retryAfterMs: Math.max(waitMs, 0) });
           }
+
           yield* Effect.sleep(Duration.millis(Math.max(waitMs, 500)));
+
           return yield* loop(attempt + 1);
         });
       }),
     );
+
   return loop(0);
 };
 
@@ -102,14 +105,13 @@ export const exchangeCode = (input: { clientId: string; clientSecret: string; re
     Effect.mapError(() => new PutioFailed({ message: "put.io code exchange failed" })),
   );
 
-// Only the fields sign-in needs, so drift elsewhere in the account payload can't break it.
 const AccountInfo = Schema.Struct({
   info: Schema.Struct({ user_id: Schema.Finite, username: Schema.String, avatar_url: Schema.optional(Schema.NullOr(Schema.String)) }),
 });
 
-/** The browser loads the avatar straight from this URL, so anything but https is dropped. */
 const httpsUrl = (raw: string | null | undefined): string | null => {
   if (!raw) return null;
+
   try {
     return new URL(raw).protocol === "https:" ? raw : null;
   } catch {
@@ -121,7 +123,6 @@ export const accountInfo = read("/account/info", requestJson(AccountInfo, { meth
   Effect.map(({ info }) => ({ userId: info.user_id, username: info.username, avatarUrl: httpsUrl(info.avatar_url) })),
 );
 
-// Narrower than the SDK's FileBroadSchema: an unknown `file_type` must not fail a whole page.
 const ScanFile = Schema.Struct({
   id: Schema.Finite,
   parent_id: Schema.NullOr(Schema.Finite),
@@ -133,6 +134,7 @@ const ScanFile = Schema.Struct({
   created_at: Schema.String,
   first_accessed_at: Schema.NullOr(Schema.String),
 });
+
 const ListPage = Schema.Struct({ files: Schema.Array(ScanFile), cursor: Schema.NullOr(Schema.String) });
 
 const listPaged = (parentId: number, perPage: number): Effect.Effect<Array<PutioFile>, PutioError, PutioSdkContext> =>
@@ -141,8 +143,10 @@ const listPaged = (parentId: number, perPage: number): Effect.Effect<Array<Putio
       "/files/list",
       requestJson(ListPage, { method: "GET", path: "/v2/files/list", query: { parent_id: parentId, per_page: perPage, hidden: 1 } }),
     );
+
     const files: Array<PutioFile> = [...first.files];
     let cursor = first.cursor;
+
     while (cursor) {
       const page = yield* read(
         "/files/list/continue",
@@ -152,9 +156,11 @@ const listPaged = (parentId: number, perPage: number): Effect.Effect<Array<Putio
           body: { type: "form", value: { cursor, per_page: perPage } },
         }),
       );
+
       files.push(...page.files);
       cursor = page.cursor;
     }
+
     return files;
   });
 
@@ -184,38 +190,37 @@ export const downloadToken = read(
 export const hlsUrl = (id: number, token: string, base: string = PUTIO_API) =>
   buildFileHlsStreamUrl(base, id, { downloadToken: token });
 
-// ---------- writes ----------
-
-/**
- * Writes are never retried: a 429 or a dropped response could mean put.io already applied it. A failure
- * surfaces on its step, and the user retries from the run card.
- */
 const write = <A, R>(label: string, effect: Effect.Effect<A, PutioSdkError, R>): Effect.Effect<A, PutioError, R> =>
   effect.pipe(
     Effect.catch((err): Effect.Effect<never, PutioError> => {
       if (isPutioAuthError(err)) return Effect.fail(new PutioUnauthorized({ status: err.status }));
+
       if (isPutioRateLimitError(err))
         return Clock.currentTimeMillis.pipe(
           Effect.flatMap((now) => {
-            const reset = Number(err.reset);
-            return Effect.fail(new PutioRateLimited({ retryAfterMs: Number.isFinite(reset) && reset > 0 ? Math.max(reset * 1000 - now, 0) : 60_000 }));
+            const resetAtSec = Number(err.reset);
+
+            return Effect.fail(new PutioRateLimited({ retryAfterMs: Number.isFinite(resetAtSec) && resetAtSec > 0 ? Math.max(resetAtSec * 1000 - now, 0) : 60_000 }));
           }),
         );
-      return Effect.fail(
-        new PutioFailed({
-          message: `put.io ${label}${"status" in err ? ` → ${err.status}` : ""}`,
-          ...("status" in err && typeof err.status === "number" && err.status >= 400 && err.status < 500 ? { refused: true } : {}),
-        }),
-      );
+
+      const message = `put.io ${label}${"status" in err ? ` → ${err.status}` : ""}`;
+      const refused = "status" in err && err.status >= 400 && err.status < 500;
+
+      return Effect.fail(refused ? new PutioFailed({ message, refused }) : new PutioFailed({ message }));
     }),
   );
 
 /** How a failed write reads on its step. */
 export const stepMessage = (e: PutioError) =>
-  e._tag === "PutioRateLimited" ? `put.io rate limit; retry in ${minutesLeft(e)}` : e._tag === "PutioUnauthorized" ? "put.io signed you out" : e.message;
+  Match.valueTags(e, {
+    PutioRateLimited: (limited) => `put.io rate limit; retry in ${minutesLeft(limited)}`,
+    PutioUnauthorized: () => "put.io signed you out",
+    PutioFailed: ({ message }) => message,
+  });
 
 /** Whether a failed write may still have changed put.io. */
-export const maybeApplied = (e: PutioError) => e._tag === "PutioFailed" && !e.refused;
+export const maybeApplied = (e: PutioError) => Predicate.isTagged(e, "PutioFailed") && !e.refused;
 
 const Ok = Schema.Struct({ status: Schema.String });
 
@@ -248,6 +253,7 @@ export const moveFile = (id: number, parentId: number) =>
 const Created = Schema.Struct({ file: Schema.Struct({ id: Schema.Finite }) });
 
 const LinksCreated = Schema.Struct({ id: Schema.Finite });
+
 const LinksInfo = Schema.Struct({
   links_status: Schema.String,
   links: Schema.NullOr(Schema.Struct({ download_links: Schema.Array(Schema.String) })),

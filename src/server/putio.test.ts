@@ -8,15 +8,16 @@ import { file, makeFakePutio } from "./testing/fake-putio";
 
 const T0 = Date.UTC(2026, 9, 29);
 const library = Array.from({ length: 5 }, (_, i) => file(i + 1, 0, `f${i + 1}.mkv`, "VIDEO", 1));
+const waitForFakeFetch = Effect.promise(() => new Promise((r) => setTimeout(r, 20)));
 
 const scan = (fake: ReturnType<typeof makeFakePutio>, advance: number) =>
   Effect.runPromiseExit(
     Effect.gen(function* () {
       yield* TestClock.setTime(T0);
       const fiber = yield* Effect.forkChild(listAll.pipe(Effect.provide(putioLayer("tok", fake.fetch))));
-      // Let the fake answer before moving the clock; its fetch is a real promise.
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 20)));
+      yield* waitForFakeFetch;
       yield* TestClock.adjust(advance);
+
       return yield* Fiber.join(fiber);
     }).pipe(Effect.provide(TestClock.layer())),
   );
@@ -47,18 +48,21 @@ describe("put.io 429", () => {
 
   it("does not sleep before the reset time", async () => {
     const fake = makeFakePutio({ files: library, pageSize: 2, rateLimitContinue: { times: 1, resetAt: T0 / 1000 + 3 } });
+
     const exit = await Effect.runPromise(
       Effect.gen(function* () {
         yield* TestClock.setTime(T0);
         const fiber = yield* Effect.forkChild(listAll.pipe(Effect.provide(putioLayer("tok", fake.fetch))));
-        yield* Effect.promise(() => new Promise((r) => setTimeout(r, 20)));
+        yield* waitForFakeFetch;
         yield* TestClock.adjust(2_000);
-        yield* Effect.promise(() => new Promise((r) => setTimeout(r, 20)));
+        yield* waitForFakeFetch;
         const done = fiber.pollUnsafe();
         yield* Fiber.interrupt(fiber);
+
         return done;
       }).pipe(Effect.provide(TestClock.layer())),
     );
+
     expect(exit).toBeUndefined();
   });
 
@@ -71,19 +75,24 @@ describe("put.io 429", () => {
 
   it("tells a rate-limited write when put.io's window refills, without retrying it", async () => {
     let calls = 0;
-    const limited = (async () => {
+
+    const limited: typeof fetch = async () => {
       calls++;
+
       return new Response(JSON.stringify({ status: "ERROR", error_type: "RATE_LIMITED", status_code: 429 }), {
         status: 429,
         headers: { "content-type": "application/json", "x-ratelimit-reset": String(T0 / 1000 + 600), "x-ratelimit-limit": "1000", "x-ratelimit-remaining": "0" },
       });
-    }) as typeof fetch;
+    };
+
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         yield* TestClock.setTime(T0);
+
         return yield* trashFile(7).pipe(Effect.provide(putioLayer("tok", limited)));
       }).pipe(Effect.provide(TestClock.layer())),
     );
+
     expect(exit).toEqual(Exit.fail(new PutioRateLimited({ retryAfterMs: 600_000 })));
     expect(stepMessage(new PutioRateLimited({ retryAfterMs: 600_000 }))).toBe("put.io rate limit; retry in about 10 minutes");
     expect(calls).toBe(1);

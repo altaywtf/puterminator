@@ -20,17 +20,21 @@ export const cookieOptions = (maxAgeSec: number): NonNullable<Cookies.Cookie["op
   maxAge: Duration.seconds(maxAgeSec),
 });
 
-/** `gen`: the user's session generation when signed; signing out bumps it, which ends every earlier session. */
 const Session = Schema.Struct({ uid: Schema.String, exp: Schema.Finite, gen: Schema.optionalKey(Schema.Finite) });
+
+/** `gen`: the user's session generation when signed; signing out bumps it, which ends every earlier session. */
 export type Session = typeof Session.Type;
+
 const decodeSession = Schema.decodeUnknownOption(Schema.fromJsonString(Session));
 
 const enc = new TextEncoder();
+
 const b64url = (bytes: Uint8Array) =>
   btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
+
 const fromB64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 
 const hmacKey = (secret: Redacted.Redacted<string>) =>
@@ -45,6 +49,7 @@ export const signSession = (secret: Redacted.Redacted<string>, uid: string, gen:
     const payload = b64url(enc.encode(JSON.stringify({ uid, exp: Math.floor(now / 1000) + SESSION_MAX_AGE_SEC, gen })));
     const key = yield* hmacKey(secret);
     const sig = yield* Effect.promise(() => crypto.subtle.sign("HMAC", key, enc.encode(payload)));
+
     return `${payload}.${b64url(new Uint8Array(sig))}`;
   });
 
@@ -52,14 +57,18 @@ export const signSession = (secret: Redacted.Redacted<string>, uid: string, gen:
 export const verifySession = (secret: Redacted.Redacted<string>, raw: string | undefined) =>
   Effect.gen(function* () {
     const [payload, sig, ...rest] = (raw ?? "").split(".");
+
     if (!payload || !sig || rest.length > 0) return Option.none<Session>();
     const key = yield* hmacKey(secret);
+
     const valid = yield* Effect.tryPromise(() => crypto.subtle.verify("HMAC", key, fromB64url(sig), enc.encode(payload))).pipe(
       Effect.orElseSucceed(() => false),
     );
+
     if (!valid) return Option.none<Session>();
     const json = yield* Effect.try(() => new TextDecoder().decode(fromB64url(payload))).pipe(Effect.option);
     const session = Option.flatMap(json, (j) => decodeSession(j));
     const now = yield* Clock.currentTimeMillis;
+
     return Option.filter(session, (s) => s.exp >= now / 1000);
   });

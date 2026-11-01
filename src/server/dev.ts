@@ -11,6 +11,7 @@ const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 export const DevUpstream = Schema.String.check(
   Schema.makeFilter((s: string) => {
     const url = URL.canParse(s) ? new URL(s) : null;
+
     return (url !== null && url.protocol === "http:" && LOOPBACK.has(url.hostname)) || "must be a loopback http URL";
   }),
 );
@@ -21,6 +22,8 @@ export const upstreamFetch =
   (input, init) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
+
     if (!UPSTREAMS.has(url.origin)) return fetch(request);
+
     return fetch(new Request(new URL(`${url.pathname}${url.search}`, base), request));
   };

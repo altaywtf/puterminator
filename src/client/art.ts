@@ -1,12 +1,9 @@
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Audit } from "../shared/audit";
 
-// Pixel spot art: the amber CRT skull, with props that carry the joke. One string per pixel row.
-// . empty · # amber · w bright amber · o dim amber · R red eye · k ink cut into the screen · s slime
-
 export type Mood = "asleep" | "unplugged" | "idle" | "shades" | "dust" | "mop" | "wading" | "flood" | "jar";
 
-const FILL: Record<string, string> = {
+const FILL = {
   "#": "var(--accent)",
   w: "var(--accent-bright)",
   o: "var(--accent-dim)",
@@ -34,9 +31,9 @@ const CRT = [
 
 type Put = [x: number, y: number, run: string];
 
-/** Props sit relative to the CRT's top-left; the canvas grows to fit them, then trims to the ink. */
 const compose = (puts: Put[]): string[] => {
   const cells = new Map<string, string>();
+
   for (const [x, y, run] of [...CRT.map((r, y): Put => [0, y, r]), ...puts])
     [...run].forEach((c, i) => {
       if (c !== "." && c !== " ") cells.set(`${x + i},${y}`, c);
@@ -45,17 +42,20 @@ const compose = (puts: Put[]): string[] => {
   const xs = xy.map((p) => p[0] ?? 0);
   const ys = xy.map((p) => p[1] ?? 0);
   const [x0, y0] = [Math.min(...xs), Math.min(...ys)];
+
   return Array.from({ length: Math.max(...ys) - y0 + 1 }, (_, y) =>
     Array.from({ length: Math.max(...xs) - x0 + 1 }, (_, x) => cells.get(`${x + x0},${y + y0}`) ?? ".").join(""),
   );
 };
 
 const screenOff: Put[] = Array.from({ length: 8 }, (_, i): Put => [3, 2 + i, "oooooooooo"]);
+
 const shades: Put[] = [
   [3, 3, "kkkkkkkkkk"],
   [4, 4, "kkk"],
   [9, 4, "kkk"],
 ];
+
 const slimeFrom = (top: number): Put[] => [
   [-3, top, "ss sss  ssss sss  ss"],
   ...Array.from({ length: 13 - top }, (_, i): Put => [-3, top + 1 + i, "ssssssssssssssssssssss"]),
@@ -89,20 +89,22 @@ export const moodOf = (a: Audit): Mood =>
             ? "wading"
             : "flood";
 
-/** Pixel rows to crisp SVG rects, one rect per same-colour run. `fills` maps a row character to a paint. */
-export const pixels = <M>(h: HtmlBuilder<M>, rows: readonly string[], fills: Record<string, string>, height: number, cls: string): Html => {
+const pixels = <M>(h: HtmlBuilder<M>, rows: readonly string[], fills: Record<string, string>, height: number, cls: string): Html => {
   const w = Math.max(...rows.map((r) => r.length));
   const rects: Html[] = [];
   rows.forEach((row, y) => {
     for (let x = 0; x < row.length; ) {
       const c = row[x] ?? ".";
       let end = x + 1;
+
       while (row[end] === c) end++;
       const fill = fills[c];
+
       if (fill) rects.push(h.rect([h.X(`${x}`), h.Y(`${y}`), h.Width(`${end - x}`), h.Height("1"), h.Fill(fill)], []));
       x = end;
     }
   });
+
   return h.svg(
     [
       h.ViewBox(`0 0 ${w} ${rows.length}`),

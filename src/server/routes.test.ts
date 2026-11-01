@@ -8,6 +8,7 @@ import { readConfig } from "./config";
 import { makeHandler, type UserAgent } from "./routes";
 
 const PUBLIC_URL = "https://puterminator.test";
+
 const valid = {
   PUTIO_CLIENT_ID: "1234",
   PUTIO_CLIENT_SECRET: "client-secret",
@@ -24,17 +25,18 @@ const noAgent = (): UserAgent => {
 
 const call = async (env: Record<string, string>, path: string, init?: RequestInit, publicUrl = PUBLIC_URL) => {
   const config = await configFrom(env);
+
   if (!Exit.isSuccess(config)) throw new Error("config failed");
   const handle = makeHandler({ config: config.value, agentFor: noAgent });
   const response = await Effect.runPromise(handle(HttpServerRequest.fromWeb(new Request(`${PUBLIC_URL}${path}`, init)), publicUrl));
+
   return HttpServerResponse.toWeb(response);
 };
 
 describe("config", () => {
   it("fails Init when a required key is missing, so a deploy cannot drop a live secret", async () => {
     for (const key of Object.keys(valid)) {
-      const env: Record<string, string> = { ...valid };
-      delete env[key];
+      const env = Object.fromEntries(Object.entries(valid).filter(([name]) => name !== key));
       expect(Exit.isFailure(await configFrom(env)), key).toBe(true);
     }
   });
@@ -75,30 +77,38 @@ describe("config", () => {
 });
 
 describe("OAuth callback", () => {
-  // put.io's token and account endpoints, in their recorded shapes.
-  const putio = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const putio: typeof fetch = async (input, init) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
+
     if (url.pathname === "/v2/oauth2/access_token") {
       const form = new URLSearchParams(await request.text());
+
       if (form.get("code") !== "good-code") return Response.json({ error: "invalid_grant" }, { status: 400 });
+
       return Response.json({ access_token: "tok-1" });
     }
+
     if (url.pathname === "/v2/account/info" && request.headers.get("authorization")?.endsWith("tok-1")) {
       return Response.json({ info: { user_id: 77, username: "altay", avatar_url: avatar, disk: {} }, status: "OK" });
     }
+
     return Response.json({ status: "ERROR" }, { status: 401 });
-  }) as typeof fetch;
+  };
 
   let avatar = "https://www.gravatar.com/avatar/abc";
+
   const callback = async (code: string) => {
     const config = await configFrom(valid);
+
     if (!Exit.isSuccess(config)) throw new Error("config failed");
     const calls: Array<[string, string, string, string | null]> = [];
+
     const agent = (uid: string): UserAgent => ({
       setAuth: (token, username, avatarUrl) =>
         Effect.sync(() => {
           calls.push([uid, token, username, avatarUrl]);
+
           return gen;
         }),
       signOut: () => Effect.sync(() => void gen++),
@@ -108,15 +118,19 @@ describe("OAuth callback", () => {
       downloadLinks: () => Effect.succeed(null),
       fetch: () => Effect.die("unused"),
     });
+
     const handle = makeHandler({ config: config.value, agentFor: agent, putioFetch: putio });
     const request = new Request(`${PUBLIC_URL}/auth/callback?code=${code}&state=st`, { headers: { cookie: "__Host-pt_oauth_state=st" } });
     const response = HttpServerResponse.toWeb(await Effect.runPromise(handle(HttpServerRequest.fromWeb(request), PUBLIC_URL)));
     const session = response.headers.getSetCookie().find((c) => c.startsWith("__Host-pt_session=")) ?? "";
     const cookie = session.split(";")[0] ?? "";
+
     const get = async (path: string, method = "GET") =>
       HttpServerResponse.toWeb(await Effect.runPromise(handle(HttpServerRequest.fromWeb(new Request(`${PUBLIC_URL}${path}`, { method, headers: { cookie } })), PUBLIC_URL)));
+
     return { response, calls, session, get, me: await (await get("/api/me")).json() };
   };
+
   let gen = 0;
 
   it("exchanges the code, stores the token in the user's object and signs a session", async () => {
@@ -143,6 +157,7 @@ describe("OAuth callback", () => {
       const { calls } = await callback("good-code");
       expect(calls[0]?.[3], bad).toBeNull();
     }
+
     avatar = "https://www.gravatar.com/avatar/abc";
   });
 
@@ -159,6 +174,7 @@ describe("DEV_FAKE_UPSTREAM", () => {
     for (const bad of ["https://localhost:8788", "http://api.put.io", "http://10.0.0.1:8788", "nope"]) {
       expect(Exit.isFailure(await configFrom({ ...valid, DEV_FAKE_UPSTREAM: bad })), bad).toBe(true);
     }
+
     const to = new URL((await call({ ...valid, DEV_FAKE_UPSTREAM: "http://localhost:8788" }, "/auth/login")).headers.get("location") ?? "");
     expect(to.origin + to.pathname).toBe("http://localhost:8788/v2/oauth2/authenticate");
   });

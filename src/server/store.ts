@@ -1,9 +1,11 @@
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { PlanRecord } from "../shared/actions";
 import { AgentState, Folder, initialAgentState, MessageParam } from "../shared/contract";
 import type { WalkedFile } from "./tree";
 
-export type SqlValue = string | number | null;
+type SqlValue = string | number | null;
+
 export type Row = Record<string, SqlValue | ArrayBuffer | Uint8Array>;
 
 /**
@@ -14,8 +16,7 @@ export interface Sql {
   readonly transaction: <A>(body: () => A) => A;
 }
 
-// v1 (Agents SDK) kept AgentState as JSON in this row; reading it here keeps existing objects working.
-const STATE_ROW_ID = "cf_state_row_id";
+const AGENTS_SDK_STATE_ROW_ID = "cf_state_row_id";
 
 const decodeState = Schema.decodeUnknownOption(Schema.fromJsonString(AgentState));
 const encodeState = Schema.encodeSync(Schema.fromJsonString(AgentState));
@@ -31,13 +32,17 @@ export const StoredRecord = Schema.Struct({
   folder: Schema.optionalKey(Folder),
   reported: Schema.Boolean,
 });
+
 export type StoredRecord = typeof StoredRecord.Type;
+
 const decodeRecord = Schema.decodeUnknownOption(Schema.fromJsonString(StoredRecord));
 const encodeRecord = Schema.encodeSync(Schema.fromJsonString(StoredRecord));
 
-const str = (v: unknown) => (typeof v === "string" ? v : String(v));
-const strOrNull = (v: unknown) => (v == null ? null : str(v));
-const num = (v: unknown) => Number(v);
+type SqlCell = Row[string] | undefined;
+
+const str = (v: SqlCell) => String(v);
+const strOrNull = (v: SqlCell) => (v == null ? null : str(v));
+const num = (v: SqlCell) => Number(v);
 
 export const month = (now: number) => new Date(now).toISOString().slice(0, 7);
 
@@ -55,12 +60,12 @@ export const makeStore = (sql: Sql) => {
 
   return {
     loadState: (now: number): AgentState => {
-      const raw = sql.exec("SELECT state FROM cf_agents_state WHERE id = ?", STATE_ROW_ID)[0]?.state;
-      const decoded = typeof raw === "string" ? decodeState(raw) : undefined;
-      return decoded?._tag === "Some" ? decoded.value : initialAgentState(month(now));
+      const raw = sql.exec("SELECT state FROM cf_agents_state WHERE id = ?", AGENTS_SDK_STATE_ROW_ID)[0]?.state;
+
+      return Option.getOrElse(decodeState(raw), () => initialAgentState(month(now)));
     },
     saveState: (state: AgentState) => {
-      sql.exec("INSERT OR REPLACE INTO cf_agents_state (id, state) VALUES (?, ?)", STATE_ROW_ID, encodeState(state));
+      sql.exec("INSERT OR REPLACE INTO cf_agents_state (id, state) VALUES (?, ?)", AGENTS_SDK_STATE_ROW_ID, encodeState(state));
     },
 
     token: (): string | null => strOrNull(sql.exec("SELECT value FROM secrets WHERE key = 'putio_token'")[0]?.value),
@@ -75,18 +80,12 @@ export const makeStore = (sql: Sql) => {
       sql.exec("INSERT OR REPLACE INTO secrets (key, value) VALUES (?, ?)", key, value);
     },
 
-    /** Rows that fail to decode are skipped; v1 only ever wrote valid ones. */
     history: (): Array<MessageParam> =>
-      sql.exec("SELECT json FROM messages ORDER BY seq").flatMap((r) => {
-        const m = decodeMessage(str(r.json));
-        return m._tag === "Some" ? [m.value] : [];
-      }),
-    /** Append-only: thinking blocks stay valid and the cached prefix never changes. */
+      sql.exec("SELECT json FROM messages ORDER BY seq").flatMap((r) => Option.toArray(decodeMessage(str(r.json)))),
     append: (m: MessageParam) => {
       sql.exec("INSERT INTO messages (json) VALUES (?)", encodeMessage(m));
     },
 
-    /** Moves the whole conversation to `archived_messages`; the next turn starts empty. */
     archiveHistory: () => {
       sql.exec("INSERT INTO archived_messages (json) SELECT json FROM messages ORDER BY seq");
       sql.exec("DELETE FROM messages");
@@ -102,10 +101,7 @@ export const makeStore = (sql: Sql) => {
     },
 
     plans: (): Array<StoredRecord> =>
-      sql.exec("SELECT json FROM plans ORDER BY seq").flatMap((r) => {
-        const p = decodeRecord(str(r.json));
-        return p._tag === "Some" ? [p.value] : [];
-      }),
+      sql.exec("SELECT json FROM plans ORDER BY seq").flatMap((r) => Option.toArray(decodeRecord(str(r.json)))),
     savePlan: (p: StoredRecord) => {
       sql.exec("INSERT INTO plans (id, json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json", p.record.plan.id, encodeRecord(p));
     },
@@ -124,11 +120,11 @@ export const makeStore = (sql: Sql) => {
         created_at: str(r.created_at),
         first_accessed_at: strOrNull(r.first_accessed_at),
       })),
-    /** Replaces the snapshot and records which folder it is of. */
     saveSnapshot: (files: ReadonlyArray<WalkedFile>, rootId: number) =>
       sql.transaction(() => {
         sql.exec("DELETE FROM files");
         sql.exec("INSERT OR REPLACE INTO secrets (key, value) VALUES ('snapshot_root', ?)", String(rootId));
+
         for (const f of files) {
           sql.exec(
             "INSERT INTO files VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

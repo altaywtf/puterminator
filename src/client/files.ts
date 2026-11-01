@@ -10,7 +10,7 @@ type H = HtmlBuilder<Message>;
 
 const TREE_CAP = 300;
 
-export const libraryIndex = (model: Model): Index | null => (model.library ? indexOf(model.library) : null);
+const libraryIndex = (model: Model): Index | null => (model.library ? indexOf(model.library) : null);
 
 const putioLink = (h: H, n: Node): Html =>
   !isRegular(n)
@@ -27,14 +27,12 @@ const putioLink = (h: H, n: Node): Html =>
     ["↗"],
   );
 
-// ---------- tree drawer ----------
-
-/** One `tree` line: the guides, ▸/▾ and the name, then size, ▶ for videos and ↗ for put.io. */
 const treeRow = (h: H, model: Model, ix: Index, n: Node, prefix: string, last: boolean): Html[] => {
   const folder = isFolder(n);
   const open = folder && model.treeExpanded.includes(n.id);
   const focused = model.treeFocus === n.id;
   const note = [...(n.junk > 0 ? [`${fmt(n.junk)} junk`] : []), ...(n.unplayed > 0 && folder ? [`${fmt(n.unplayed)} unplayed`] : [])].join(", ");
+
   const row = h.div(
     [
       h.Id(treeNodeId(n.id)),
@@ -57,7 +55,6 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, prefix: string, last: b
           h.span([h.Class("flex-none text-fg-4/60"), h.AriaHidden(true)], [`${prefix}${last ? "└─ " : "├─ "}`]),
           h.span([h.Class("flex-none text-fg-4"), h.AriaHidden(true)], [folder ? (open ? "▾ " : "▸ ") : ""]),
           h.span([h.Class(`min-w-0 truncate ${folder ? "text-fg" : has(n, FileFlag.junk) ? "text-fg-4" : "text-fg-2"}`)], [folder ? `${n.name}/` : n.name]),
-          // The comment gives way before the name does.
           ...(note ? [h.span([h.Class("ms-2 min-w-0 shrink-[999] truncate text-fg-4 max-[480px]:hidden")], [`# ${note}`])] : []),
         ],
       ),
@@ -78,11 +75,13 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, prefix: string, last: b
       ),
     ],
   );
+
   if (!open) return [row];
   const kids = n.children.map((c) => ix.nodes.get(c)).filter((c) => c !== undefined);
   const inner = `${prefix}${last ? "   " : "│  "}`;
   const allKey = `tree.${n.id}.all`;
   const shown = model.expanded.includes(allKey) ? kids : kids.slice(0, TREE_CAP);
+
   return [
     row,
     ...shown.flatMap((c, i) => treeRow(h, model, ix, c, inner, i === shown.length - 1 && shown.length === kids.length)),
@@ -100,9 +99,11 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, prefix: string, last: b
 /** The last scan as a tree, sizes against the largest sibling, in a drawer over the thread. */
 export const treeDrawer = (h: H, model: Model) => {
   const ix = libraryIndex(model);
+
   if (!ix) return [];
   const open = model.treeOpen;
   const tops = ix.top.map((id) => ix.nodes.get(id)).filter((n) => n !== undefined);
+
   return [
     ...(open
       ? [
@@ -146,12 +147,12 @@ export const treeDrawer = (h: H, model: Model) => {
   ];
 };
 
-// ---------- player ----------
-
 /** put.io's HLS stream in an overlay; Escape or the backdrop closes it. */
 export const playerView = (h: H, model: Model) => {
   const p = model.player;
+
   if (!p) return [];
+
   return [
     h.div(
       [

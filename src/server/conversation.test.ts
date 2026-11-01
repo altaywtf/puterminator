@@ -1,7 +1,8 @@
 import * as Effect from "effect/Effect";
+import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import { describe, expect, it } from "vitest";
-import type { MessageParam, ServerEvent } from "../shared/contract";
+import type { ClientEvent, MessageParam, ServerEvent } from "../shared/contract";
 import { makeAgent } from "./conversation";
 import { anthropicLayer } from "./runner";
 import { makeStore, month } from "./store";
@@ -35,8 +36,10 @@ const setup = async (
 ) => {
   const sql = memorySql();
   const store = makeStore(sql);
+
   for (const m of opts.history ?? []) store.append(m);
   const anthropic = makeFakeAnthropic(replies);
+
   const putio = makeFakePutio({
     files: opts.files ?? library,
     pageSize: 2,
@@ -47,9 +50,11 @@ const setup = async (
     failRenames: opts.failRenames ?? [],
     restoreLag: opts.restoreLag ?? 0,
   });
+
   const events: Array<ServerEvent> = [];
   const turns: Array<Promise<unknown>> = [];
   let disconnects = 0;
+
   const agent = await Effect.runPromise(
     makeAgent({
       store,
@@ -64,7 +69,9 @@ const setup = async (
       restoreRecheckMs: 0,
     }),
   );
+
   if (opts.token !== null) await Effect.runPromise(agent.setAuth(opts.token ?? "putio-token", "altay", null));
+
   return { sql, store, agent, anthropic, putio, events, settle: () => Promise.all(turns), disconnects: () => disconnects };
 };
 
@@ -74,25 +81,24 @@ describe("a turn", () => {
       { kind: "sse", events: toolUseTurn({ id: "toolu_1", name: "scan_library", inputJsonChunks: ["{", "}"] }, { input: 120, output: 40 }) },
       { kind: "sse", events: textTurn("Score 40. Junk in /Movies.", { input: 300, output: 12 }) },
     ]);
+
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
     await t.settle();
 
     const history = t.store.history();
-    expect(history.map((m) => [m.role, typeof m.content === "string" ? "text" : m.content.map((b) => b.type).join("+")])).toEqual([
+    expect(history.map((m) => [m.role, Predicate.isString(m.content) ? "text" : m.content.map((b) => b.type).join("+")])).toEqual([
       ["user", "text+text"],
       ["assistant", "thinking+tool_use"],
       ["user", "tool_result"],
       ["assistant", "text"],
     ]);
-    const thinking = history[1]?.content[0];
-    expect(typeof thinking === "object" && thinking.signature).toBe("c2lnLTE=");
+    expect(history[1]?.content[0]).toMatchObject({ signature: "c2lnLTE=" });
     const result = history[2]?.content[0];
-    expect(typeof result === "object" && result.tool_use_id).toBe("toolu_1");
-    const audit = JSON.parse(String(typeof result === "object" && JSON.stringify(result.content).match(/\{.*\}/)?.[0]?.replace(/\\"/g, '"')));
+    expect(result).toMatchObject({ tool_use_id: "toolu_1" });
+    const audit = JSON.parse(String(Predicate.isObject(result) && JSON.stringify(result.content).match(/\{.*\}/)?.[0]?.replace(/\\"/g, '"')));
     expect(audit.totals.items).toBe(4);
     expect(audit.junk.count).toBeGreaterThan(0);
 
-    // The second request carries the first exchange verbatim, thinking signature included.
     expect(t.anthropic.requests).toHaveLength(2);
     expect(t.anthropic.requests[1]?.body.messages).toEqual(JSON.parse(JSON.stringify(history.slice(0, 3))));
     const first = t.anthropic.requests[0];
@@ -108,15 +114,14 @@ describe("a turn", () => {
     expect(JSON.stringify(first?.body.tools)).not.toMatch(/minimum|maximum/);
     expect(first?.body.messages[0].content[1].text).toMatch(/^<context>Target folder: Your Files \(id 0\)\. No scan yet\./);
 
-    // Credits: (120 + 40*5) + (300 + 12*5) weighted tokens.
     const m = month(Date.now());
-    expect(t.store.used(m)).toBe(680);
-    expect(t.agent.state().credits).toEqual({ month: m, used: 680, cap: 1_000_000 });
+    const weightedTokens = (120 + 40 * 5) + (300 + 12 * 5);
+    expect(t.store.used(m)).toBe(weightedTokens);
+    expect(t.agent.state().credits).toEqual({ month: m, used: weightedTokens, cap: 1_000_000 });
 
     expect(t.agent.state().busy).toBe(false);
     expect(t.agent.state().lastAudit?.items).toBe(4);
     expect(t.store.snapshot()).toHaveLength(4);
-    // The browser's file index goes out after the scan and with every greeting.
     const lib = t.events.find((e) => e.type === "library");
     expect(lib?.type === "library" && lib.library.files.length).toBe(4);
     expect(lib?.type === "library" && lib.library.rootId).toBe(0);
@@ -125,7 +130,6 @@ describe("a turn", () => {
     expect(t.agent.greeting().map((e) => e.type)).toEqual(["state", "history", "library"]);
     expect(t.putio.log[0]?.url.searchParams.get("parent_id")).toBe("-1");
 
-    // Every appended message went out in order; partials streamed and were cleared.
     const sent = t.events.flatMap((e) => (e.type === "message" ? [e.message] : []));
     expect(sent).toEqual(history);
     expect(t.events.some((e) => e.type === "partial" && e.content !== null)).toBe(true);
@@ -151,6 +155,7 @@ describe("a turn", () => {
       [{ kind: "sse", events: toolUseTurn({ id: "toolu_9", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 2 }) }],
       { putioUnauthorized: true },
     );
+
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
     await t.settle();
     expect(t.anthropic.requests).toHaveLength(1);
@@ -171,9 +176,10 @@ describe("a turn", () => {
         { role: "assistant", content: [{ type: "tool_use", id: "toolu_old", name: "scan_library", input: {} }] },
       ],
     });
+
     await Effect.runPromise(t.agent.receive(send("hi")));
     await t.settle();
-    const sent = t.anthropic.requests[0]?.body.messages as Array<{ role: string; content: Array<{ type: string }> }>;
+    const sent: Array<{ role: string; content: Array<{ type: string }> }> = t.anthropic.requests[0]?.body.messages;
     expect(sent.map((m) => [m.role, m.content.map((b) => b.type)])).toEqual([
       ["user", ["text"]],
       ["assistant", ["tool_use"]],
@@ -204,6 +210,7 @@ describe("a turn", () => {
       ],
       { cap: 100 },
     );
+
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
     await t.settle();
     expect(t.anthropic.requests).toHaveLength(1);
@@ -222,6 +229,7 @@ describe("a turn", () => {
     const sql = memorySql();
     const store = makeStore(sql);
     store.saveState({ ...store.loadState(Date.now()), busy: true, username: "altay" });
+
     const agent = await Effect.runPromise(
       makeAgent({
         store,
@@ -235,10 +243,13 @@ describe("a turn", () => {
         },
       }),
     );
+
     expect(makeStore(sql).loadState(Date.now())).toMatchObject({ busy: false, username: "altay" });
+
     for (const bad of ["nope", '{"type":"send","text":"","folder":{"id":0,"name":"x"}}', '{"type":"delete"}']) {
       await Effect.runPromise(agent.receive(bad));
     }
+
     expect(agent.greeting().map((e) => e.type)).toEqual(["state", "history"]);
   });
 });
@@ -249,24 +260,29 @@ describe("previews", () => {
       { kind: "sse", events: toolUseTurn({ id: "toolu_1", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
       { kind: "sse", events: textTurn("done", { input: 1, output: 1 }) },
     ]);
+
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
     await t.settle();
 
     const hls = await Effect.runPromise(t.agent.stream(4));
     expect(hls).toMatch(/\/v2\/files\/4\/hls\/media\.m3u8\?.*oauth_token=dl-token/);
     expect(hls).not.toContain("putio-token");
-    expect(await Effect.runPromise(t.agent.stream(1))).toBeNull(); // a folder
-    expect(await Effect.runPromise(t.agent.stream(999))).toBeNull(); // not in the snapshot
+    const folderId = 1;
+    const unscannedId = 999;
+    expect(await Effect.runPromise(t.agent.stream(folderId))).toBeNull();
+    expect(await Effect.runPromise(t.agent.stream(unscannedId))).toBeNull();
     expect(await Effect.runPromise(t.agent.thumbnail(4))).toBe("https://img.put.io/s/4.jpg");
-    expect(await Effect.runPromise(t.agent.thumbnail(999))).toBeNull();
+    expect(await Effect.runPromise(t.agent.thumbnail(unscannedId))).toBeNull();
   });
 });
 
 
 describe("plans", () => {
   const WRITES = ["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/files/create-folder", "/v2/trash/restore"];
+
   const writes = (t: Awaited<ReturnType<typeof setup>>) =>
     t.putio.log.filter((r) => WRITES.includes(r.url.pathname)).map((r) => [r.url.pathname, Object.fromEntries(r.body)]);
+
   const proposal = JSON.stringify({
     title: "clean up Movies",
     changes: [
@@ -275,17 +291,22 @@ describe("plans", () => {
       { op: "move", path: "/Alien (1979).mkv", to: "/Movies/Alien (1979)/Alien (1979).mkv" },
     ],
   });
+
   const proposeTurn = (input = proposal): Array<Reply> => [
     { kind: "sse", events: toolUseTurn({ id: "toolu_p", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
     { kind: "sse", events: toolUseTurn({ id: "toolu_q", name: "propose_changes", inputJsonChunks: [input] }, { input: 10, output: 5 }) },
     { kind: "sse", events: textTurn("plan's up.", { input: 10, output: 5 }) },
   ];
+
   const planOf = (t: Awaited<ReturnType<typeof setup>>) => {
     const last = t.events.filter((e) => e.type === "plan").at(-1);
+
     if (last?.type !== "plan") throw new Error("no plan event");
+
     return last.record;
   };
-  const frame = (event: object) => JSON.stringify(event);
+
+  const frame = (event: ClientEvent) => JSON.stringify(event);
 
   it("stores a proposal and writes nothing until the user applies it", async () => {
     const t = await setup(proposeTurn());
@@ -402,6 +423,7 @@ describe("plans", () => {
         ],
       },
     );
+
     await Effect.runPromise(t.agent.receive(send("rename")));
     await t.settle();
     expect(planOf(t).plan.changes.map((c) => [c.op, c.path, c.to])).toEqual([
@@ -436,6 +458,7 @@ describe("plans", () => {
     const id = planOf(t).plan.id;
     await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
     await t.settle();
+
     return { t, id };
   };
 
@@ -449,6 +472,7 @@ describe("plans", () => {
         ],
       }),
     );
+
     expect(writes(t)).toEqual([
       ["/v2/files/rename", { file_id: "1", name: "Films" }],
       ["/v2/files/move", { file_ids: "4", parent_id: "1" }],
@@ -465,6 +489,7 @@ describe("plans", () => {
         ],
       }),
     );
+
     const before = writes(t).length;
     await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
     await t.settle();
@@ -513,6 +538,7 @@ describe("plans", () => {
       { kind: "sse", events: toolUseTurn({ id: "toolu_r", name: "propose_changes", inputJsonChunks: [proposal] }, { input: 10, output: 5 }) },
       { kind: "sse", events: textTurn("rescanning.", { input: 10, output: 5 }) },
     ]);
+
     await Effect.runPromise(t.agent.receive(send("go")));
     await t.settle();
     await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "send", text: "same in Movies", folder: { id: 1, name: "Movies" } })));
@@ -533,6 +559,7 @@ describe("plans", () => {
       }),
       { files: [file(10, 0, "A", "FOLDER"), file(11, 10, "C", "FOLDER"), file(12, 0, "x.txt", "TEXT", 10)] },
     );
+
     const created = writes(t).find(([p]) => p === "/v2/files/create-folder");
     expect(created?.[1]).toEqual({ name: "C", parent_id: "10" });
     expect(writes(t).filter(([p]) => p === "/v2/files/move")).not.toContainEqual(["/v2/files/move", { file_ids: "12", parent_id: "11" }]);
@@ -549,12 +576,14 @@ describe("plans", () => {
       }),
       { files: [file(10, 0, "A", "FOLDER"), file(13, 0, "B", "FOLDER"), file(12, 0, "x.txt", "TEXT", 10)], failRenames: [10] },
     );
+
     expect(planOf(t).run?.steps.map((s) => s.state)).toEqual(["failed", "done"]);
     expect(writes(t).find(([p]) => p === "/v2/files/create-folder")?.[1]).toEqual({ name: "A", parent_id: "0" });
   });
 
   it("rejects a plan whose subtitles would land on one path", async () => {
     const files = [file(20, 0, "A.mkv", "VIDEO", 2 ** 30), file(21, 0, "A.srt", "TEXT", 10), file(22, 0, "B.mp4", "VIDEO", 2 ** 30), file(23, 0, "B.srt", "TEXT", 10)];
+
     const bad = JSON.stringify({
       title: "x",
       changes: [
@@ -562,6 +591,7 @@ describe("plans", () => {
         { op: "rename", path: "/B.mp4", to: "X.mp4" },
       ],
     });
+
     const t = await setup(proposeTurn(bad), { files });
     await Effect.runPromise(t.agent.receive(send("go")));
     await t.settle();
@@ -585,7 +615,7 @@ describe("plans", () => {
     await Effect.runPromise(t.agent.receive(send("clean up")));
     await t.settle();
     expect(t.events.some((e) => e.type === "plan")).toBe(false);
-    const result = t.store.history().flatMap((m) => (typeof m.content === "string" ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_q");
+    const result = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_q");
     expect(String(result?.content)).toContain("not in the snapshot");
   });
 
@@ -594,7 +624,8 @@ describe("plans", () => {
     await Effect.runPromise(t.agent.receive(send("go")));
     await t.settle();
     expect(t.events.some((e) => e.type === "plan")).toBe(false);
-    const result = t.store.history().flatMap((m) => (typeof m.content === "string" ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_q");
+    const result = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_q");
+
     return String(result?.content);
   };
 
@@ -627,6 +658,7 @@ describe("plans", () => {
         ],
       },
     );
+
     await Effect.runPromise(t.agent.receive(send("rename")));
     await t.settle();
     const { plan } = planOf(t);
@@ -668,15 +700,17 @@ describe("plans", () => {
 
   it("ends the turn once a question is asked, and takes the answer next", async () => {
     const ask = JSON.stringify({ prompt: "which copy?", multi: false, options: [{ label: "a", detail: null }, { label: "b", detail: null }] });
+
     const t = await setup([
       { kind: "sse", events: toolUseTurn({ id: "toolu_a1", name: "ask_user", inputJsonChunks: [ask] }, { input: 10, output: 5 }) },
       { kind: "sse", events: textTurn("keeping a.", { input: 10, output: 5 }) },
     ]);
+
     await Effect.runPromise(t.agent.receive(send("which one?")));
     await t.settle();
     expect(t.anthropic.requests).toHaveLength(1);
     expect(t.agent.state().busy).toBe(false);
-    const results = t.store.history().flatMap((m) => (typeof m.content === "string" ? [] : m.content)).filter((b) => b.type === "tool_result");
+    const results = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).filter((b) => b.type === "tool_result");
     expect(String(results[0]?.content)).toContain('"prompt":"which copy?"');
     await Effect.runPromise(t.agent.receive(send("a")));
     await t.settle();
@@ -705,9 +739,10 @@ describe("download links", () => {
       { kind: "sse", events: toolUseTurn({ id: "toolu_l", name: "make_download_links", inputJsonChunks: [JSON.stringify({ paths: ["/Movies", "/Alien (1979).mkv"] })] }, { input: 10, output: 5 }) },
       { kind: "sse", events: textTurn("links are in the card.", { input: 10, output: 5 }) },
     ]);
+
     await Effect.runPromise(t.agent.receive(send("download links please")));
     await t.settle();
-    const out = t.store.history().flatMap((m) => (typeof m.content === "string" ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_l");
+    const out = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_l");
     expect(JSON.parse(String(out?.type === "tool_result" && out.content))).toEqual({ id: 70, files: 3 });
     expect(JSON.stringify(t.anthropic.requests)).not.toContain("dl.put.io");
     expect(await Effect.runPromise(t.agent.downloadLinks(70))).toEqual({
@@ -735,6 +770,7 @@ describe("threads", () => {
       { kind: "sse", events: textTurn("hi.", { input: 10, output: 5 }) },
       { kind: "sse", events: textTurn("fresh.", { input: 10, output: 5 }) },
     ]);
+
     await Effect.runPromise(t.agent.receive(send("hello")));
     await t.settle();
     await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "newThread" })));
@@ -749,15 +785,17 @@ describe("threads", () => {
 describe("repeated calls", () => {
   it("answers an identical read call in the same turn with a pointer, not a second result", async () => {
     const search = JSON.stringify({ query: "heat", category: "any", limit: 10 });
+
     const t = await setup([
       { kind: "sse", events: toolUseTurn({ id: "toolu_s0", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
       { kind: "sse", events: toolUseTurn({ id: "toolu_s1", name: "search_files", inputJsonChunks: [search] }, { input: 10, output: 5 }) },
       { kind: "sse", events: toolUseTurn({ id: "toolu_s2", name: "search_files", inputJsonChunks: [search] }, { input: 10, output: 5 }) },
       { kind: "sse", events: textTurn("found it.", { input: 10, output: 5 }) },
     ]);
+
     await Effect.runPromise(t.agent.receive(send("find heat")));
     await t.settle();
-    const results = t.store.history().flatMap((m) => (typeof m.content === "string" ? [] : m.content)).filter((b) => b.type === "tool_result");
+    const results = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).filter((b) => b.type === "tool_result");
     expect(String(results[1]?.content)).toContain('"total":1');
     expect(String(results[2]?.content)).toContain("already made this exact call");
   });

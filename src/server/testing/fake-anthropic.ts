@@ -1,10 +1,11 @@
-// Messages API streams at the fetch boundary, in the recorded SSE event shapes. No network.
+import type { Json } from "effect/Schema";
 
-type Ev = Record<string, unknown> & { type: string };
+type Ev = { readonly type: string; readonly [field: string]: Json };
+
 const enc = new TextEncoder();
 const frame = (e: Ev) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`;
 
-const start = (id: string, inputTokens: number): Ev => ({
+const start = (id: string, inputTokens: number) => ({
   type: "message_start",
   message: {
     id,
@@ -41,32 +42,36 @@ export const textTurn = (text: string, usage: { input: number; output: number })
   { type: "message_stop" },
 ];
 
-export type Reply =
-  | { kind: "sse"; events: Array<Ev> }
-  /** message_start, then nothing until the request signal aborts. */
-  | { kind: "hang" };
+/** `hang`: message_start, then nothing until the request signal aborts. */
+export type Reply = { kind: "sse"; events: Array<Ev> } | { kind: "hang" };
 
-export type AnthropicRequest = { body: any; headers: Headers };
+type AnthropicRequest = { body: any; headers: Headers };
 
 export const makeFakeAnthropic = (replies: Array<Reply>) => {
   const requests: Array<AnthropicRequest> = [];
   let aborted = false;
   let onHang: () => void = () => {};
+
   const hanging = new Promise<void>((resolve) => {
     onHang = resolve;
   });
+
   const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     requests.push({ body: JSON.parse(String(init?.body)), headers: new Headers(init?.headers) });
     const reply = replies.shift();
+
     if (!reply) throw new Error("fake anthropic: no reply scripted");
     const signal = init?.signal;
+
     const body = new ReadableStream<Uint8Array>({
       start(c) {
         if (reply.kind === "sse") {
           for (const e of reply.events) c.enqueue(enc.encode(frame(e)));
           c.close();
+
           return;
         }
+
         c.enqueue(enc.encode(frame(start("msg_hang", 1))));
         signal?.addEventListener("abort", () => {
           aborted = true;
@@ -75,7 +80,9 @@ export const makeFakeAnthropic = (replies: Array<Reply>) => {
         onHang();
       },
     });
+
     return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
   };
-  return { fetch: fetchImpl as typeof fetch, requests, wasAborted: () => aborted, hanging };
+
+  return { fetch: fetchImpl, requests, wasAborted: () => aborted, hanging };
 };

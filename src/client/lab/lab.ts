@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Match, Schema } from "effect";
 import { Runtime } from "foldkit";
 import type { Document, Html, HtmlBuilder } from "foldkit/html";
 import { PlanRecord } from "../../shared/actions";
@@ -8,17 +8,17 @@ import { toolCard } from "../cards";
 import { Message } from "../main";
 import { audits, folders, library, plans, questions, runs, searches, undos } from "./fixtures";
 
-// Dev-only gallery: every tool card, in every fixture state, through the same toolCard the thread uses.
-// Served by `pnpm lab` (vite) at /lab.html; `vite build` only builds index.html, so this never ships.
-
 const Model = Schema.Struct({ expanded: Schema.Array(Schema.String), library: Library, plans: Schema.Record(Schema.String, PlanRecord) });
+
 type Model = typeof Model.Type;
+
 type H = HtmlBuilder<Message>;
 
 const update = (model: Model, message: Message) =>
-  message._tag === "ToggledStep"
-    ? { model: { ...model, expanded: model.expanded.includes(message.key) ? model.expanded.filter((k) => k !== message.key) : [...model.expanded, message.key] } }
-    : { model };
+  Match.value(message).pipe(
+    Match.tag("ToggledStep", ({ key }) => ({ model: { ...model, expanded: model.expanded.includes(key) ? model.expanded.filter((k) => k !== key) : [...model.expanded, key] } })),
+    Match.orElse(() => ({ model })),
+  );
 
 const CASES: Array<{ tool: string; group: string; name: string; output: string }> = [
   ...audits.map(([name, a]) => ({ tool: "scan_library", group: "score", name, output: JSON.stringify(a) })),
@@ -76,7 +76,6 @@ const view = (model: Model, h: H): Document => ({
 Runtime.run(
   Runtime.makeApplication({
     Model,
-    // Fixture toggles (unticked rows, open groups, answers) start the lab in each state.
     init: () => ({ model: { expanded: [...plans, ...questions, ...runs].flatMap(([, , keys]) => keys), library, plans: {} } }),
     update,
     view,

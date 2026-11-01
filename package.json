@@ -15,7 +15,10 @@
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "plan": "vite build && DO_NOT_TRACK=1 alchemy plan --stage prod",
-    "deploy": "pnpm typecheck && pnpm test && vite build && DO_NOT_TRACK=1 alchemy deploy --stage prod"
+    "deploy": "pnpm verify && DO_NOT_TRACK=1 alchemy deploy --stage prod",
+    "lint": "oxlint",
+    "knip": "knip",
+    "verify": "pnpm typecheck && pnpm lint && pnpm knip && pnpm test && pnpm build"
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.84",
@@ -35,9 +38,13 @@
   "devDependencies": {
     "@effect/platform-node": "4.0.7",
     "@foldkit/vite-plugin": "0.28.0",
+    "@oxlint/plugins": "1.90.0",
     "@tailwindcss/vite": "4.3.3",
     "@types/mdast": "4.0.4",
     "@types/node": "26.6.5",
+    "@uinaf/oxlint-plugin-no-comments": "1.0.1",
+    "knip": "6.44.1",
+    "oxlint": "1.90.0",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "vite": "8.3.5",

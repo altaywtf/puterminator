@@ -1,10 +1,8 @@
+import { Match } from "effect";
 import type { Change, Plan, Question, Run } from "../../shared/actions";
 import type { Audit } from "../../shared/audit";
 import { FileFlag, type Library } from "../../shared/contract";
 import type { ListFolderOutput, SearchFilesOutput } from "../../shared/tools";
-
-// One small library and the tool outputs the cards render from it. Paths in every output point at
-// this library, so links, icons and size bars resolve the way they do after a real scan.
 
 const GB = 2 ** 30;
 const MB = 2 ** 20;
@@ -12,23 +10,29 @@ const { folder: F, video: V, played: P, junk: J, messy: M } = FileFlag;
 
 const files: Array<Library["files"][number]> = [];
 let next = 1;
+
 const add = (parent: number, name: string, bytes = 0, flags = 0) => {
   const id = next++;
   files.push([id, parent, name, bytes, flags]);
+
   return id;
 };
 
 const movies = add(0, "Movies", 0, F);
 const downloads = add(0, "Downloads", 0, F);
 const series = add(0, "Series", 0, F);
+
 add(0, "Courses", 0, F);
+
 add(0, "notes.txt", 4096);
 
 const FILMS = ["Arrival", "Heat", "Alien", "Dune", "Drive", "Fargo", "Memento", "Zodiac"];
+
 FILMS.forEach((t, i) => {
   const dir = add(movies, `${t} (${1979 + i * 4})`, 0, F);
   add(dir, `${t} (${1979 + i * 4}).mkv`, (2 + i) * GB, V | (i % 3 === 0 ? P : 0));
 });
+
 FILMS.slice(0, 4).forEach((t, i) => {
   const dir = add(downloads, `${t}.${1979 + i * 4}.1080p.BluRay.x264-RARBG`, 0, F);
   add(dir, `${t}.${1979 + i * 4}.1080p.BluRay.x264-RARBG.mkv`, (3 + i) * GB, V | M);
@@ -36,11 +40,15 @@ FILMS.slice(0, 4).forEach((t, i) => {
   add(dir, `${t}.${1979 + i * 4}.nfo`, 4096, J);
   add(dir, `${t.toLowerCase()}-sample.mkv`, 30 * MB, V | J);
 });
+
 add(downloads, "The.Extremely.Long.Release.Name.Of.A.Documentary.Series.Complete.2160p.UHD.BluRay.REMUX.HDR.HEVC.Atmos-GROUP.mkv", 48 * GB, V | M);
+
 ["Severance", "Andor"].forEach((show) => {
   const s = add(series, show, 0, F);
+
   for (let season = 1; season <= 2; season++) {
     const dir = add(s, `Season ${season}`, 0, F);
+
     for (let ep = 1; ep <= 8; ep++) add(dir, `${show} - S0${season}E0${ep}.mkv`, 1.4 * GB, V | (season === 1 ? P : 0));
   }
 });
@@ -56,6 +64,7 @@ const junk = [
   { path: "/Downloads/Alien.1987.1080p.BluRay.x264-RARBG/RARBG.txt", size: 1024, why: "tracker filler" },
   { path: "/Downloads/Dune.1991.1080p.BluRay.x264-RARBG/dune-sample.mkv", size: 30 * MB, why: "sample clip" },
 ];
+
 const unplayed = [
   { path: "/Downloads/The.Extremely.Long.Release.Name.Of.A.Documentary.Series.Complete.2160p.UHD.BluRay.REMUX.HDR.HEVC.Atmos-GROUP.mkv", size: 48 * GB, why: "never played" },
   { path: "/Movies/Zodiac (2007)/Zodiac (2007).mkv", size: 9 * GB, why: "never played" },
@@ -89,6 +98,7 @@ export const audits: Array<[string, Audit]> = [
 
 const listing = (path: string, parent: number): ListFolderOutput => {
   const kids = files.filter((f) => f[1] === parent);
+
   return {
     path,
     count: kids.length,
@@ -114,8 +124,6 @@ export const searches: Array<[string, SearchFilesOutput]> = [
   ["one match", found([unplayed[1]?.path ?? ""], 1, "9.0 GB")],
   ["no match", found([], 0, "0 MB")],
 ];
-
-// ---------- action cards ----------
 
 const trash = (id: string, path: string, bytes: number): Change => ({ id, op: "trash", path, to: null, bytes });
 const FILMS_DL = FILMS.slice(0, 4).map((t, i) => ({ t, year: 1979 + i * 4, dir: `/Downloads/${t}.${1979 + i * 4}.1080p.BluRay.x264-RARBG` }));
@@ -163,6 +171,7 @@ export const questions: Array<[string, Question, string[]]> = [
 
 const steps = (states: Array<Run["steps"][number]["state"]>, fail: Record<number, string> = {}): Run["steps"] =>
   cleanup.map((c, i) => ({ change: c.id, state: states[i] ?? "queued", error: fail[i] ?? null }));
+
 const run = (id: string, s: Run["steps"]): Run => ({ id, title: "clean up Downloads", changes: cleanup, steps: s });
 const N = cleanup.length;
 
@@ -174,13 +183,16 @@ export const runs: Array<[string, Run, string[]]> = [
 ];
 
 const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+
 const back: Run["changes"] = [...cleanup].reverse().map((c) =>
-  c.op === "trash"
-    ? { ...c, op: "restore" as const }
-    : c.op === "rename"
-      ? { ...c, path: `${c.path.slice(0, c.path.lastIndexOf("/"))}/${c.to ?? ""}`, to: nameOf(c.path), bytes: 0 }
-      : { ...c, path: c.to ?? c.path, to: c.path, bytes: 0 },
+  Match.value(c.op).pipe(
+    Match.when("trash", (): Change => ({ ...c, op: "restore" })),
+    Match.when("rename", (): Change => ({ ...c, path: `${c.path.slice(0, c.path.lastIndexOf("/"))}/${c.to ?? ""}`, to: nameOf(c.path), bytes: 0 })),
+    Match.whenOr("move", "restore", (): Change => ({ ...c, path: c.to ?? c.path, to: c.path, bytes: 0 })),
+    Match.exhaustive,
+  ),
 );
+
 const undoRun = (id: string, states: Array<Run["steps"][number]["state"]>, fail: Record<number, string> = {}): Run => ({
   id,
   title: "clean up Downloads",

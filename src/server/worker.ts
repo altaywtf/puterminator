@@ -5,20 +5,21 @@ import { WORKER_ROUTES } from "../shared/contract";
 import Puterminator from "./agent";
 import { readConfig } from "./config";
 import { upstreamFetch } from "./dev";
-import { makeHandler } from "./routes";
+// oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- composition root: the Worker wires route dependencies here
+import { makeHandler, type RouteDeps } from "./routes";
 
-export const DOMAIN = "puterminator.uinaf.dev";
+const DOMAIN = "puterminator.uinaf.dev";
+const LIVE_SCRIPT_NAME = "puterminator";
+const BUNDLED_WORKERD_MAX_COMPATIBILITY_DATE = "2026-10-19";
 
 export default Cloudflare.Worker(
   "Worker",
   {
     main: import.meta.url,
-    // The live script's name; adoption matches it.
-    name: "puterminator",
+    name: LIVE_SCRIPT_NAME,
     domain: { name: DOMAIN, zoneName: "uinaf.dev" },
     workersDev: false,
-    // The workerd bundled with @alchemy.run/cloudflare 2.0.0-beta.84 accepts dates up to 2026-10-19.
-    compatibility: { flags: ["nodejs_compat"], date: "2026-10-19" },
+    compatibility: { flags: ["nodejs_compat"], date: BUNDLED_WORKERD_MAX_COMPATIBILITY_DATE },
     observability: { enabled: true },
     assets: {
       directory: "./dist",
@@ -27,20 +28,17 @@ export default Cloudflare.Worker(
     },
   },
   Effect.gen(function* () {
-    // Every Config read here becomes a secret binding on deploy. An upload replaces the whole
-    // binding set, so a live secret not read here is deleted.
     const config = yield* readConfig;
     const publicUrl = yield* Cloudflare.Worker.URL;
     const agents = yield* Puterminator;
-    const handle = makeHandler({
-      config,
-      agentFor: (uid) => agents.getByName(uid),
-      ...(config.devUpstream ? { putioFetch: upstreamFetch(config.devUpstream) } : {}),
-    });
+
+    const deps: RouteDeps = { config, agentFor: (uid) => agents.getByName(uid) };
+    const handle = makeHandler(config.devUpstream ? { ...deps, putioFetch: upstreamFetch(config.devUpstream) } : deps);
 
     return {
       fetch: Effect.gen(function* () {
         const request = yield* HttpServerRequest;
+
         return yield* handle(request, yield* publicUrl);
       }),
     };

@@ -55,6 +55,7 @@ describe("ServerEvent", () => {
       { type: "history", messages: [{ role: "user", content: "hi" }] },
       { type: "error", message: "Something broke on my side. Try again in a moment." },
     ];
+
     for (const event of events) expect(decodeServer(encodeServer(event))).toEqual(event);
   });
 
@@ -66,6 +67,7 @@ describe("ServerEvent", () => {
       lastAudit: { at: "2026-10-28T10:00:00.000Z", rootName: "Your Files", score: 71, items: 5120 },
       busy: false,
     };
+
     expect(Schema.decodeUnknownSync(AgentState)(v1)).toEqual(v1);
   });
 });
@@ -78,6 +80,7 @@ describe("Audit", () => {
       { id: 3, parent_id: 1, name: "RARBG_DO_NOT_MIRROR.exe", file_type: "FILE", size: 100 },
       { id: 4, parent_id: 0, name: "The Office S02E01 1080p WEB.mkv", file_type: "VIDEO", size: 2 * 2 ** 30 },
     ].map((f) => ({ ...f, extension: null, crc32: null, created_at: "2026-01-01T00:00:00", first_accessed_at: null }));
+
     const result = audit(buildTree(flat, 0).files, "Your Files", false);
     expect(result.junk.count).toBeGreaterThan(0);
     expect(result.duplicates.groups).toBe(1);

@@ -1,24 +1,26 @@
 import * as Config from "effect/Config";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Record from "effect/Record";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { DevUpstream } from "./dev";
 
-// Secrets arrive as untyped strings; a blank one must stop sign-in, not leak "undefined" into a put.io URL.
 const Secret = Schema.String.check(
   Schema.makeFilter((s: string) => {
     const t = s.trim();
+
     return (t.length > 0 && t !== "undefined" && t !== "null") || "must be set";
   }),
 );
+
 const AuthFields = {
   PUTIO_CLIENT_ID: Secret,
   PUTIO_CLIENT_SECRET: Secret,
   SESSION_SECRET: Secret.check(Schema.isMinLength(32)),
 } as const;
 
-export type AuthConfig = {
+type AuthConfig = {
   readonly putioClientId: string;
   readonly putioClientSecret: Redacted.Redacted<string>;
   readonly sessionSecret: Redacted.Redacted<string>;
@@ -34,22 +36,25 @@ export type AppConfig = {
   readonly devUpstream: string | null;
 };
 
-/** The keys that fail validation. Names only: values never reach a log. */
-export const invalidAuthKeys = (raw: { readonly [K in keyof typeof AuthFields]: string }) =>
-  (Object.keys(AuthFields) as Array<keyof typeof AuthFields>).filter((k) => !Schema.is(AuthFields[k])(raw[k]));
+const invalidAuthKeys = (raw: { readonly [K in keyof typeof AuthFields]: string }) =>
+  Record.keys(AuthFields).filter((k) => !Schema.is(AuthFields[k])(raw[k]));
 
-export const validateAuth = (raw: { readonly [K in keyof typeof AuthFields]: string }) =>
+const validateAuth = (raw: { readonly [K in keyof typeof AuthFields]: string }) =>
   Effect.gen(function* () {
     const bad = invalidAuthKeys(raw);
+
     if (bad.length > 0) {
       yield* Effect.logWarning(`sign-in is not configured: ${bad.join(", ")}`);
+
       return null;
     }
+
     const auth: AuthConfig = {
       putioClientId: raw.PUTIO_CLIENT_ID.trim(),
       putioClientSecret: Redacted.make(raw.PUTIO_CLIENT_SECRET.trim()),
       sessionSecret: Redacted.make(raw.SESSION_SECRET),
     };
+
     return auth;
   });
 
@@ -66,11 +71,14 @@ export const readConfig = Effect.gen(function* () {
   const model = yield* Config.String("MODEL").pipe(Config.withDefault("claude-sonnet-5-5"));
   const monthlyTokenCap = yield* Config.Int("MONTHLY_TOKEN_CAP").pipe(Config.withDefault(1_000_000));
   const devUpstream = Option.getOrNull(yield* Config.schema(DevUpstream, "DEV_FAKE_UPSTREAM").pipe(Config.option));
+
   const auth = yield* validateAuth({
     PUTIO_CLIENT_ID,
     PUTIO_CLIENT_SECRET: Redacted.value(PUTIO_CLIENT_SECRET),
     SESSION_SECRET: Redacted.value(SESSION_SECRET),
   });
+
   const config: AppConfig = { auth, anthropicApiKey, model, monthlyTokenCap, devUpstream };
+
   return config;
 });

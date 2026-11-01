@@ -1,4 +1,5 @@
-// put.io at the fetch boundary, in the API's recorded response shapes. No network.
+import * as Predicate from "effect/Predicate";
+import type { Json } from "effect/Schema";
 
 export const file = (id: number, parent_id: number, name: string, file_type: "FOLDER" | "VIDEO" | "TEXT", size = 0) => ({
   content_type: file_type === "FOLDER" ? "application/x-directory" : "video/mp4",
@@ -39,86 +40,119 @@ export type FakePutioOptions = {
   restoreLag?: number;
 };
 
-export type PutioRequest = { method: string; url: URL; body: URLSearchParams };
+type PutioRequest = { method: string; url: URL; body: URLSearchParams };
 
 export const makeFakePutio = (opts: FakePutioOptions) => {
   const log: Array<PutioRequest> = [];
   let limited = opts.rateLimitContinue?.times ?? 0;
-  const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+
+  const json = (status: number, body: Json, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
+
   const lagging = new Map<number, number>();
   const linkJobs = new Map<number, number[]>();
   let tree = [...opts.files];
   const trash: typeof tree = [];
   let listing = tree;
+
   const page = (offset: number) => {
     const next = offset + opts.pageSize;
+
     return { files: listing.slice(offset, next), cursor: next < listing.length ? `c${next}` : null };
   };
 
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    const url = new URL(Predicate.isString(input) ? input : input instanceof URL ? input.href : input.url);
     const body = new URLSearchParams(init?.body == null ? "" : String(init.body));
     log.push({ method: init?.method ?? "GET", url, body });
+
     if (opts.unauthorized) return json(401, { status: "ERROR", error_type: "invalid_grant", status_code: 401 });
 
     if (url.pathname === "/v2/files/list") {
       listing = tree.filter((f) => !lagging.has(f.id));
-      for (const [id, n] of lagging) n <= 1 ? lagging.delete(id) : lagging.set(id, n - 1);
+
+      for (const [id, n] of lagging) {
+        if (n <= 1) lagging.delete(id);
+        else lagging.set(id, n - 1);
+      }
+
       return json(200, { ...page(0), parent: null, status: "OK" });
     }
+
     if (url.pathname === "/v2/files/list/continue") {
       if (limited > 0 && opts.rateLimitContinue) {
         limited--;
+
         return json(
           429,
           { status: "ERROR", error_type: "RATE_LIMITED", status_code: 429 },
           { "x-ratelimit-reset": String(opts.rateLimitContinue.resetAt), "x-ratelimit-limit": "1000", "x-ratelimit-remaining": "0" },
         );
       }
+
       return json(200, { ...page(Number((body.get("cursor") ?? "c0").slice(1))), status: "OK" });
     }
+
     if (url.pathname === "/v2/account/info" && url.searchParams.get("download_token") === "1")
       return json(200, { info: { user_id: 1, username: "altay", download_token: "dl-token" }, status: "OK" });
+
     if (url.pathname === "/v2/account/settings") return json(200, { settings: { trash_enabled: opts.trashEnabled ?? true }, status: "OK" });
+
     if (url.pathname === "/v2/download_links/create") {
       const id = 70 + linkJobs.size;
       linkJobs.set(id, (body.get("file_ids") ?? "").split(",").map(Number));
+
       return json(200, { id, status: "OK" });
     }
+
     const job = url.pathname.match(/^\/v2\/download_links\/(\d+)$/);
+
     if (job) {
       const ids = linkJobs.get(Number(job[1]));
+
       if (!ids) return json(404, { status: "ERROR", error_type: "NOT_FOUND", status_code: 404 });
       const files = ids.flatMap((id) => tree.filter((f) => (f.id === id || f.parent_id === id) && f.file_type !== "FOLDER"));
       const links = files.map((f) => `https://dl.put.io/files/${f.id}/${encodeURIComponent(f.name)}`);
+
       return json(200, { links_status: "DONE", links: { download_links: links, media_links: [], mp4_links: [] }, status: "OK" });
     }
+
     const target = Number(body.get("file_ids") ?? body.get("file_id") ?? NaN);
     const fails = (opts.failWrites ?? []).includes(target);
+
     if (url.pathname === "/v2/trash/restore" && !fails && opts.restoreLag) lagging.set(target, opts.restoreLag);
+
     if (["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/trash/restore"].includes(url.pathname)) {
       if (fails || (url.pathname === "/v2/files/rename" && (opts.failRenames ?? []).includes(target)))
         return json(400, { status: "ERROR", error_type: "LOCKED", status_code: 400 });
+
       if (url.pathname !== "/v2/trash/restore" && !tree.some((f) => f.id === target)) return json(404, { status: "ERROR", error_type: "NOT_FOUND", status_code: 404 });
       const edit = (f: (typeof tree)[number]) => (f.id === target ? { ...f, ...(url.pathname.endsWith("rename") ? { name: body.get("name") ?? f.name } : { parent_id: Number(body.get("parent_id")) }) } : f);
+
       if (url.pathname === "/v2/files/delete") {
         trash.push(...tree.filter((f) => f.id === target));
         tree = tree.filter((f) => f.id !== target);
       } else if (url.pathname === "/v2/trash/restore") {
         tree = [...tree, ...trash.filter((f) => f.id === target)];
       } else tree = tree.map(edit);
+
       return (opts.dropWrites ?? []).includes(target) ? json(502, { status: "ERROR" }) : json(200, { status: "OK", errors: [] });
     }
+
     if (url.pathname === "/v2/files/create-folder") {
       const created = file(9000 + log.length, Number(body.get("parent_id")), body.get("name") ?? "", "FOLDER");
       tree = [...tree, created];
+
       return json(200, { file: created, status: "OK" });
     }
+
     const one = url.pathname.match(/^\/v2\/files\/(\d+)$/);
     const found = one && opts.files.find((f) => f.id === Number(one[1]));
+
     if (found) return json(200, { file: { ...found, screenshot: `https://img.put.io/s/${found.id}.jpg` }, status: "OK" });
+
     return json(404, { status: "ERROR", error_type: "NOT_FOUND", status_code: 404 });
   };
-  return { fetch: fetchImpl as typeof fetch, log };
+
+  return { fetch: fetchImpl, log };
 };

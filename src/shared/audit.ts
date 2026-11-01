@@ -1,9 +1,8 @@
 import * as Schema from "effect/Schema";
 
-/** The `scan_library` tool result, as `audit()` in src/server/audit.ts returns it. The score card decodes it. */
-
 const Finding = Schema.Struct({ path: Schema.String, size: Schema.Finite, why: Schema.String });
 
+/** The `scan_library` tool result, as `audit()` in src/server/audit.ts returns it. The score card decodes it. */
 export const Audit = Schema.Struct({
   at: Schema.String,
   rootName: Schema.String,
@@ -40,4 +39,5 @@ export const Audit = Schema.Struct({
   }),
   neverPlayed: Schema.Struct({ count: Schema.Finite, bytes: Schema.Finite, examples: Schema.Array(Finding) }),
 });
+
 export type Audit = typeof Audit.Type;
