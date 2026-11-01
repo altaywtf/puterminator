@@ -9,6 +9,7 @@ import logoUrl from "./logo.svg?inline";
 import { COMPOSER_ID, isBusy, isLocked, LENGTH_ERROR, Message, type Model, Session, THREAD_ID } from "./main";
 import { toolCard } from "./cards";
 import { playerView, treeDrawer } from "./files";
+import { landingView } from "./landing";
 import { renderMarkdown } from "./markdown";
 import { callLine, describeStep, fmt } from "./steps";
 import { thoughtSeconds } from "./thinking";
@@ -556,7 +557,7 @@ export const view = (model: Model, h: H): Document => ({
   title: "puterminator",
   body: Session.match(model.session, {
     Loading: () => loadingView(h),
-    SignedOut: ({ configured }) => signInView(h, configured ? "ready" : "unconfigured"),
+    SignedOut: ({ configured }) => (configured ? landingView(h, model) : signInView(h, "unconfigured")),
     Failed: () => signInView(h, "failed"),
     SignedIn: () => threadPage(h, model),
   }),
