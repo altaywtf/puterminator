@@ -210,11 +210,17 @@ export const makeAgent = (deps: AgentDeps) =>
       };
     };
 
+    let latestScan = 0;
+
     const scan = Effect.gen(function* () {
+      const scanNumber = ++latestScan;
       const { id, name } = state.folder;
       const tree = buildTree(yield* listAll, id);
-      store.saveSnapshot(tree.files, id);
       const a = audit(tree.files, id === 0 ? name : tree.rootName, false, new Date(yield* Clock.currentTimeMillis), id === 0 ? "" : tree.rootName);
+      const superseded = scanNumber !== latestScan || id !== state.folder.id;
+
+      if (superseded) return a;
+      store.saveSnapshot(tree.files, id);
       setState({ ...state, lastAudit: { at: a.at, rootName: a.rootName, score: a.score, items: a.totals.items } });
       const lib = library();
 

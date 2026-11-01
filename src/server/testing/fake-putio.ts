@@ -38,6 +38,8 @@ export type FakePutioOptions = {
   dropWrites?: ReadonlyArray<number>;
   /** A restored file stays out of this many following listings, as put.io restores in the background. */
   restoreLag?: number;
+  /** The first listing waits for this, as when put.io answers slowly. */
+  holdFirstListing?: Promise<void>;
 };
 
 type PutioRequest = { method: string; url: URL; body: URLSearchParams };
@@ -51,6 +53,7 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
 
   const lagging = new Map<number, number>();
   const linkJobs = new Map<number, number[]>();
+  let heldListing = false;
   let tree = [...opts.files];
   const trash: typeof tree = [];
   let listing = tree;
@@ -69,7 +72,14 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     if (opts.unauthorized) return json(401, { status: "ERROR", error_type: "invalid_grant", status_code: 401 });
 
     if (url.pathname === "/v2/files/list") {
-      listing = tree.filter((f) => !lagging.has(f.id));
+      const snapshot = tree.filter((f) => !lagging.has(f.id));
+
+      if (opts.holdFirstListing && !heldListing) {
+        heldListing = true;
+        await opts.holdFirstListing;
+      }
+
+      listing = snapshot;
 
       for (const [id, n] of lagging) {
         if (n <= 1) lagging.delete(id);

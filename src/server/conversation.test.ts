@@ -33,6 +33,7 @@ const setup = async (
     restoreLag?: number;
     files?: typeof library;
     seed?: (store: ReturnType<typeof makeStore>) => void;
+    holdFirstListing?: Promise<void>;
   } = {},
 ) => {
   const sql = memorySql();
@@ -51,6 +52,7 @@ const setup = async (
     dropWrites: opts.dropWrites ?? [],
     failRenames: opts.failRenames ?? [],
     restoreLag: opts.restoreLag ?? 0,
+    holdFirstListing: opts.holdFirstListing ?? Promise.resolve(),
   });
 
   const events: Array<ServerEvent> = [];
@@ -758,6 +760,28 @@ describe("library freshness", () => {
     fresh.agent.connected();
     await fresh.settle();
     expect(listings(fresh)).toBe(0);
+  });
+
+  it("never lets a slow background refresh overwrite a newer scan of another folder", async () => {
+    let release = () => {};
+    const slow = new Promise<void>((resolve) => (release = resolve));
+
+    const t = await setup(
+      [
+        { kind: "sse", events: toolUseTurn({ id: "toolu_m", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
+        { kind: "sse", events: textTurn("scanned.", { input: 10, output: 5 }) },
+      ],
+      { seed: scanned("2026-01-01T00:00:00.000Z"), holdFirstListing: slow },
+    );
+
+    t.agent.connected();
+    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "send", text: "scan movies", folder: { id: 1, name: "Movies" } })));
+
+    for (let i = 0; i < 100 && t.agent.state().lastAudit?.rootName !== "Movies"; i++) await new Promise((r) => setTimeout(r, 10));
+    release();
+    await t.settle();
+    expect(t.store.secret("snapshot_root")).toBe("1");
+    expect(t.agent.state().lastAudit?.rootName).toBe("Movies");
   });
 
   it("tells the model how old the last scan is", async () => {
