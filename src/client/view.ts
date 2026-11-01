@@ -20,10 +20,11 @@ type ToolItem = Extract<Item, { kind: "tool" }>;
 type ThinkingItem = Extract<Item, { kind: "thinking" }>;
 
 const STARTERS: Array<[prompt: string, does: string]> = [
+  ["what can you do?", "a short tour, then a first step"],
   ["audit my library", "score naming, junk, duplicates"],
-  ["find junk files", "tracker filler, samples, .nfo"],
-  ["what did i never play?", "the biggest files nobody opened"],
+  ["what’s eating my space?", "the biggest files, doubles, things nobody played"],
   ["clean up my downloads", "a diff you approve before anything moves"],
+  ["download links for my biggest files", "direct links to paste anywhere"],
 ];
 
 const LOW_CREDITS = 100;
@@ -499,7 +500,7 @@ const emptyThread = (h: H, model: Model) => {
               art(h, "idle", 56),
               h.h1([h.Class("m-0 font-display text-[36px] leading-[1.1] font-medium text-fg-strong")], [model.agent?.username ? `hi ${model.agent.username}.` : "hi."]),
               h.p([h.Class("m-0 max-w-[52ch] text-fg-2")], [
-                "i’m puterminator. i read your put.io library, score the mess and tell you what to fix. ask me anything about your files, or start with one of these:",
+                "i’m puterminator. i read your put.io library and help you tidy it: i find junk and doubles, rename and sort things, play a file or hand you download links. nothing changes until you approve a diff, and you can undo it. ask me anything, or start here:",
               ]),
             ],
           ),
