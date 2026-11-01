@@ -28,6 +28,7 @@ const setup = async (
     trashEnabled?: boolean;
     failWrites?: Array<number>;
     dropWrites?: Array<number>;
+    failRenames?: Array<number>;
     restoreLag?: number;
     files?: typeof library;
   } = {},
@@ -43,10 +44,12 @@ const setup = async (
     trashEnabled: opts.trashEnabled ?? true,
     failWrites: opts.failWrites ?? [],
     dropWrites: opts.dropWrites ?? [],
+    failRenames: opts.failRenames ?? [],
     restoreLag: opts.restoreLag ?? 0,
   });
   const events: Array<ServerEvent> = [];
   const turns: Array<Promise<unknown>> = [];
+  let disconnects = 0;
   const agent = await Effect.runPromise(
     makeAgent({
       store,
@@ -55,13 +58,14 @@ const setup = async (
       anthropic: anthropicLayer({ apiKey: Redacted.make("sk-test"), fetch: anthropic.fetch, maxRetries: 0 }),
       putioFetch: putio.fetch,
       broadcast: (e) => events.push(e),
+      disconnect: () => disconnects++,
       background: (effect) => turns.push(Effect.runPromiseExit(effect)),
       partialEveryMs: 0,
       restoreRecheckMs: 0,
     }),
   );
   if (opts.token !== null) await Effect.runPromise(agent.setAuth(opts.token ?? "putio-token", "altay", null));
-  return { sql, store, agent, anthropic, putio, events, settle: () => Promise.all(turns) };
+  return { sql, store, agent, anthropic, putio, events, settle: () => Promise.all(turns), disconnects: () => disconnects };
 };
 
 describe("a turn", () => {
@@ -224,6 +228,7 @@ describe("a turn", () => {
         monthlyTokenCap: 1,
         anthropic: anthropicLayer({ apiKey: Redacted.make("sk-test"), fetch: makeFakeAnthropic([]).fetch }),
         broadcast: () => {},
+        disconnect: () => {},
         background: () => {
           throw new Error("no turn may start");
         },
@@ -501,6 +506,78 @@ describe("plans", () => {
     expect(planOf(t).run?.steps.every((s) => s.state === "failed" && s.error === "made in Your Files; switch back to it first")).toBe(true);
   });
 
+  it("rejects a proposal against a scan of another folder", async () => {
+    const t = await setup([
+      ...proposeTurn(),
+      { kind: "sse", events: toolUseTurn({ id: "toolu_r", name: "propose_changes", inputJsonChunks: [proposal] }, { input: 10, output: 5 }) },
+      { kind: "sse", events: textTurn("rescanning.", { input: 10, output: 5 }) },
+    ]);
+    await Effect.runPromise(t.agent.receive(send("go")));
+    await t.settle();
+    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "send", text: "same in Movies", folder: { id: 1, name: "Movies" } })));
+    await t.settle();
+    expect(t.events.filter((e) => e.type === "plan")).toHaveLength(1);
+    expect(JSON.stringify(t.store.history().at(-2))).toContain("The last scan is of another folder");
+  });
+
+  it("follows folders the plan already renamed when a later change names their old path", async () => {
+    const { t } = await applied(
+      JSON.stringify({
+        title: "nested",
+        changes: [
+          { op: "rename", path: "/A", to: "B" },
+          { op: "rename", path: "/A/C", to: "D" },
+          { op: "move", path: "/x.txt", to: "/B/C/x.txt" },
+        ],
+      }),
+      { files: [file(10, 0, "A", "FOLDER"), file(11, 10, "C", "FOLDER"), file(12, 0, "x.txt", "TEXT", 10)] },
+    );
+    const created = writes(t).find(([p]) => p === "/v2/files/create-folder");
+    expect(created?.[1]).toEqual({ name: "C", parent_id: "10" });
+    expect(writes(t).filter(([p]) => p === "/v2/files/move")).not.toContainEqual(["/v2/files/move", { file_ids: "12", parent_id: "11" }]);
+  });
+
+  it("knows where a moved folder is when its rename fails", async () => {
+    const { t } = await applied(
+      JSON.stringify({
+        title: "partial",
+        changes: [
+          { op: "move", path: "/A", to: "/B/C" },
+          { op: "move", path: "/x.txt", to: "/A/x.txt" },
+        ],
+      }),
+      { files: [file(10, 0, "A", "FOLDER"), file(13, 0, "B", "FOLDER"), file(12, 0, "x.txt", "TEXT", 10)], failRenames: [10] },
+    );
+    expect(planOf(t).run?.steps.map((s) => s.state)).toEqual(["failed", "done"]);
+    expect(writes(t).find(([p]) => p === "/v2/files/create-folder")?.[1]).toEqual({ name: "A", parent_id: "0" });
+  });
+
+  it("rejects a plan whose subtitles would land on one path", async () => {
+    const files = [file(20, 0, "A.mkv", "VIDEO", 2 ** 30), file(21, 0, "A.srt", "TEXT", 10), file(22, 0, "B.mp4", "VIDEO", 2 ** 30), file(23, 0, "B.srt", "TEXT", 10)];
+    const bad = JSON.stringify({
+      title: "x",
+      changes: [
+        { op: "rename", path: "/A.mkv", to: "X.mkv" },
+        { op: "rename", path: "/B.mp4", to: "X.mp4" },
+      ],
+    });
+    const t = await setup(proposeTurn(bad), { files });
+    await Effect.runPromise(t.agent.receive(send("go")));
+    await t.settle();
+    expect(t.events.filter((e) => e.type === "plan")).toHaveLength(0);
+    expect(JSON.stringify(t.store.history())).toContain("/X.srt: two changes end there");
+  });
+
+  it("still undoes a lost-answer write after a retry put.io refuses", async () => {
+    const { t, id } = await applied(proposal, { dropWrites: [3] });
+    await Effect.runPromise(t.agent.receive(frame({ type: "retry", plan: id })));
+    await t.settle();
+    expect(planOf(t).run?.steps[0]).toMatchObject({ state: "failed", maybeApplied: true });
+    await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
+    await t.settle();
+    expect(writes(t).at(-1)).toEqual(["/v2/trash/restore", { file_ids: "3" }]);
+  });
+
   it("rejects a proposal naming files outside the snapshot, and stores nothing", async () => {
     const bad = JSON.stringify({ title: "x", changes: [{ op: "trash", path: "/nope.txt", to: null }] });
     const t = await setup(proposeTurn(bad));
@@ -613,6 +690,14 @@ describe("plans", () => {
     await t.settle();
     expect(planOf(t).status).toBe("discarded");
     expect(writes(t)).toEqual([]);
+  });
+});
+
+describe("sign out", () => {
+  it("closes every open socket", async () => {
+    const t = await setup([]);
+    await Effect.runPromise(t.agent.signOut);
+    expect(t.disconnects()).toBe(1);
   });
 });
 

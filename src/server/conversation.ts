@@ -14,7 +14,7 @@ import { AskInput, applyChange, folderIds, ProposeInput, parentOf, undoChanges, 
 import { downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
 import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
 import { month, type Store, type StoredRecord } from "./store";
-import { buildTree } from "./tree";
+import { buildTree, type WalkedFile } from "./tree";
 import type { ListFolderOutput, SearchFilesOutput } from "../shared/tools";
 
 const SYSTEM = `You are puterminator, an agent that helps one person understand and tidy their put.io library.
@@ -89,6 +89,8 @@ export interface AgentDeps {
   readonly anthropic: Layer.Layer<AnthropicClient>;
   /** Sends to every open socket. */
   readonly broadcast: (event: ServerEvent) => void;
+  /** Closes every open socket. */
+  readonly disconnect: () => void;
   /** Keeps the host alive until the effect settles. */
   readonly background: (effect: Effect.Effect<void>) => void;
   readonly putioFetch?: typeof fetch;
@@ -155,6 +157,13 @@ export const makeAgent = (deps: AgentDeps) =>
     };
 
     const noSnapshot = JSON.stringify({ error: "No snapshot yet. Run scan_library first." });
+    const otherFolder = JSON.stringify({ error: "The last scan is of another folder. Run scan_library first." });
+    const scannedHere = () => store.secret("snapshot_root") === String(state.folder.id);
+    /** The snapshot when it is of the target folder, else the error the model gets. */
+    const snapshotHere = (): Array<WalkedFile> | string => {
+      const all = store.snapshot();
+      return !all.length ? noSnapshot : scannedHere() ? all : otherFolder;
+    };
 
     /** The snapshot as the browser's file index; null before the first scan. */
     const library = (): Library | null => {
@@ -183,7 +192,7 @@ export const makeAgent = (deps: AgentDeps) =>
     const scan = Effect.gen(function* () {
       const { id, name } = state.folder;
       const tree = buildTree(yield* listAll, id);
-      store.saveSnapshot(tree.files);
+      store.saveSnapshot(tree.files, id);
       const a = audit(tree.files, id === 0 ? name : tree.rootName, false, new Date(yield* Clock.currentTimeMillis));
       setState({ ...state, lastAudit: { at: a.at, rootName: a.rootName, score: a.score, items: a.totals.items } });
       const lib = library();
@@ -231,11 +240,12 @@ export const makeAgent = (deps: AgentDeps) =>
       const setStep = (change: string, state: Run["steps"][number]["state"], error: string | null = null, maybe = false) =>
         update((run) => ({
           ...run,
-          steps: run.steps.map((s) => (s.change === change ? { change, state, error, ...(maybe ? { maybeApplied: true } : {}) } : s)),
+          steps: run.steps.map((s) => (s.change === change ? { change, state, error, ...(maybe || s.maybeApplied ? { maybeApplied: true } : {}) } : s)),
         }));
       const refused =
         !token ? "put.io signed you out; sign in again"
         : first.folder && first.folder.id !== state.folder.id ? `made in ${first.folder.name}; switch back to it first`
+        : !scannedHere() ? "the last scan is of another folder; scan again first"
         : null;
       if (!token || refused) return update((r) => failUnfinished(r, refused ?? ""), finished);
       const parents = first.parents ?? {};
@@ -387,8 +397,8 @@ export const makeAgent = (deps: AgentDeps) =>
         run: ({ path }) =>
           once("list_folder", path, Effect.sync(() => {
             const clean = path.replace(/\/+$/, "");
-            const all = store.snapshot();
-            if (!all.length) return noSnapshot;
+            const all = snapshotHere();
+            if (typeof all === "string") return all;
             const depth = clean ? clean.split("/").length : 1;
             const rows = all
               .filter((f) => f.depth === depth && (clean ? f.path.startsWith(`${clean}/`) : true))
@@ -411,8 +421,9 @@ export const makeAgent = (deps: AgentDeps) =>
         }),
         run: ({ query, category, limit }) =>
           once("search_files", { query, category, limit }, Effect.sync(() => {
-            let rows = store.snapshot();
-            if (!rows.length) return noSnapshot;
+            const here = snapshotHere();
+            if (typeof here === "string") return here;
+            let rows = here;
             const junkReason = junkFinder(rows);
             const q = query.trim().toLowerCase();
             if (q) rows = rows.filter((f) => f.path.toLowerCase().includes(q));
@@ -443,8 +454,8 @@ export const makeAgent = (deps: AgentDeps) =>
         input: ProposeInput,
         run: (input) =>
           Effect.sync(() => {
-            const all = store.snapshot();
-            if (!all.length) return noSnapshot;
+            const all = snapshotHere();
+            if (typeof all === "string") return all;
             const out = validatePlan(all, input, newId());
             if ("error" in out) return JSON.stringify(out);
             saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true });
@@ -627,6 +638,7 @@ export const makeAgent = (deps: AgentDeps) =>
       signOut: Effect.sync(() => {
         store.deleteToken();
         store.setSecret("session_gen", String(sessionGen() + 1));
+        deps.disconnect();
       }),
       sessionGen: Effect.sync(() => sessionGen()),
       /** A file's screenshot URL, or null for none, no token or a failed read. Cached per activation. */

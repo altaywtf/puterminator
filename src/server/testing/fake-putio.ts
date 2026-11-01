@@ -31,6 +31,8 @@ export type FakePutioOptions = {
   trashEnabled?: boolean;
   /** File ids whose writes fail with a 400. */
   failWrites?: ReadonlyArray<number>;
+  /** File ids whose renames fail with a 400; their other writes go through. */
+  failRenames?: ReadonlyArray<number>;
   /** File ids whose writes go through but answer 502, as when the response is lost. */
   dropWrites?: ReadonlyArray<number>;
   /** A restored file stays out of this many following listings, as put.io restores in the background. */
@@ -82,7 +84,9 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     const fails = (opts.failWrites ?? []).includes(target);
     if (url.pathname === "/v2/trash/restore" && !fails && opts.restoreLag) lagging.set(target, opts.restoreLag);
     if (["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/trash/restore"].includes(url.pathname)) {
-      if (fails) return json(400, { status: "ERROR", error_type: "LOCKED", status_code: 400 });
+      if (fails || (url.pathname === "/v2/files/rename" && (opts.failRenames ?? []).includes(target)))
+        return json(400, { status: "ERROR", error_type: "LOCKED", status_code: 400 });
+      if (url.pathname !== "/v2/trash/restore" && !tree.some((f) => f.id === target)) return json(404, { status: "ERROR", error_type: "NOT_FOUND", status_code: 404 });
       const edit = (f: (typeof tree)[number]) => (f.id === target ? { ...f, ...(url.pathname.endsWith("rename") ? { name: body.get("name") ?? f.name } : { parent_id: Number(body.get("parent_id")) }) } : f);
       if (url.pathname === "/v2/files/delete") {
         trash.push(...tree.filter((f) => f.id === target));

@@ -8,10 +8,13 @@ const MEDIA_SERVER_TAG = /\s+-\s+(2160p|1080p|720p|480p)$|\s*\[(imdb|tmdb|tvdb)i
 const BRACKET_GROUP = /\[[^\]]{2,}\]/;
 const GROUP_SUFFIX = /-[A-Za-z0-9]{2,12}$/;
 const JUNK_NAME = /(^|[\s._-])(rarbg|www\.|torrent downloaded from)|RARBG_DO_NOT_MIRROR|^Thumbs\.db$/i;
-const SAMPLE = /(^|[\s._-])sample([\s._-]|$)/i;
+const SAMPLE = /^sample$|[._-]sample$|^sample[._-]/i;
+const VIDEO_AD = /^(rarbg|www\.)|torrent downloaded from|RARBG_DO_NOT_MIRROR/i;
 const OS_DEBRIS = /^\._|^\.DS_Store$|^desktop\.ini$|^Icon\r?$|^_+padding_file/i;
 const DEBRIS_DIR = /\/(__MACOSX|\.Spotlight-V100|\.fseventsd|\.Trashes|\.pad)\//i;
-const ARTWORK = /^(cover|poster|folder|fanart|banner|logo|thumb|backdrop|clearart|clearlogo|disc|landscape|screens?)\b|-(poster|fanart|thumb|banner)$|www\.|torrent/i;
+const ARTWORK = /^(cover|poster|folder|fanart|banner|logo|thumb|backdrop|clearart|clearlogo|disc|landscape|screens?)\d*$|-(poster|fanart|thumb|banner|landscape|clearart|clearlogo|disc|logo)$|www\.|torrent/i;
+const SUBTITLE_EXT = new Set(["srt", "sub", "idx", "ass", "ssa", "vtt"]);
+const RELEASE_EXTRA_DIR = /^(samples?|subs|subtitles)$/i;
 const JUNK_EXT = new Set(["nfo", "url", "lnk", "sfv", "md5", "par2", "torrent", "website"]);
 const IMAGE_EXT = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
 const MB = 2 ** 20;
@@ -55,7 +58,7 @@ export function junkFinder(files: ReadonlyArray<WalkedFile>) {
     if (isVideo(f)) {
       if (f.size >= 50 * MB) return null;
       if (SAMPLE.test(stemOf(f.name)) || /\/sample\//i.test(f.path)) return "sample clip";
-      return JUNK_NAME.test(f.name) ? "tracker filler" : null;
+      return VIDEO_AD.test(f.name) ? "tracker filler" : null;
     }
     if (JUNK_NAME.test(f.name) && f.size < 2 * MB) return "tracker filler";
     const e = ext(f);
@@ -67,6 +70,8 @@ export function junkFinder(files: ReadonlyArray<WalkedFile>) {
 
 const NOISE = new RegExp(`${RELEASE_TAG.source}|\\b(web|remux|hdr|dts|atmos|truehd)\\b`, "gi");
 const words = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const PART = /\b(?:part|pt|cd|disc|disk)[\s._-]*(\d{1,2})\b/i;
+const EDITION = /\{edition-([^}]+)\}|\b(director'?s cut|final cut|extended(?: cut| edition)?|theatrical(?: cut)?|unrated|uncut|special edition|ultimate (?:cut|edition)|remastered|imax)\b/i;
 const PLEX_EXTRA = /-(trailer|featurette|deleted|scene|short|interview|behindthescenes|other|extra)s?$/i;
 const SEASON_DIR = /^(season|series|s)\s*\d+$|^specials$/i;
 
@@ -78,19 +83,23 @@ export const showOf = (path: string) =>
     tells cuts and parts apart, with release noise dropped. `show` names a file that starts at its episode. */
 export function mediaKey(name: string, show = "") {
   const stem = stemOf(name).toLowerCase();
-  const ep = stem.match(/s(\d{1,2})e(\d{1,3})/i);
+  const ep = stem.match(/s(\d{1,2})((?:[\s._-]?e\d{1,3})+)/i);
+  const part = stem.match(PART)?.[1];
+  const edition = stem.match(EDITION);
+  const extras = `${part ? `|part ${Number(part)}` : ""}${edition ? `|${words(edition[1] ?? edition[2] ?? "")}` : ""}`;
   const year = stem.match(/\b(19|20)\d{2}\b/);
   const cut = stem.search(/s\d{1,2}e\d{1,3}|\b(19|20)\d{2}\b|2160p|1080p|720p|480p/i);
   const title = words(cut > 0 ? stem.slice(0, cut) : cut === 0 ? show.toLowerCase().replace(/\((19|20)\d{2}\)/, "") : stem);
   if (!title) return null;
   if (ep) {
     const showYear = year && year.index! < ep.index! ? year[0] : (show.match(/\b(19|20)\d{2}\b/)?.[0] ?? null);
-    return `${title}${showYear ? `|${showYear}` : ""}|s${Number(ep[1])}e${Number(ep[2])}`;
+    const episodes = [...ep[2]!.matchAll(/\d+/g)].map((m) => Number(m[0])).join("e");
+    return `${title}${showYear ? `|${showYear}` : ""}|s${Number(ep[1])}e${episodes}${extras}`;
   }
   if (!year) return null;
-  const after = stem.slice(year.index! + 4);
+  const after = stem.slice(year.index! + 4).replace(PART, " ").replace(EDITION, " ");
   const rest = words((PLEX_EXTRA.test(after) ? after : after.replace(GROUP_SUFFIX, "")).replace(BRACKET_GROUP, " ").replace(NOISE, " "));
-  return `${title}|${year[0]}${rest ? `|${rest}` : ""}`;
+  return `${title}|${year[0]}${rest ? `|${rest}` : ""}${extras}`;
 }
 
 const pct = (good: number, total: number) => (total === 0 ? 100 : Math.round((100 * good) / total));
@@ -103,16 +112,17 @@ export function audit(files: WalkedFile[], rootName: string, truncated: boolean,
   const messy = videos.filter((f) => isMessyName(f.name));
   const junkReason = junkFinder(files);
 
-  const childCount = new Map<number, number>();
-  const childVideos = new Map<number, number>();
-  for (const f of files) {
-    if (f.parent_id == null) continue;
-    childCount.set(f.parent_id, (childCount.get(f.parent_id) ?? 0) + 1);
-    if (isVideo(f) && !junkReason(f)) childVideos.set(f.parent_id, (childVideos.get(f.parent_id) ?? 0) + 1);
-  }
-  const emptyFolders = folders.filter((f) => !childCount.get(f.id));
-  // A wrapper is a torrent-style folder holding a single real video plus filler and samples.
-  const wrappers = folders.filter((f) => childVideos.get(f.id) === 1 && isMessyName(f.name));
+  const children = new Map<number, WalkedFile[]>();
+  for (const f of files) if (f.parent_id != null) children.set(f.parent_id, [...(children.get(f.parent_id) ?? []), f]);
+  const emptyFolders = folders.filter((f) => !children.get(f.id)?.length);
+  const releaseExtra = (f: WalkedFile) =>
+    isFolder(f) ? RELEASE_EXTRA_DIR.test(f.name) : !!junkReason(f) || SUBTITLE_EXT.has(ext(f));
+  // A wrapper is a torrent-style folder holding a single real video plus only filler, samples and subtitles.
+  const wrappers = folders.filter((f) => {
+    const kids = children.get(f.id) ?? [];
+    const real = kids.filter((k) => isVideo(k) && !junkReason(k));
+    return real.length === 1 && kids.every((k) => k === real[0] || releaseExtra(k)) && isMessyName(f.name);
+  });
   const rootFiles = files.filter((f) => f.depth === 1 && !isFolder(f));
   const deepest = files.reduce((a, f) => Math.max(a, f.depth), 0);
 

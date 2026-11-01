@@ -80,6 +80,8 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
   problems.push(...conflicts(changes));
   if (problems.length > 0) return { error: `Fix these and propose again: ${problems.slice(0, 10).join("; ")}` };
   const withSubtitles = changes.flatMap((c) => [c, ...subtitlesFor(snapshot, byPath, c, seen, ids, parents)]);
+  const clashes = conflicts(withSubtitles);
+  if (clashes.length > 0) return { error: `Their subtitles would collide; fix these and propose again: ${clashes.slice(0, 10).join("; ")}` };
   return { plan: { id, title: input.title.trim().slice(0, 80) || "changes", changes: withSubtitles }, ids, parents };
 };
 
@@ -172,6 +174,11 @@ export const folderIds = (snapshot: ReadonlyArray<WalkedFile>, rootId: number, k
   return ids;
 };
 
+const joinPath = (folder: string, name: string) => `${folder.replace(/\/$/, "")}/${name}`;
+/** Where a folder is now, as earlier steps of the run left it. */
+const currentPath = (folders: Map<string, number>, id: number, fallback: string) =>
+  [...folders].find(([, f]) => f === id)?.[0] ?? fallback;
+
 /** A folder renamed or moved takes everything under it along. */
 const repath = (folders: Map<string, number>, from: string, to: string) => {
   for (const [path, id] of [...folders]) {
@@ -196,17 +203,20 @@ const ensureFolder = (folders: Map<string, number>, path: string): Effect.Effect
 export const applyChange = (change: Change, fileId: number, folders: Map<string, number>): Effect.Effect<void, PutioError, PutioSdkContext> => {
   if (change.op === "trash") return trashFile(fileId).pipe(Effect.asVoid);
   if (change.op === "restore") return restoreFile(fileId).pipe(Effect.asVoid);
+  const from = currentPath(folders, fileId, change.path);
   if (change.op === "rename")
     return renameFile(fileId, change.to ?? "").pipe(
-      Effect.tap(() => Effect.sync(() => repath(folders, change.path, `${parentOf(change.path).replace(/\/$/, "")}/${change.to ?? ""}`))),
+      Effect.tap(() => Effect.sync(() => repath(folders, from, joinPath(parentOf(from), change.to ?? "")))),
       Effect.asVoid,
     );
   const to = change.to ?? "";
   return Effect.gen(function* () {
     const parent = yield* ensureFolder(folders, parentOf(to));
     yield* moveFile(fileId, parent);
-    if (nameOf(to) !== nameOf(change.path))
+    const moved = joinPath(parentOf(to), nameOf(from));
+    repath(folders, from, moved);
+    if (nameOf(to) !== nameOf(from))
       yield* renameFile(fileId, nameOf(to)).pipe(Effect.mapError((e) => new PutioFailed({ message: `moved, but the rename failed: ${stepMessage(e)}` })));
-    repath(folders, change.path, to);
+    repath(folders, moved, to);
   });
 };

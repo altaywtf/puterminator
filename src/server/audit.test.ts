@@ -57,6 +57,8 @@ describe("junk", () => {
     expect(junkReason(file("/Series/Trailer Park Boys/Season 1/Trailer Park Boys - S01E01.mkv", { size: 40 * 2 ** 20 }))).toBeNull();
     expect(junkReason(file("/Software/App/setup.exe", { size: 2 * 2 ** 30 }))).toBeNull();
     expect(junkReason(file("/Courses/Habits/notes.txt", { size: 2048 }))).toBeNull();
+    expect(junkReason(file("/Courses/Lab/Sample preparation.mp4", { size: 30 * 2 ** 20 }))).toBeNull();
+    expect(junkReason(file("/Series/Show/Show.S01E01.x264-RARBG.mkv", { size: 40 * 2 ** 20 }))).toBeNull();
   });
 
   it("calls a small image junk only beside a video", () => {
@@ -72,8 +74,12 @@ describe("junk", () => {
     const lesson = file("/Courses/Habits/01 - Intro.mp4", { parent_id: 30 });
     const diagram = file("/Courses/Habits/diagram.png", { parent_id: 30, size: 300_000 });
     const ad = file("/Courses/Habits/www.site.com.png", { parent_id: 30, size: 30_000 });
-    const junkReason = junkFinder([lesson, diagram, ad]);
+    const study = file("/Courses/Habits/logo-study.png", { parent_id: 30, size: 300_000 });
+    const exercise = file("/Courses/Habits/cover-design.png", { parent_id: 30, size: 300_000 });
+    const junkReason = junkFinder([lesson, diagram, ad, study, exercise]);
     expect(junkReason(diagram)).toBeNull();
+    expect(junkReason(study)).toBeNull();
+    expect(junkReason(exercise)).toBeNull();
     expect(junkReason(ad)).not.toBeNull();
   });
 
@@ -103,6 +109,10 @@ describe("duplicates", () => {
     expect(key("/Movies/Kill Bill (2003) - pt1.mkv")).not.toBe(key("/Movies/Kill Bill (2003) - pt2.mkv"));
     expect(key("/Movies/Heat (1995)/Heat (1995)-trailer.mkv")).not.toBe(key("/Movies/Heat (1995)/Heat (1995).mkv"));
     expect(key("/Movies/Blade Runner (1982) {edition-Final Cut}.mkv")).not.toBe(key("/Movies/Blade Runner (1982) {edition-Theatrical}.mkv"));
+    expect(key("/Movies/Heat (1995)-part1.mkv")).not.toBe(key("/Movies/Heat (1995)-part2.mkv"));
+    expect(key("/Movies/Blade Runner (1982) [Final Cut].mkv")).not.toBe(key("/Movies/Blade Runner (1982) [Theatrical].mkv"));
+    expect(key("/TV/Show.S01E01.mkv")).not.toBe(key("/TV/Show.S01E01E02.mkv"));
+    expect(key("/TV/Show.S01E01-part1.mkv")).not.toBe(key("/TV/Show.S01E01-part2.mkv"));
     expect(key("/Downloads/Heat.1995.1080p.BluRay.x264-GRP.mkv")).toBe(key("/Movies/Heat (1995)/Heat (1995).mkv"));
   });
 
@@ -137,6 +147,15 @@ describe("structure", () => {
     const movie = file("/Heat.1995.1080p.BluRay.x264-GRP/Heat.1995.1080p.BluRay.x264-GRP.mkv", { parent_id: 50 });
     const sample = file("/Heat.1995.1080p.BluRay.x264-GRP/Sample/heat-sample.mkv", { parent_id: 50, size: 20 * 2 ** 20 });
     expect(audit([dir, movie, sample], "Your Files", false).structure.wrapperFolders).toBe(1);
+  });
+
+  it("does not call a release folder a wrapper when it holds other real content", () => {
+    const dir = file("/Heat.1995.1080p.BluRay.x264-GRP", { id: 60, parent_id: 0, file_type: "FOLDER", extension: null, size: 0 });
+    const movie = file("/Heat.1995.1080p.BluRay.x264-GRP/Heat.1995.1080p.BluRay.x264-GRP.mkv", { parent_id: 60 });
+    const subs = file("/Heat.1995.1080p.BluRay.x264-GRP/Heat.1995.1080p.BluRay.x264-GRP.srt", { parent_id: 60, size: 90_000 });
+    const soundtrack = file("/Heat.1995.1080p.BluRay.x264-GRP/Soundtrack.flac", { parent_id: 60, size: 300 * 2 ** 20 });
+    expect(audit([dir, movie, subs], "Your Files", false).structure.wrapperFolders).toBe(1);
+    expect(audit([dir, movie, subs, soundtrack], "Your Files", false).structure.wrapperFolders).toBe(0);
   });
 });
 

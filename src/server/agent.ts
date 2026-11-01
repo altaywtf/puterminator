@@ -40,6 +40,15 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
             }
           }
         },
+        disconnect: () => {
+          for (const ws of raw.getWebSockets()) {
+            try {
+              ws.close(4001, "signed out");
+            } catch {
+              // Already closing.
+            }
+          }
+        },
         // A stopped turn ends interrupted; an exit, not a rejection.
         background: (effect) => raw.waitUntil(Effect.runPromiseExit(effect)),
       });

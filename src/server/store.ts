@@ -124,9 +124,11 @@ export const makeStore = (sql: Sql) => {
         created_at: str(r.created_at),
         first_accessed_at: strOrNull(r.first_accessed_at),
       })),
-    saveSnapshot: (files: ReadonlyArray<WalkedFile>) =>
+    /** Replaces the snapshot and records which folder it is of. */
+    saveSnapshot: (files: ReadonlyArray<WalkedFile>, rootId: number) =>
       sql.transaction(() => {
         sql.exec("DELETE FROM files");
+        sql.exec("INSERT OR REPLACE INTO secrets (key, value) VALUES ('snapshot_root', ?)", String(rootId));
         for (const f of files) {
           sql.exec(
             "INSERT INTO files VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
