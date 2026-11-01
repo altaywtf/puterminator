@@ -11,11 +11,11 @@ import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, 
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { PlanRecord, Run } from "../shared/actions";
 import { AskInput, applyChange, folderIds, ProposeInput, parentOf, undoChanges, validatePlan, validateQuestion } from "./changes";
-import { downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
+import { createDownloadLinks, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
 import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
 import { month, type Store, type StoredRecord } from "./store";
 import { buildTree, type WalkedFile } from "./tree";
-import type { ListFolderOutput, SearchFilesOutput } from "../shared/tools";
+import type { DownloadLinksOutput, DownloadLinksResponse, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
 
 const SYSTEM = `You are puterminator, an agent that helps one person understand and tidy their put.io library.
 
@@ -99,6 +99,8 @@ export interface AgentDeps {
   readonly partialEveryMs?: number;
   /** put.io restores trash in the background; wait this long before rescanning for files still missing. */
   readonly restoreRecheckMs?: number;
+  /** put.io makes download links in the background; ask again this often while it works. */
+  readonly linksPollMs?: number;
 }
 
 /**
@@ -463,6 +465,31 @@ export const makeAgent = (deps: AgentDeps) =>
           }),
       }),
       effectTool({
+        name: "make_download_links",
+        description:
+          "Ask put.io for direct download links to files or folders from the snapshot; a folder gives a link per file inside. The user gets the links in a card. You never see them, so don't write or guess any URL.",
+        input: Schema.Struct({ paths: Schema.Array(Schema.String).annotate({ description: "1 to 50 paths from the snapshot" }) }),
+        run: ({ paths }) =>
+          Effect.gen(function* () {
+            const here = snapshotHere();
+            if (typeof here === "string") return here;
+            if (!store.token()) return JSON.stringify({ error: "Not signed in to put.io." });
+            if (paths.length === 0 || paths.length > 50) return JSON.stringify({ error: "Give 1 to 50 paths." });
+            const byPath = new Map(here.map((f) => [f.path, f.id]));
+            const clean = paths.map((p) => `/${p.trim().replace(/^\/+|\/+$/g, "")}`);
+            const missing = clean.filter((p) => !byPath.has(p));
+            if (missing.length > 0) return JSON.stringify({ error: `Not in the snapshot: ${missing.slice(0, 5).join(", ")}` });
+            const id = yield* createDownloadLinks([...new Set(clean.map((p) => byPath.get(p)!))]);
+            for (let i = 0; i < 10; i++) {
+              const job = yield* downloadLinks(id);
+              if (job.status === "done") return JSON.stringify({ id, files: job.links.length } satisfies DownloadLinksOutput);
+              if (job.status === "error") return JSON.stringify({ error: job.message });
+              yield* Effect.sleep(deps.linksPollMs ?? 1000);
+            }
+            return JSON.stringify({ id, files: null } satisfies DownloadLinksOutput);
+          }).pipe(Effect.catch((e) => (e._tag === "PutioUnauthorized" ? Effect.fail(e) : Effect.succeed(JSON.stringify({ error: stepMessage(e) }))))),
+      }),
+      effectTool({
         name: "ask_user",
         description: "Ask the user to pick between 2 to 6 options when you can't decide alone. Then stop; the answer comes as the next message.",
         input: AskInput,
@@ -656,6 +683,16 @@ export const makeAgent = (deps: AgentDeps) =>
           );
         }),
       /** An HLS URL for a video in the snapshot, signed with the download token; null otherwise. */
+      /** A download-links job made by this account's put.io token; put.io refuses other accounts' ids. */
+      downloadLinks: (id: number) =>
+        Effect.suspend(() => {
+          const token = store.token();
+          if (!token) return Effect.succeed<DownloadLinksResponse | null>(null);
+          return downloadLinks(id).pipe(
+            Effect.catch(() => Effect.succeed<DownloadLinksResponse | null>(null)),
+            Effect.provide(putioLayer(token, deps.putioFetch)),
+          );
+        }),
       stream: (id: number) =>
         Effect.suspend(() => {
           const token = store.token();

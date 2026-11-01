@@ -16,6 +16,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import type { Folder } from "../shared/contract";
+import type { DownloadLinksResponse } from "../shared/tools";
 import { PUTIO_API } from "./dev";
 import type { PutioFile } from "./tree";
 
@@ -245,6 +246,32 @@ export const moveFile = (id: number, parentId: number) =>
   ).pipe(Effect.flatMap((r) => ((r.errors ?? []).length > 0 ? Effect.fail(new PutioFailed({ message: "put.io /files/move → refused", refused: true })) : Effect.void)));
 
 const Created = Schema.Struct({ file: Schema.Struct({ id: Schema.Finite }) });
+
+const LinksCreated = Schema.Struct({ id: Schema.Finite });
+const LinksInfo = Schema.Struct({
+  links_status: Schema.String,
+  links: Schema.NullOr(Schema.Struct({ download_links: Schema.Array(Schema.String) })),
+  error_msg: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+/** Asks put.io to make direct download links for these files and folders; it answers with a job id. */
+export const createDownloadLinks = (ids: ReadonlyArray<number>) =>
+  write(
+    "/download_links/create",
+    requestJson(LinksCreated, { method: "POST", path: "/v2/download_links/create", body: { type: "form", value: { file_ids: ids.join(",") } } }),
+  ).pipe(Effect.map(({ id }) => id));
+
+/** A download-links job: still working, done with one link per file, or failed. */
+export const downloadLinks = (id: number) =>
+  read("/download_links", requestJson(LinksInfo, { method: "GET", path: `/v2/download_links/${id}` })).pipe(
+    Effect.map((r): DownloadLinksResponse =>
+      r.links_status === "DONE" && r.links
+        ? { status: "done", links: r.links.download_links }
+        : r.links_status === "ERROR"
+          ? { status: "error", message: r.error_msg ?? "put.io couldn’t make the links" }
+          : { status: "pending" },
+    ),
+  );
 
 export const createFolder = (name: string, parentId: number) =>
   write(

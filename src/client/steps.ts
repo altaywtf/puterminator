@@ -57,6 +57,10 @@ export function describeStep(name: string, inputValue: unknown, output: string |
       }),
     });
   }
+  if (name === "make_download_links") {
+    const files = out && typeof out.files === "number" ? out.files : null;
+    return { title: "ask put.io for download links", detail: files === null ? null : `${fmt(files)} ${files === 1 ? "file" : "files"}`, lines: [] };
+  }
   if (name === "list_folder") {
     const path = typeof input.path === "string" && input.path ? input.path : "/";
     return { title: `open ${path}`, detail: out ? `${fmt(num(out.count))} ${num(out.count) === 1 ? "item" : "items"}` : null, lines: [] };

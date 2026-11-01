@@ -17,6 +17,7 @@ import {
   type ServerEvent,
 } from "../shared/contract";
 import { PlanRecord } from "../shared/actions";
+import { DownloadLinksResponse } from "../shared/tools";
 import { emptyClock, onMessage, onPartial, ThinkingClock } from "./thinking";
 
 const CONNECT_TIMEOUT = Duration.seconds(8);
@@ -75,6 +76,15 @@ export const Model = Schema.Struct({
   player: Schema.NullOr(
     Schema.Struct({ id: Schema.Finite, name: Schema.String, src: Schema.NullOr(Schema.String), failed: Schema.Boolean }),
   ),
+  /** put.io download links by job id, fetched when the user asks to see them. */
+  links: Schema.Record(
+    Schema.String,
+    Schema.Union([
+      Schema.Struct({ state: Schema.Literal("loading") }),
+      Schema.Struct({ state: Schema.Literal("done"), links: Schema.Array(Schema.String) }),
+      Schema.Struct({ state: Schema.Literal("failed"), message: Schema.String }),
+    ]),
+  ),
 });
 export type Model = typeof Model.Type;
 
@@ -119,6 +129,10 @@ export const Message = defineMessageUnion({
   GotStream: { id: Schema.Finite, src: Schema.String },
   FailedStream: { id: Schema.Finite },
   ClosedPlayer: {},
+  ClickedLinks: { id: Schema.Finite },
+  GotLinks: { id: Schema.Finite, links: Schema.Array(Schema.String) },
+  FailedLinks: { id: Schema.Finite, message: Schema.String },
+  ClickedCopyLinks: { id: Schema.Finite },
   FailedAvatar: {},
   UpdatedDraft: { value: Schema.String },
   SubmittedDraft: {},
@@ -301,6 +315,31 @@ export const FocusPlayer = Command.define("FocusPlayer", {
 });
 
 const StreamResponse = Schema.Struct({ hls: Schema.String });
+
+export const FetchLinks = Command.define("FetchLinks", {
+  args: { id: Schema.Finite },
+  messages: [Message.GotLinks, Message.FailedLinks],
+  execute: ({ id }) =>
+    Effect.tryPromise(() => fetch(`/api/download-links/${id}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(DownloadLinksResponse)),
+      Effect.map((r) =>
+        r.status === "done"
+          ? Message.GotLinks({ id, links: r.links })
+          : Message.FailedLinks({ id, message: r.status === "pending" ? "put.io is still making them. try again in a moment." : r.message }),
+      ),
+      Effect.orElseSucceed(() => Message.FailedLinks({ id, message: "couldn’t get the links from put.io. try again." })),
+    ),
+});
+
+export const CopyText = Command.define("CopyText", {
+  args: { text: Schema.String },
+  messages: [Message.CompletedEffect],
+  execute: ({ text }) =>
+    Effect.tryPromise(() => navigator.clipboard.writeText(text)).pipe(
+      Effect.ignore,
+      Effect.as(Message.CompletedEffect()),
+    ),
+});
 
 export const FetchStream = Command.define("FetchStream", {
   args: { id: Schema.Finite },
@@ -540,6 +579,16 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         : { model },
     FailedStream: ({ id }) =>
       model.player?.id === id ? { model: modifyFields(model, { player: (p) => (p ? { ...p, failed: true } : p) }) } : { model },
+    ClickedLinks: ({ id }) => ({
+      model: modifyFields(model, { links: (ls) => ({ ...ls, [id]: { state: "loading" as const } }) }),
+      commands: [FetchLinks({ id })],
+    }),
+    GotLinks: ({ id, links }) => ({ model: modifyFields(model, { links: (ls) => ({ ...ls, [id]: { state: "done" as const, links } }) }) }),
+    FailedLinks: ({ id, message }) => ({ model: modifyFields(model, { links: (ls) => ({ ...ls, [id]: { state: "failed" as const, message } }) }) }),
+    ClickedCopyLinks: ({ id }) => {
+      const entry = model.links[id];
+      return { model, commands: entry?.state === "done" ? [CopyText({ text: entry.links.join("\n") })] : [] };
+    },
     ClosedPlayer: () => ({
       model: modifyFields(model, { player: () => null }),
       commands: [DetachPlayer(), FocusPlayer({ open: false })],
@@ -574,6 +623,7 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     treeFocus: null,
     avatarFailed: false,
     player: null,
+    links: {},
   },
   commands: [FetchMe()],
 });

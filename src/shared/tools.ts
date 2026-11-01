@@ -12,6 +12,19 @@ export const ListFolderOutput = Schema.Struct({
 });
 export type ListFolderOutput = typeof ListFolderOutput.Type;
 
+/** `make_download_links`: put.io's job id, and how many files it linked once done. The links themselves
+    never reach the model; the card fetches them. */
+export const DownloadLinksOutput = Schema.Struct({ id: Schema.Finite, files: Schema.NullOr(Schema.Finite) });
+export type DownloadLinksOutput = typeof DownloadLinksOutput.Type;
+
+/** `/api/download-links/:id`. */
+export const DownloadLinksResponse = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("done"), links: Schema.Array(Schema.String) }),
+  Schema.Struct({ status: Schema.Literal("pending") }),
+  Schema.Struct({ status: Schema.Literal("error"), message: Schema.String }),
+]);
+export type DownloadLinksResponse = typeof DownloadLinksResponse.Type;
+
 /** `search_files`: matching files, by size for the size-ranked categories. */
 export const SearchFilesOutput = Schema.Struct({
   total: Schema.Finite,

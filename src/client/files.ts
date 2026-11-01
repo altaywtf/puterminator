@@ -130,7 +130,7 @@ export const treeDrawer = (h: H, model: Model) => {
       ],
       [
         h.div(
-          [h.Class("flex items-baseline gap-3 border-b border-line px-4 py-3 font-mono text-[12.5px]")],
+          [h.Class("flex items-baseline gap-3 border-b border-line px-4 py-3 font-mono text-mono")],
           [
             h.span([h.Class("min-w-0 grow truncate text-fg-2")], [`$ tree ${ix.rootName}`]),
             h.span([h.Class("flex-none text-fg-4 tabular-nums")], [size(ix.total)]),
@@ -138,7 +138,7 @@ export const treeDrawer = (h: H, model: Model) => {
           ],
         ),
         h.div(
-          [h.Role("tree"), h.AriaLabel(`${ix.rootName} tree`), h.Class("min-h-0 flex-1 overflow-y-auto overscroll-contain bg-sunk py-2 font-mono text-[12.5px] leading-[1.8]")],
+          [h.Role("tree"), h.AriaLabel(`${ix.rootName} tree`), h.Class("min-h-0 flex-1 overflow-y-auto overscroll-contain bg-sunk py-2 font-mono text-mono leading-[1.8]")],
           tops.flatMap((n, i) => treeRow(h, model, ix, n, "", i === tops.length - 1)),
         ),
       ],
@@ -167,7 +167,7 @@ export const playerView = (h: H, model: Model) => {
           [h.Class("pop relative grid w-full max-w-[960px] overflow-hidden rounded-xl border border-line bg-bg")],
           [
             h.div(
-              [h.Class("flex items-baseline gap-3 border-b border-line px-4 py-2.5 font-mono text-[12.5px]")],
+              [h.Class("flex items-baseline gap-3 border-b border-line px-4 py-2.5 font-mono text-mono")],
               [
                 h.span([h.Class("min-w-0 grow truncate text-fg-2"), h.Title(p.name)], [`▶ ${p.name}`]),
                 h.a([h.Href(putioUrl(p.id)), h.Target("_blank"), h.Rel("noopener noreferrer"), h.Class("hit text-fg-3 hover:text-fg")], ["put.io ↗"]),
@@ -177,10 +177,10 @@ export const playerView = (h: H, model: Model) => {
             h.div(
               [h.Class("relative aspect-video bg-black")],
               p.failed
-                ? [h.p([h.Class("absolute inset-0 m-0 grid place-items-center font-mono text-[12.5px] text-fg-2")], ["couldn’t load this stream. open it on put.io"])]
+                ? [h.p([h.Class("absolute inset-0 m-0 grid place-items-center font-mono text-mono text-fg-2")], ["couldn’t load this stream. open it on put.io"])]
                 : [
                     h.video([h.Id(PLAYER_ID), h.Controls(true), h.Playsinline(true), h.Class("absolute inset-0 size-full")], []),
-                    ...(p.src === null ? [h.span([h.Class("absolute inset-0 grid place-items-center font-mono text-[12.5px] text-fg-3")], ["loading…"])] : []),
+                    ...(p.src === null ? [h.span([h.Class("absolute inset-0 grid place-items-center font-mono text-mono text-fg-3")], ["loading…"])] : []),
                   ],
             ),
           ],

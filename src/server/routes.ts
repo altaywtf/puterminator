@@ -5,6 +5,7 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import type { Folder, Me } from "../shared/contract";
+import type { DownloadLinksResponse } from "../shared/tools";
 import type { AppConfig } from "./config";
 import { accountInfo, authorizeUrl, exchangeCode, putioLayer } from "./putio";
 import {
@@ -26,6 +27,7 @@ export interface UserAgent {
   readonly sessionGen: () => Effect.Effect<number>;
   readonly thumbnail: (id: number) => Effect.Effect<string | null>;
   readonly stream: (id: number) => Effect.Effect<string | null>;
+  readonly downloadLinks: (id: number) => Effect.Effect<DownloadLinksResponse | null>;
   readonly fetch: (request: HttpServerRequest) => Effect.Effect<HttpServerResponse.HttpServerResponse, HttpServerError>;
 }
 
@@ -124,6 +126,12 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
       }
       const hls = yield* agent.stream(id);
       return hls ? json({ hls }).pipe(HttpServerResponse.setHeader("cache-control", "no-store")) : json({ error: "no stream" }, 404);
+    }
+
+    const links = path.match(/^\/api\/download-links\/(\d{1,15})$/);
+    if (links && request.method === "GET") {
+      const result = yield* agent.downloadLinks(Number(links[1]));
+      return (result ? json(result) : json({ error: "no such links" }, 404)).pipe(HttpServerResponse.setHeader("cache-control", "no-store"));
     }
 
     if (path === "/agent" || path.startsWith("/agent/")) {

@@ -4,7 +4,7 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Audit } from "../shared/audit";
 import { FileFlag } from "../shared/contract";
 import { Plan, Question } from "../shared/actions";
-import { ListFolderOutput, SearchFilesOutput } from "../shared/tools";
+import { DownloadLinksOutput, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
 import { discardedLine, planCard, questionCard, runCard } from "./actions";
 import { art, type Mood, moodOf } from "./art";
 import { has, type Index, indexOf, isFolder, isRegular, type Node, putioUrl, resolve } from "./library";
@@ -17,7 +17,7 @@ import { auditOf, fmt, size } from "./steps";
 type H = HtmlBuilder<Message>;
 
 /** All a card reads from the app: which toggles are open, the last scan's file index, the plans, and whether a turn is running. */
-export type Ctx = Pick<Model, "expanded" | "library" | "plans"> & { agent?: Model["agent"] };
+export type Ctx = Pick<Model, "expanded" | "library" | "plans"> & { agent?: Model["agent"]; links?: Model["links"] };
 
 const ROWS = 5;
 
@@ -33,7 +33,7 @@ export const isPlayable = (n: Node) => has(n, FileFlag.video) && isRegular(n);
     `last` ends the card with it, so a card with nothing under its output has no empty strip. */
 export const term = (h: H, children: Html[], last = false) =>
   h.div(
-    [h.Class(`-mx-5 grid overflow-x-auto border-t border-line bg-sunk py-2 font-mono text-[12.5px] leading-[1.7] max-[480px]:-mx-4 ${last ? "-mb-4" : "border-b"}`)],
+    [h.Class(`-mx-5 grid overflow-x-auto border-t border-line bg-sunk py-2 font-mono text-mono leading-[1.7] max-[480px]:-mx-4 ${last ? "-mb-4" : "border-b"}`)],
     children,
   );
 
@@ -226,7 +226,7 @@ export const panel = (h: H, label: string, live: boolean, children: Html[]) =>
 
 /** A terminal window's title line: small, mono, quiet; the output below carries the weight. */
 export const cardHead = (h: H, title: string, meta: string) =>
-  h.div([h.Class("flex min-w-0 items-baseline justify-between gap-4 font-mono text-[12.5px]")], [
+  h.div([h.Class("flex min-w-0 items-baseline justify-between gap-4 font-mono text-mono")], [
     h.span([h.Class("truncate text-fg-2")], [title]),
     h.span([h.Class("flex-none text-fg-4 tabular-nums")], [meta]),
   ]);
@@ -278,12 +278,54 @@ const searchCard = (h: H, ctx: Ctx, key: string, out: SearchFilesOutput, live: b
   ]);
 };
 
+// ---------- download links ----------
+
+/** The file name put.io puts at the end of a download link. */
+const linkName = (url: string) => {
+  const last = url.split("?")[0]?.split("/").pop() ?? url;
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    return last;
+  }
+};
+
+/** put.io's links stay behind a click: they are bearer links, fetched only when the user asks. */
+const linksCard = (h: H, ctx: Ctx, out: DownloadLinksOutput, live: boolean): Html => {
+  const entry = ctx.links?.[out.id];
+  const meta = out.files === null ? "put.io is on it" : `${fmt(out.files)} ${out.files === 1 ? "file" : "files"}`;
+  const ask = (label: string) => h.button([h.Type("button"), h.Class("btn btn-sm justify-self-start"), h.OnClick(Message.ClickedLinks({ id: out.id }))], [label]);
+  const body =
+    entry?.state === "done"
+      ? [
+          term(h, [
+            h.ul(
+              [h.Class("m-0 grid list-none p-0")],
+              entry.links.map((url) =>
+                h.li([h.Class("flex min-w-0 items-baseline gap-2 px-3 hover:bg-hover")], [
+                  h.span([h.Class("flex-none text-fg-4"), h.AriaHidden(true)], ["↓"]),
+                  h.a([h.Href(url), h.Rel("noopener noreferrer"), h.Class("min-w-0 truncate text-fg no-underline transition-colors duration-160 hover:text-accent")], [linkName(url)]),
+                ]),
+              ),
+            ),
+          ], true),
+          h.button([h.Type("button"), h.Class("btn btn-sm justify-self-start"), h.OnClick(Message.ClickedCopyLinks({ id: out.id }))], ["copy all links"]),
+        ]
+      : entry?.state === "loading"
+        ? [h.p([h.Class("m-0 font-mono text-mono text-fg-3"), h.Role("status")], ["asking put.io…"])]
+        : entry?.state === "failed"
+          ? [h.p([h.Class("m-0 font-mono text-mono text-warn"), h.Role("alert")], [entry.message]), ask("try again")]
+          : [ask("show links")];
+  return panel(h, "download links", live, [cardHead(h, "download links", meta), ...body]);
+};
+
 // ---------- registry ----------
 
 const decodeListFolder = Schema.decodeUnknownOption(Schema.fromJsonString(ListFolderOutput));
 const decodeSearchFiles = Schema.decodeUnknownOption(Schema.fromJsonString(SearchFilesOutput));
 const decodePlan = Schema.decodeUnknownOption(Schema.fromJsonString(Plan));
 const decodeQuestion = Schema.decodeUnknownOption(Schema.fromJsonString(Question));
+const decodeLinks = Schema.decodeUnknownOption(Schema.fromJsonString(DownloadLinksOutput));
 
 /** `settled`: the user has spoken since this tool ran, so a question is answered. */
 type Card = (h: H, ctx: Ctx, key: string, output: string, live: boolean, settled: boolean) => Html | null;
@@ -302,6 +344,7 @@ const CARDS: Record<string, Card> = {
   list_folder: (h, ctx, key, output, live) => Option.match(decodeListFolder(output), { onNone: () => null, onSome: (o) => folderCard(h, ctx, key, o, live) }),
   search_files: (h, ctx, key, output, live) => Option.match(decodeSearchFiles(output), { onNone: () => null, onSome: (o) => searchCard(h, ctx, key, o, live) }),
   propose_changes: (h, ctx, _key, output, live) => Option.match(decodePlan(output), { onNone: () => null, onSome: (p) => planOrRun(h, ctx, p, live) }),
+  make_download_links: (h, ctx, _key, output, live) => Option.match(decodeLinks(output), { onNone: () => null, onSome: (o) => linksCard(h, ctx, o, live) }),
   ask_user: (h, ctx, _key, output, live, settled) => Option.match(decodeQuestion(output), { onNone: () => null, onSome: (q) => questionCard(h, ctx, q, live, settled) }),
 };
 

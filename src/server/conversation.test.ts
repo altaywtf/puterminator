@@ -102,6 +102,7 @@ describe("a turn", () => {
       ["list_folder", true],
       ["search_files", true],
       ["propose_changes", true],
+      ["make_download_links", true],
       ["ask_user", true],
     ]);
     expect(JSON.stringify(first?.body.tools)).not.toMatch(/minimum|maximum/);
@@ -694,6 +695,29 @@ describe("plans", () => {
     await t.settle();
     expect(planOf(t).status).toBe("discarded");
     expect(writes(t)).toEqual([]);
+  });
+});
+
+describe("download links", () => {
+  it("has put.io make them, gives the model only the job, and hands the links to the browser", async () => {
+    const t = await setup([
+      { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
+      { kind: "sse", events: toolUseTurn({ id: "toolu_l", name: "make_download_links", inputJsonChunks: [JSON.stringify({ paths: ["/Movies", "/Alien (1979).mkv"] })] }, { input: 10, output: 5 }) },
+      { kind: "sse", events: textTurn("links are in the card.", { input: 10, output: 5 }) },
+    ]);
+    await Effect.runPromise(t.agent.receive(send("download links please")));
+    await t.settle();
+    const out = t.store.history().flatMap((m) => (typeof m.content === "string" ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_l");
+    expect(JSON.parse(String(out?.type === "tool_result" && out.content))).toEqual({ id: 70, files: 3 });
+    expect(JSON.stringify(t.anthropic.requests)).not.toContain("dl.put.io");
+    expect(await Effect.runPromise(t.agent.downloadLinks(70))).toEqual({
+      status: "done",
+      links: [
+        "https://dl.put.io/files/2/Heat.1995.1080p.BluRay.x264-GRP.mkv",
+        "https://dl.put.io/files/3/RARBG_DO_NOT_MIRROR.exe",
+        "https://dl.put.io/files/4/Alien%20(1979).mkv",
+      ],
+    });
   });
 });
 

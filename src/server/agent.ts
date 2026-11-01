@@ -71,6 +71,7 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         sessionGen: () => agent.sessionGen,
         thumbnail: (id: number) => agent.thumbnail(id),
         stream: (id: number) => agent.stream(id),
+        downloadLinks: (id: number) => agent.downloadLinks(id),
       };
     });
   }),

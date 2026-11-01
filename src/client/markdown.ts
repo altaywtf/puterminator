@@ -26,7 +26,7 @@ function render(node: Nodes): Child {
       return node.value;
     case "inlineCode":
     {
-      const chip = "rounded-md bg-raised px-1.5 py-px font-mono text-[12.5px] text-fg-strong box-decoration-clone";
+      const chip = "rounded-md bg-raised px-1.5 py-px font-mono text-mono text-fg-strong box-decoration-clone";
       const found = files ? resolve(files, node.value) : null;
       const hit = found && found.id >= 0 ? found : null;
       return hit
@@ -36,16 +36,18 @@ function render(node: Nodes): Child {
               ih.Target("_blank"),
               ih.Rel("noopener noreferrer"),
               ih.Title(`${hit.path} · open on put.io`),
-              ih.Class(`${chip} inline-flex max-w-[min(100%,40ch)] align-bottom no-underline transition-colors duration-160 hover:text-accent`),
+              // Fixed caps only: Safari ignores a percentage cap while sizing the message column, so a long
+              // name widened the whole reply past the screen.
+              ih.Class(`${chip} inline-flex max-w-full align-bottom no-underline transition-colors duration-160 hover:text-accent`),
             ],
             // The model often quotes whole paths; the chip shows the name and keeps the path in its title.
-            [ih.code([ih.Class("truncate border-0! bg-transparent! p-0! text-inherit!")], [hit.name]), ih.span([ih.Class("ms-1 flex-none text-[12px] text-fg-3"), ih.AriaHidden(true)], ["↗"])],
+            [ih.code([ih.Class("max-w-[36ch] truncate border-0! bg-transparent! p-0! text-inherit!")], [hit.name]), ih.span([ih.Class("ms-1 flex-none text-[12px] text-fg-3"), ih.AriaHidden(true)], ["↗"])],
           )
         : ih.code([ih.Class(chip)], [node.value]);
     }
     case "code":
       return ih.pre(
-        [ih.Class("m-0 overflow-x-auto rounded-xl border border-line bg-sunk p-3.5 text-[12.5px] leading-normal")],
+        [ih.Class("m-0 overflow-x-auto rounded-xl border border-line bg-sunk p-3.5 text-mono leading-normal")],
         [ih.code([], [node.value])],
       );
     case "paragraph":
@@ -99,7 +101,7 @@ function render(node: Nodes): Child {
         [ih.Class("overflow-x-auto [overflow-wrap:normal]")],
         [
           ih.table(
-            [ih.Class("border-collapse text-[13px] tabular-nums")],
+            [ih.Class("border-collapse text-meta tabular-nums")],
             [
               ih.tbody(
                 [],
@@ -138,5 +140,5 @@ export const renderMarkdown = (text: string, streaming: boolean, library: Librar
     else nodes.push(caret());
   }
   // Bare URLs and release names have no break points; `pre` keeps scrolling since it never wraps.
-  return ih.div([ih.Class("grid min-w-0 gap-2.5 [overflow-wrap:anywhere]")], nodes);
+  return ih.div([ih.Class("grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2.5 [overflow-wrap:anywhere]")], nodes);
 };

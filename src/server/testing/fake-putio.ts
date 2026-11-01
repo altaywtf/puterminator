@@ -47,6 +47,7 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
   const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
   const lagging = new Map<number, number>();
+  const linkJobs = new Map<number, number[]>();
   let tree = [...opts.files];
   const trash: typeof tree = [];
   let listing = tree;
@@ -80,6 +81,19 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     if (url.pathname === "/v2/account/info" && url.searchParams.get("download_token") === "1")
       return json(200, { info: { user_id: 1, username: "altay", download_token: "dl-token" }, status: "OK" });
     if (url.pathname === "/v2/account/settings") return json(200, { settings: { trash_enabled: opts.trashEnabled ?? true }, status: "OK" });
+    if (url.pathname === "/v2/download_links/create") {
+      const id = 70 + linkJobs.size;
+      linkJobs.set(id, (body.get("file_ids") ?? "").split(",").map(Number));
+      return json(200, { id, status: "OK" });
+    }
+    const job = url.pathname.match(/^\/v2\/download_links\/(\d+)$/);
+    if (job) {
+      const ids = linkJobs.get(Number(job[1]));
+      if (!ids) return json(404, { status: "ERROR", error_type: "NOT_FOUND", status_code: 404 });
+      const files = ids.flatMap((id) => tree.filter((f) => (f.id === id || f.parent_id === id) && f.file_type !== "FOLDER"));
+      const links = files.map((f) => `https://dl.put.io/files/${f.id}/${encodeURIComponent(f.name)}`);
+      return json(200, { links_status: "DONE", links: { download_links: links, media_links: [], mp4_links: [] }, status: "OK" });
+    }
     const target = Number(body.get("file_ids") ?? body.get("file_id") ?? NaN);
     const fails = (opts.failWrites ?? []).includes(target);
     if (url.pathname === "/v2/trash/restore" && !fails && opts.restoreLag) lagging.set(target, opts.restoreLag);

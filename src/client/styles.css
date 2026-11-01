@@ -37,7 +37,23 @@
   --duration-base: 220ms;
 }
 
+/* Type steps. Phones get one step smaller: more of a path fits on a line, and 16px inputs stay 16px. */
+:root {
+  --size-body: 15px;
+  --size-meta: 13px;
+  --size-mono: 12.5px;
+}
+@media (max-width: 520px) {
+  :root {
+    --size-body: 14px;
+    --size-meta: 12.5px;
+    --size-mono: 12px;
+  }
+}
+
 @theme inline {
+  --text-meta: var(--size-meta);
+  --text-mono: var(--size-mono);
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", monospace;
   --font-display: "Geist Pixel Grid", "Geist Mono Variable", ui-monospace, monospace;
@@ -69,6 +85,9 @@
   }
   html {
     color-scheme: dark;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -83,7 +102,7 @@
     background: var(--bg);
     color: var(--fg);
     font-family: var(--font-sans);
-    font-size: 15px;
+    font-size: var(--size-body);
     line-height: 1.6;
     font-feature-settings: "ss01", "cv11";
   }
@@ -159,7 +178,7 @@
     height: 30px;
     padding: 0 12px;
     border-radius: 8px;
-    font-size: 13px;
+    font-size: var(--size-meta);
   }
   /* A round icon button; aria-label carries the word. */
   .btn-icon {
@@ -209,7 +228,7 @@
     background: var(--bg-raised);
     padding: 10px 14px;
     color: var(--fg-muted);
-    font-size: 13px;
+    font-size: var(--size-meta);
   }
 
   .caret {
@@ -232,7 +251,7 @@
     max-width: 100%;
     color: var(--fg-subtle);
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: var(--size-mono);
   }
   /* A block cursor for the step that's running. */
   .cursor {
@@ -261,7 +280,7 @@
     padding: 0 8px;
     border-radius: 8px;
     color: var(--fg-subtle);
-    font-size: 13px;
+    font-size: var(--size-meta);
     white-space: nowrap;
     transition:
       color var(--duration-fast) var(--ease-snappy),

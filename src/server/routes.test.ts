@@ -105,6 +105,7 @@ describe("OAuth callback", () => {
       sessionGen: () => Effect.sync(() => gen),
       thumbnail: () => Effect.succeed(null),
       stream: () => Effect.succeed(null),
+      downloadLinks: () => Effect.succeed(null),
       fetch: () => Effect.die("unused"),
     });
     const handle = makeHandler({ config: config.value, agentFor: agent, putioFetch: putio });

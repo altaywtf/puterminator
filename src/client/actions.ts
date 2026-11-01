@@ -48,7 +48,7 @@ const sentKey = (q: Question) => `question.${q.id}.sent`;
 export const questionCard = (h: H, ctx: Ctx, q: Question, live = false, settled = false): Html => {
   const chosen = q.options.filter((o) => on(ctx, answerKey(q, o.id)));
   const answered = settled || (q.multi ? on(ctx, sentKey(q)) && chosen.length > 0 : chosen.length > 0);
-  const mono = "font-mono text-[13px] leading-[1.7]";
+  const mono = "font-mono text-meta leading-[1.7]";
   const busy = ctx.agent?.busy ? "wait for the reply to finish" : null;
   if (answered)
     return h.p([h.Class(`m-0 flex min-w-0 gap-2 ${mono}`)], [
@@ -192,7 +192,7 @@ export const planCard = (h: H, ctx: Ctx, plan: Plan, live = false): Html => {
       }),
     ),
     h.div([h.Class("flex flex-wrap items-center justify-between gap-x-4 gap-y-3")], [
-      h.span([h.Class("font-mono text-[12.5px] text-fg-3")], [picked.length === 0 ? "nothing to apply" : stat]),
+      h.span([h.Class("font-mono text-mono text-fg-3")], [picked.length === 0 ? "nothing to apply" : stat]),
       h.span([h.Class("flex items-center gap-2")], [
         h.button([h.Type("button"), h.Class("btn btn-sm border-transparent text-fg-2"), h.OnClick(Message.ClickedDiscard({ plan: plan.id }))], ["discard"]),
         runButton(h, ctx, "apply", Message.ClickedApply({ plan: plan.id, exclude: plan.changes.filter((c) => !picked.includes(c)).map((c) => c.id) }), true, picked.length === 0),
@@ -288,7 +288,7 @@ export const runCard = (h: H, ctx: Ctx, run: Run, live = false, opts: { undoable
       shareBar(h, settled / Math.max(1, run.steps.length)),
       diffBlock(h, hunkLines(() => true)),
       h.div([h.Class("flex items-center justify-between gap-4")], [
-        h.span([h.Class("font-mono text-[12.5px] text-fg-3")], [`${opts.undo ? "undoing" : "applying"}… ${fmt(done.length)} done${failed.length > 0 ? `, ${fmt(failed.length)} failed` : ""}`]),
+        h.span([h.Class("font-mono text-mono text-fg-3")], [`${opts.undo ? "undoing" : "applying"}… ${fmt(done.length)} done${failed.length > 0 ? `, ${fmt(failed.length)} failed` : ""}`]),
         h.button([h.Type("button"), h.Class("btn btn-sm"), h.OnClick(Message.ClickedStopRun({ plan: run.id }))], ["stop"]),
       ]),
     ]);
@@ -296,7 +296,7 @@ export const runCard = (h: H, ctx: Ctx, run: Run, live = false, opts: { undoable
   const openKey = `run.${run.id}.${opts.undo ? "undo" : "diff"}`;
   const open = on(ctx, openKey);
   return panel(h, "receipt", live, [
-    h.p([h.Class("m-0 font-mono text-[12.5px] leading-[1.7] text-fg-2")], [
+    h.p([h.Class("m-0 font-mono text-mono leading-[1.7] text-fg-2")], [
       h.span([h.Class("text-accent")], [opts.undo ? `[undo ${run.title}] ` : `[${run.title}] `]),
       statLine(done),
     ]),
@@ -304,7 +304,7 @@ export const runCard = (h: H, ctx: Ctx, run: Run, live = false, opts: { undoable
     ...(open ? [diffBlock(h, hunkLines((c) => stateOf(c) === "done"))] : []),
     h.div([h.Class("flex items-center justify-between gap-4")], [
       h.button(
-        [h.Type("button"), h.AriaExpanded(open), h.Class("hit font-mono text-[12.5px] text-fg-3 transition-colors duration-160 hover:text-fg"), h.OnClick(toggle(openKey))],
+        [h.Type("button"), h.AriaExpanded(open), h.Class("hit font-mono text-mono text-fg-3 transition-colors duration-160 hover:text-fg"), h.OnClick(toggle(openKey))],
         [open ? "hide diff" : "show diff"],
       ),
       h.span([h.Class("flex items-center gap-2")], [
@@ -321,7 +321,7 @@ export const runCard = (h: H, ctx: Ctx, run: Run, live = false, opts: { undoable
 
 /** A plan the user threw away: one line where the diff was. */
 export const discardedLine = (h: H, plan: Plan): Html =>
-  h.p([h.Class("m-0 flex min-w-0 gap-2 font-mono text-[12.5px] text-fg-4")], [
+  h.p([h.Class("m-0 flex min-w-0 gap-2 font-mono text-mono text-fg-4")], [
     h.span([h.AriaHidden(true)], ["✗"]),
     h.span([h.Class("truncate line-through")], [plan.title]),
     h.span([], ["discarded"]),

@@ -89,6 +89,7 @@ add(0, "www.Torrenting.com - Notes.url", "TEXT", 200);
 add(0, "Thumbs.db", "TEXT", 12_000);
 add(add(0, "New Folder", "FOLDER"), "Untitled", "FOLDER");
 
+const linkJobs = new Map<number, { ids: number[]; readyAt: number }>();
 const byParent = (parent: number) => files.filter((f) => parent === -1 || f.parent_id === parent);
 
 // ---------- put.io ----------
@@ -193,6 +194,22 @@ const putio = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
     if (url.pathname === "/v2/files/move") f.parent_id = Number(form.get("parent_id"));
     return json(res, 200, { status: "OK", errors: [] });
   }
+  // Download links take a moment, like put.io's background job.
+  if (route === "POST /v2/download_links/create") {
+    const ids = (new URLSearchParams(await readBody(req)).get("file_ids") ?? "").split(",").map(Number);
+    linkJobs.set(linkJobs.size + 1, { ids, readyAt: Date.now() + 1200 });
+    log(`${route} file_ids=${ids.join(",")}`);
+    return json(res, 200, { id: linkJobs.size, status: "OK" });
+  }
+  const job = route.match(/^GET \/v2\/download_links\/(\d+)$/);
+  if (job) {
+    const j = linkJobs.get(Number(job[1]));
+    if (!j) return json(res, 404, { status: "ERROR", error_type: "NOT_FOUND", status_code: 404 });
+    if (Date.now() < j.readyAt) return json(res, 200, { links_status: "PROCESSING", links: null, status: "OK" });
+    const under = (id: number): typeof files => files.flatMap((f) => (f.id === id ? (f.file_type === "FOLDER" ? byParent(f.id).flatMap((c) => under(c.id)) : [f]) : []));
+    const links = j.ids.flatMap(under).map((f) => `https://dl.example.put.io/files/${f.id}/${encodeURIComponent(f.name)}`);
+    return json(res, 200, { links_status: "DONE", links: { download_links: links, media_links: [], mp4_links: [] }, status: "OK" });
+  }
   log(`UNEXPECTED put.io call: ${route}`);
   return json(res, method === "GET" ? 404 : 405, { status: "ERROR", error_type: "NOT_FAKED", status_code: 404 });
 };
@@ -261,9 +278,10 @@ const plan = (messages: Array<Message>): Array<Step> => {
       return [{ kind: "text", delayMs: 40, text: p.error ? `couldn't build that plan: ${p.error}` : "plan's up. untick anything you want to keep." }];
     }
     if (call?.name === "ask_user") return [{ kind: "text", delayMs: 40, text: "your call." }];
+    if (call?.name === "make_download_links") return [{ kind: "text", delayMs: 40, text: "the links are in the card above." }];
     const r = JSON.parse(raw);
-    const lines = (r.items ?? []).slice(0, 5).map((i: any) => `- \`${i.path ?? i.name}\``);
-    return [{ kind: "text", delayMs: 40, text: [`${r.total ?? r.count} found.`, ...lines].join("\n") }];
+    const lines = (r.items ?? []).slice(0, 5).map((i: any) => `- \`${i.path ?? i.name}\` (${i.size})`);
+    return [{ kind: "text", delayMs: 40, text: [`${r.total ?? r.count} found, the biggest first; each one opens on put.io from its link.`, "", ...lines].join("\n") }];
   }
   const ask = textOf(last).toLowerCase();
   if (/audit|scan/.test(ask)) {
@@ -310,6 +328,18 @@ const plan = (messages: Array<Message>): Array<Step> => {
         },
       },
     ];
+  }
+  if (/download|link/.test(ask)) {
+    return [
+      {
+        kind: "tool",
+        name: "make_download_links",
+        input: { paths: ["/Heat.1995.2160p.WEB-DL.mkv", "/Movies/Prisoners (2015)/Prisoners (2015).mkv", "/Movies/Sicario (2011)/Sicario (2011).mkv"] },
+      },
+    ];
+  }
+  if (/largest|biggest/.test(ask)) {
+    return [{ kind: "tool", name: "search_files", input: { query: "", category: "large", limit: 3 } }];
   }
   if (/junk/.test(ask)) {
     return [

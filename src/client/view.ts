@@ -57,7 +57,7 @@ const status = (h: H, model: Model) =>
   model.connection._tag === "Connected"
     ? []
     : [
-        h.span([h.Class("flex items-center gap-2 text-[13px] text-fg-3")], [
+        h.span([h.Class("flex items-center gap-2 text-meta text-fg-3")], [
           dot(h, model.connection._tag === "Lost" ? "warn" : null),
           model.connection._tag === "Lost" ? "reconnecting" : "connecting",
         ]),
@@ -151,7 +151,7 @@ const accountMenu = (h: H, model: Model, username: string, url: string | null) =
       ),
     ],
     [
-      h.p([h.Class("m-0 truncate px-3 pt-2 pb-1.5 text-[13px] text-fg-3")], [username]),
+      h.p([h.Class("m-0 truncate px-3 pt-2 pb-1.5 text-meta text-fg-3")], [username]),
       ...(model.history.length > 0 && !isBusy(model) ? [menuItem(h, "new thread", Message.ClickedNewThread())] : []),
       ...(model.library ? [menuItem(h, "browse library", Message.ToggledTree())] : []),
       h.a(
@@ -215,12 +215,12 @@ const signInView = (h: H, kind: SignIn) =>
         [
           art(h, kind === "ready" ? "asleep" : "unplugged", 56),
           h.h1([h.Class("m-0 font-display text-[28px] leading-none font-medium text-accent")], ["puterminator"]),
-          h.div([h.Class("grid gap-0.5 rounded-xl border border-line bg-sunk px-4 py-3 font-mono text-[12.5px] leading-[1.7]")], [
+          h.div([h.Class("grid gap-0.5 rounded-xl border border-line bg-sunk px-4 py-3 font-mono text-mono leading-[1.7]")], [
             h.span([h.Class("text-fg-2")], ["$ puterminator login"]),
             ...signInOutput(h, kind),
           ]),
           signInAction(h, kind),
-          h.p([h.Class("m-0 text-[13px] text-fg-4")], [
+          h.p([h.Class("m-0 text-meta text-fg-4")], [
             "it reads your file list and asks Claude about it. ",
             h.a([h.Href("/privacy"), h.Class("text-fg-3 underline decoration-fg-4 underline-offset-2 hover:text-fg")], ["privacy and disclaimer"]),
           ]),
@@ -381,7 +381,7 @@ const userView = (h: H, turn: Turn, live: boolean) =>
 /** The starters as a terminal listing: `$ prompt` and a `# what it does` comment, one per line. */
 const starterRows = (h: H, enabled: boolean) =>
   h.div(
-    [h.Class("grid overflow-hidden rounded-xl border border-line bg-sunk py-2 font-mono text-[12.5px] leading-[1.7]")],
+    [h.Class("grid overflow-hidden rounded-xl border border-line bg-sunk py-2 font-mono text-mono leading-[1.7]")],
     STARTERS.map(([prompt, does]) =>
       h.button(
         [
@@ -460,7 +460,7 @@ const composer = (h: H, model: Model, placeholder: string) => {
             h.OnKeyDownPreventDefault((key, mods) => (key === "Enter" && !COARSE && !mods.shiftKey && !mods.altKey ? Option.some(Message.SubmittedDraft()) : Option.none())),
           ]),
           ...(credits !== null && credits < LOW_CREDITS
-            ? [h.span([h.Class("flex-none pb-1.5 text-[13px] text-fg-3 tabular-nums"), h.Title("credits left this month")], [`${fmt(credits)} credits left`])]
+            ? [h.span([h.Class("flex-none pb-1.5 text-meta text-fg-3 tabular-nums"), h.Title("credits left this month")], [`${fmt(credits)} credits left`])]
             : []),
           // Keyed so send and stop are separate elements: focus and a second click never carry over.
           busy
@@ -490,7 +490,7 @@ const composer = (h: H, model: Model, placeholder: string) => {
         ],
       ),
       ...(tooLong
-        ? [h.p([h.Id(errorId), h.Class("m-0 flex items-center gap-2 text-[13px] text-fg-2"), h.Role("alert")], [dot(h, "error"), LENGTH_ERROR])]
+        ? [h.p([h.Id(errorId), h.Class("m-0 flex items-center gap-2 text-meta text-fg-2"), h.Role("alert")], [dot(h, "error"), LENGTH_ERROR])]
         : []),
     ],
   );
@@ -512,7 +512,7 @@ const emptyThread = (h: H, model: Model) => {
             [
               art(h, "idle", 56),
               h.h1([h.Class("m-0 font-display text-[36px] leading-[1.1] font-medium text-fg-strong")], [model.agent?.username ? `hi ${model.agent.username}.` : "hi."]),
-              h.p([h.Class("m-0 max-w-[52ch] text-[15px] text-fg-2")], [
+              h.p([h.Class("m-0 max-w-[52ch] text-fg-2")], [
                 "i’m puterminator. i read your put.io library, score the mess and tell you what to fix. ask me anything about your files, or start with one of these:",
               ]),
             ],
