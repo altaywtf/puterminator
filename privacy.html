@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d0b08" />
+    <meta name="color-scheme" content="dark" />
+    <title>puterminator privacy</title>
+    <meta name="description" content="what puterminator reads, where it goes, and what it changes" />
+    <link rel="icon" type="image/svg+xml" href="/src/client/logo.svg" />
+    <link href="/src/client/styles.css" rel="stylesheet" />
+  </head>
+  <body class="bg-bg text-fg">
+    <main class="mx-auto grid max-w-[640px] gap-8 px-4 py-10 text-[15px] leading-[1.65] text-fg-2">
+      <header class="grid gap-3">
+        <a href="/" class="flex items-center gap-2.5 font-display text-[16px] text-accent no-underline">
+          <img src="/src/client/logo.svg" alt="" width="22" height="22" style="image-rendering: pixelated" />puterminator
+        </a>
+        <h1 class="m-0 font-display text-[28px] leading-tight font-medium text-fg-strong">privacy and disclaimer</h1>
+        <p class="m-0">puterminator is a side project by uinaf. put.io doesn’t make, run or endorse it.</p>
+      </header>
+
+      <section class="grid gap-2">
+        <h2 class="m-0 font-mono text-[13px] font-normal text-accent"># what it reads</h2>
+        <ul class="m-0 grid list-disc gap-1 ps-5 marker:text-fg-4">
+          <li>Your put.io file list under the folder you pick: names, sizes, types, dates, checksums, and whether a file was ever played.</li>
+          <li>Your put.io username and avatar, to show who is signed in.</li>
+        </ul>
+      </section>
+
+      <section class="grid gap-2">
+        <h2 class="m-0 font-mono text-[13px] font-normal text-accent"># where it goes</h2>
+        <ul class="m-0 grid list-disc gap-1 ps-5 marker:text-fg-4">
+          <li>The file list, your chat and your plans stay in storage on Cloudflare that belongs to your put.io account alone.</li>
+          <li>
+            To answer you, your messages and the file names they need go to Claude through Anthropic’s API, under
+            <a class="text-accent" href="https://www.anthropic.com/legal/commercial-terms">Anthropic’s commercial terms</a>.
+          </li>
+          <li>Video previews stream from put.io straight to your browser.</li>
+          <li>No ads and no third-party trackers. Cloudflare Web Analytics counts page views without cookies.</li>
+        </ul>
+      </section>
+
+      <section class="grid gap-2">
+        <h2 class="m-0 font-mono text-[13px] font-normal text-accent"># what it changes</h2>
+        <ul class="m-0 grid list-disc gap-1 ps-5 marker:text-fg-4">
+          <li>Nothing until you apply a plan. The model only proposes; your browser applies.</li>
+          <li>Trash goes to your put.io trash, where you can restore it. Undo reverses what a plan did.</li>
+          <li>If trash is off in your put.io settings, puterminator refuses to trash anything, since that would delete for good.</li>
+        </ul>
+      </section>
+
+      <section class="grid gap-2">
+        <h2 class="m-0 font-mono text-[13px] font-normal text-accent"># no warranty</h2>
+        <p class="m-0">
+          puterminator comes as is, with no warranty of any kind. The model can be wrong about what a file is. Read every plan before you
+          apply it: you are responsible for the changes you approve.
+        </p>
+      </section>
+
+      <section class="grid gap-2">
+        <h2 class="m-0 font-mono text-[13px] font-normal text-accent"># your data</h2>
+        <ul class="m-0 grid list-disc gap-1 ps-5 marker:text-fg-4">
+          <li>Sign out to end every session and drop your put.io token.</li>
+          <li>To remove access for good, revoke puterminator in your put.io account settings.</li>
+          <li>To delete everything puterminator keeps for you, or to ask anything, email <a class="text-accent" href="mailto:altay@hey.com">altay@hey.com</a>.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

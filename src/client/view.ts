@@ -154,6 +154,13 @@ const accountMenu = (h: H, model: Model, username: string, url: string | null) =
       h.p([h.Class("m-0 truncate px-3 pt-2 pb-1.5 text-[13px] text-fg-3")], [username]),
       ...(model.history.length > 0 && !isBusy(model) ? [menuItem(h, "new thread", Message.ClickedNewThread())] : []),
       ...(model.library ? [menuItem(h, "browse library", Message.ToggledTree())] : []),
+      h.a(
+        [
+          h.Href("/privacy"),
+          h.Class("flex h-9 items-center rounded-lg px-3 text-[14px] text-fg-2 no-underline transition-colors duration-160 hover:bg-hover hover:text-fg focus-visible:bg-hover focus-visible:text-fg"),
+        ],
+        ["privacy"],
+      ),
       menuItem(h, "sign out", Message.ClickedSignOut()),
     ],
   ),
@@ -213,6 +220,10 @@ const signInView = (h: H, kind: SignIn) =>
             ...signInOutput(h, kind),
           ]),
           signInAction(h, kind),
+          h.p([h.Class("m-0 text-[13px] text-fg-4")], [
+            "it reads your file list and asks Claude about it. ",
+            h.a([h.Href("/privacy"), h.Class("text-fg-3 underline decoration-fg-4 underline-offset-2 hover:text-fg")], ["privacy and disclaimer"]),
+          ]),
         ],
       ),
     ],
