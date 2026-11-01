@@ -1,39 +1,30 @@
+![puterminator — terminates the mess in your put.io.](public/og.png)
+
 # puterminator
 
-A chat agent for your put.io library: it reads the tree, scores naming, structure, junk and duplicates, answers questions, makes download links, and proposes trash, rename and move changes that you approve as a diff. Live at <https://puterminator.com>.
+A chat agent for your put.io library, at [puterminator.com](https://puterminator.com).
 
-Built on a Cloudflare Worker with one Durable Object per put.io user ([Alchemy](https://alchemy.run)), [Effect](https://effect.website) 4, [`@putdotio/sdk`](https://github.com/putdotio/putio-sdk-typescript), the Anthropic SDK's Tool Runner and [Foldkit](https://foldkit.dev). How it fits together: [docs/architecture.md](docs/architecture.md). Working on it as an agent: [AGENTS.md](AGENTS.md).
+- Scores a folder for junk, duplicates, release names and wrapper folders.
+- Finds files, plays videos in the browser and makes put.io download links.
+- Proposes renames, moves and trash as a diff. Trash goes to put.io's trash, and an applied plan can be undone.
 
-## Develop
+## Run it
 
-```bash
+Node 24 and pnpm.
+
+```sh
 pnpm install
-pnpm dev:fake          # http://localhost:1337 with put.io and Anthropic faked on :8788
-pnpm lab               # every card in every fixture state on http://localhost:5174/lab.html
-pnpm verify            # typecheck, lint, knip, test, build
+pnpm dev:fake   # http://localhost:1337, with put.io and Anthropic faked on :8788
+pnpm verify     # typecheck, lint, knip, test, build
 ```
 
-- In the fake, sign-in runs the real OAuth routes. Prompts with "audit", "clean", "junk", "folder", "largest", "download" or "link" call tools, "which" or "keep" asks a question, and anything else streams a long reply you can stop. `FAKE_UNCONFIGURED=1 pnpm dev:fake` shows the unconfigured state.
-- Against the real APIs: `cp .env.example .env`, fill it in, then `pnpm dev`. `pnpm dev:client` adds Vite HMR, proxying the Worker routes to `:1337`.
-- The put.io OAuth app is registered at <https://app.put.io/oauth> with the callback `<public URL>/auth/callback`.
+`pnpm dev` runs against the real APIs with a local `.env` (from `.env.example`). `pnpm lab` shows every card on <http://localhost:5174/lab.html>.
 
-## Deploy
+[AGENTS.md](AGENTS.md) maps the code and its checks; [docs/architecture.md](docs/architecture.md) draws how it fits together.
 
-A push to `main` deploys: [`ci.yml`](.github/workflows/ci.yml) runs `pnpm verify`, deploys stage `prod` from the GitHub `production` environment, then smokes the live site.
+## Privacy
 
-```bash
-op run --env-file .env.op -- pnpm run plan     # alchemy plan --stage prod
-op run --env-file .env.op -- pnpm run deploy   # manual deploy
-```
-
-- Secrets live in 1Password item `uinaf/puterminator`, mapped by [`.env.op`](.env.op). CI reads copies from the `production` environment; after changing a value, copy it over and re-run CI:
-
-  ```bash
-  op read op://uinaf/puterminator/<field> | tr -d '\n' | gh secret set <NAME> --env production
-  ```
-
-- Every `Config` read in [`config.ts`](src/server/config.ts) becomes a secret binding, and a deploy deletes live secrets that aren't read through `Config`. A missing required key stops the deploy; a short `SESSION_SECRET` leaves the Worker up with sign-in disabled. Rotating `SESSION_SECRET` signs everyone out.
-- Alchemy keeps state in memory and re-adopts the live `puterminator` script by its tags on every deploy. Its Cloudflare credentials are the `uinaf-cloudflare-workers-deploy` payload in `uinaf/vault` locally: Workers Scripts Write and Account Settings Read on the account, Workers Routes Write and Zone Read on `uinaf.dev`.
-- `puterminator.com` is a custom domain in `uinaf/infra`; the Worker answers OAuth and WebSocket origins as `https://puterminator.com` ([`worker.ts`](src/server/worker.ts)). The Alchemy-managed `puterminator.uinaf.dev` redirects there.
-- Rollback is `pnpm run deploy` from an earlier commit. `wrangler rollback` fails on this script.
-- Upgrade `effect`, foldkit, alchemy and `@putdotio/sdk` together; [`pnpm-workspace.yaml`](pnpm-workspace.yaml) pins one `effect` for the whole graph.
+- It reads file names, sizes, dates, checksums and play status through put.io's API, and your put.io username and avatar.
+- Your messages, and the file names they need, go to Anthropic's API.
+- Renames, moves and trash happen only when you apply a plan in the browser.
+- The [privacy page](https://puterminator.com/privacy) has the rest.
