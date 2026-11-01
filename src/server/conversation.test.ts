@@ -777,11 +777,32 @@ describe("library freshness", () => {
     t.agent.connected();
     await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "send", text: "scan movies", folder: { id: 1, name: "Movies" } })));
 
-    for (let i = 0; i < 100 && t.agent.state().lastAudit?.rootName !== "Movies"; i++) await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 50));
     release();
     await t.settle();
     expect(t.store.secret("snapshot_root")).toBe("1");
     expect(t.agent.state().lastAudit?.rootName).toBe("Movies");
+  });
+
+  it("never lets a slow background refresh overwrite a newer scan of the same folder", async () => {
+    let release = () => {};
+    const slow = new Promise<void>((resolve) => (release = resolve));
+
+    const t = await setup(
+      [
+        { kind: "sse", events: toolUseTurn({ id: "toolu_n", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
+        { kind: "sse", events: textTurn("scanned.", { input: 10, output: 5 }) },
+      ],
+      { seed: scanned("2026-01-01T00:00:00.000Z"), holdFirstListing: slow },
+    );
+
+    t.agent.connected();
+    await t.putio.fetch("https://api.put.io/v2/files/rename", { method: "POST", body: new URLSearchParams({ file_id: "4", name: "Aliens (1986).mkv" }) });
+    await Effect.runPromise(t.agent.receive(send("rescan")));
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    await t.settle();
+    expect(t.store.snapshot().map((f) => f.name)).toContain("Aliens (1986).mkv");
   });
 
   it("tells the model how old the last scan is", async () => {

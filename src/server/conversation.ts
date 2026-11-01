@@ -9,6 +9,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, type Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
@@ -210,16 +211,13 @@ export const makeAgent = (deps: AgentDeps) =>
       };
     };
 
-    let latestScan = 0;
+    const scanLock = yield* Semaphore.make(1);
 
-    const scan = Effect.gen(function* () {
-      const scanNumber = ++latestScan;
+    const scan = scanLock.withPermits(1)(Effect.gen(function* () {
       const { id, name } = state.folder;
       const tree = buildTree(yield* listAll, id);
       const a = audit(tree.files, id === 0 ? name : tree.rootName, false, new Date(yield* Clock.currentTimeMillis), id === 0 ? "" : tree.rootName);
-      const superseded = scanNumber !== latestScan || id !== state.folder.id;
 
-      if (superseded) return a;
       store.saveSnapshot(tree.files, id);
       setState({ ...state, lastAudit: { at: a.at, rootName: a.rootName, score: a.score, items: a.totals.items } });
       const lib = library();
@@ -227,7 +225,7 @@ export const makeAgent = (deps: AgentDeps) =>
       if (lib) broadcast({ type: "library", library: lib });
 
       return a;
-    });
+    }));
 
     const STALE_AFTER_MS = 10 * 60_000;
     let refreshing = false;
