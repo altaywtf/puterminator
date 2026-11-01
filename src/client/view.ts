@@ -24,7 +24,7 @@ const STARTERS: Array<[prompt: string, does: string]> = [
   ["what can you do?", "a short tour, then a first step"],
   ["audit my library", "score naming, junk, duplicates"],
   ["what’s eating my space?", "the biggest files, doubles, things nobody played"],
-  ["clean up my downloads", "a diff you approve before anything moves"],
+  ["clean up my downloads", "junk, release names and wrapper folders as one diff"],
   ["download links for my biggest files", "direct links to paste anywhere"],
 ];
 
@@ -185,7 +185,7 @@ type SignIn = "ready" | "unconfigured" | "failed";
 
 const signInOutput = (h: H, kind: SignIn): Html[] =>
   Match.value(kind).pipe(
-    Match.when("ready", () => [h.span([h.Class("text-fg-3")], ["# terminates the mess in your put.io"]), h.span([h.Class("text-fg-3")], ["# asks before it touches anything"])]),
+    Match.when("ready", () => [h.span([h.Class("text-fg-3")], ["# terminates the mess in your put.io"]), h.span([h.Class("text-fg-3")], ["# junk, doubles, release names"])]),
     Match.when("unconfigured", () => [h.span([h.Class("text-warn")], ["! sign-in isn’t wired up yet"])]),
     Match.when("failed", () => [h.span([h.Class("text-danger"), h.Role("alert")], ["! couldn’t reach puterminator"])]),
     Match.exhaustive,
@@ -501,7 +501,7 @@ const emptyThread = (h: H, model: Model) => {
               art(h, "idle", 56),
               h.h1([h.Class("m-0 font-display text-[36px] leading-[1.1] font-medium text-fg-strong")], [model.agent?.username ? `hi ${model.agent.username}.` : "hi."]),
               h.p([h.Class("m-0 max-w-[52ch] text-fg-2")], [
-                "i’m puterminator. i read your put.io library and help you tidy it: i find junk and doubles, rename and sort things, play a file or hand you download links. nothing changes until you approve a diff, and you can undo it. ask me anything, or start here:",
+                "i’m puterminator. i read your put.io library, find junk and doubles, rename and sort files, play them and make download links. start here, or ask anything:",
               ]),
             ],
           ),
