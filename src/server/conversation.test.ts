@@ -1050,11 +1050,13 @@ describe("translate subtitles", () => {
     expect([uploadedId, charged]).toEqual([undefined, Math.ceil((1000 + 1000 * 5) / 20)]);
   });
 
-  it("asks again for the lines Haiku merged away and puts each translation on its own cue", async () => {
+  it("keeps asking for the lines Haiku merged away, last one at a time, and puts each translation on its own cue", async () => {
     const t = await setup(
       [
         ...proposeTurns,
         { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 0, text: "Merhaba. Koş!" }] }), { input: 1, output: 1 }) },
+        { kind: "sse", events: textTurn(JSON.stringify({ lines: [] }), { input: 1, output: 1 }) },
+        { kind: "sse", events: textTurn("not json", { input: 1, output: 1 }) },
         { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 1, text: "<i>Koş!</i>" }] }), { input: 1, output: 1 }) },
       ],
       { files, subtitles: { 2: [{ key: "k1", language_code: "eng", source: "mkv", name: "English", srt: english }] } },
@@ -1062,7 +1064,8 @@ describe("translate subtitles", () => {
 
     await proposeAndApply(t);
 
-    expect([t.anthropic.requests.at(-1)?.body.messages.at(-1)?.content, t.putio.uploads.map((u) => u.text)]).toEqual([
+    expect([t.anthropic.requests.length, t.anthropic.requests.at(-1)?.body.messages.at(-1)?.content, t.putio.uploads.map((u) => u.text)]).toEqual([
+      7,
       JSON.stringify({ lines: [{ id: 1, text: "<i>Run!</i>" }] }),
       ["1\n00:00:01,000 --> 00:00:02,000\nMerhaba. Koş!\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Koş!</i>\n"],
     ]);

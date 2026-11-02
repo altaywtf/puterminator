@@ -124,17 +124,34 @@ const translateBatch = (batch: ReadonlyArray<Numbered>, language: string, spend:
     return { got, why: Option.isNone(out) ? `unreadable reply, ${message.stop_reason}` : `${got.size} of ${batch.length} lines back` };
   });
 
+const ROUNDS = 3;
+const MAX_SINGLES = 20;
+
 const translateAll = (batch: ReadonlyArray<Numbered>, language: string, spend: Spend) =>
   Effect.gen(function* () {
-    const { got } = yield* translateBatch(batch, language, spend);
-    const missing = batch.filter((c) => !got.has(c.id));
+    const got = new Map<number, string>();
+    let missing = batch;
+    let why = "";
 
-    if (missing.length === 0) return got;
-    const { got: retried, why } = yield* translateBatch(missing, language, spend);
+    for (let round = 0; round < ROUNDS && missing.length > 0; round++) {
+      const reply = yield* translateBatch(missing, language, spend);
 
-    if (missing.some((c) => !retried.has(c.id))) return yield* Effect.fail(new PutioFailed({ message: `the translation skipped some lines (${why})`, refused: true }));
+      for (const [id, text] of reply.got) got.set(id, text);
+      missing = missing.filter((c) => !got.has(c.id));
+      why = reply.why;
+    }
 
-    return new Map([...got, ...retried]);
+    if (missing.length > MAX_SINGLES) return yield* Effect.fail(new PutioFailed({ message: `the translation skipped some lines (${why})`, refused: true }));
+
+    for (const line of missing) {
+      const reply = yield* translateBatch([line], language, spend);
+      const text = reply.got.get(line.id);
+
+      if (text === undefined) return yield* Effect.fail(new PutioFailed({ message: `the translation skipped some lines (${reply.why})`, refused: true }));
+      got.set(line.id, text);
+    }
+
+    return got;
   });
 
 export const translateSubtitle = (videoId: number, parentId: number, name: string, language: LanguageCode, spend: Spend) =>
