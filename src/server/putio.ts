@@ -9,6 +9,7 @@ import {
   type PutioSdkContext,
   type PutioSdkError,
   requestJson,
+  requestText,
 } from "@putdotio/sdk";
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
@@ -18,7 +19,7 @@ import * as Match from "effect/Match";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import type { DownloadLinksResponse } from "../shared/tools";
-import { PUTIO_API } from "./dev";
+import { PUTIO_API, UPLOAD_API } from "./dev";
 import type { PutioFile } from "./tree";
 
 const sdk = createPutioSdkEffectClient();
@@ -288,3 +289,28 @@ export const createFolder = (name: string, parentId: number) =>
     "/files/create-folder",
     requestJson(Created, { method: "POST", path: "/v2/files/create-folder", body: { type: "form", value: { name, parent_id: parentId } } }),
   ).pipe(Effect.map(({ file }) => file.id));
+
+const Subtitles = Schema.Struct({
+  subtitles: Schema.Array(Schema.Struct({ key: Schema.String, language_code: Schema.String, source: Schema.String, name: Schema.String })),
+});
+
+export const listSubtitles = (videoId: number) =>
+  read("/files/:id/subtitles", requestJson(Subtitles, { method: "GET", path: `/v2/files/${videoId}/subtitles` })).pipe(Effect.map(({ subtitles }) => subtitles));
+
+export const downloadSubtitle = (videoId: number, key: string) =>
+  read("/files/:id/subtitles/:key", requestText({ method: "GET", path: `/v2/files/${videoId}/subtitles/${encodeURIComponent(key)}`, query: { format: "srt" } }));
+
+const Uploaded = Schema.Struct({ file: Schema.Struct({ id: Schema.Finite }) });
+
+export const uploadText = (name: string, parentId: number, text: string) =>
+  Effect.suspend(() => {
+    const form = new FormData();
+    form.set("parent_id", String(parentId));
+    form.set("filename", name);
+    form.set("file", new Blob([text], { type: "application/x-subrip" }), name);
+
+    return write(
+      "/files/upload",
+      requestJson(Uploaded, { method: "POST", baseUrl: UPLOAD_API, path: "/v2/files/upload", body: { type: "form-data", value: form } }),
+    );
+  }).pipe(Effect.map(({ file }) => file.id));

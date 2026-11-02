@@ -144,6 +144,7 @@ const diffChange = (h: H, ctx: Ctx, plan: Plan, hunk: Hunk, c: Change) => {
     Match.when("trash", () => [line(h, "del", slash(c, name), weight(c), active)]),
     Match.when("rename", () => [line(h, "del", slash(c, name), "", active), line(h, "add", slash(c, c.to ?? ""), "", active)]),
     Match.whenOr("move", "restore", () => [line(h, "del", slash(c, c.path), "", active), line(h, "add", slash(c, c.to ?? ""), "", active)]),
+    Match.when("translate", () => [line(h, "add", nameOf(c.to ?? ""), "from english", active)]),
     Match.exhaustive,
   );
 
@@ -241,6 +242,7 @@ const runChange = (h: H, c: Change, state: State, error: string | null) => {
     Match.when("rename", () => [runLine(h, state, "del", slash(c, name), ""), runLine(h, state, "add", slash(c, c.to ?? ""), "")]),
     Match.when("restore", () => [runLine(h, state, "add", slash(c, name), weight(c))]),
     Match.when("move", () => [runLine(h, state, "del", slash(c, c.path), ""), runLine(h, state, "add", slash(c, c.to ?? ""), "")]),
+    Match.when("translate", () => [runLine(h, state, "add", nameOf(c.to ?? ""), "from english")]),
     Match.exhaustive,
   );
 

@@ -48,6 +48,7 @@ export type FakePutioOptions = {
   /** The first listing waits for this, as when put.io answers slowly. */
   holdFirstListing?: Promise<void>;
   holdDownloadToken?: Promise<void>;
+  subtitles?: Readonly<Record<number, ReadonlyArray<{ key: string; language_code: string; source: string; name: string; srt: string }>>>;
 };
 
 type PutioRequest = { method: string; url: URL; body: URLSearchParams };
@@ -59,6 +60,7 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
   const json = (status: number, body: Json, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 
+  const uploads: Array<{ name: string; parentId: number; text: string }> = [];
   const lagging = new Map<number, number>();
   const linkJobs = new Map<number, number[]>();
   let heldListing = false;
@@ -162,6 +164,30 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
       return (opts.dropWrites ?? []).includes(target) ? json(502, { status: "ERROR" }) : json(200, { status: "OK", errors: [] });
     }
 
+    const subs = url.pathname.match(/^\/v2\/files\/(\d+)\/subtitles(?:\/(.+))?$/);
+
+    if (subs) {
+      const list = opts.subtitles?.[Number(subs[1])] ?? [];
+
+      if (!subs[2]) return json(200, { subtitles: list.map(({ srt: _, ...rest }) => rest), default: null, status: "OK" });
+      const one = list.find((x) => x.key === decodeURIComponent(subs[2] ?? ""));
+
+      return one ? new Response(one.srt, { status: 200, headers: { "content-type": "text/plain" } }) : json(404, { status: "ERROR" });
+    }
+
+    if (url.pathname === "/v2/files/upload" && init?.body instanceof FormData) {
+      const form = init.body;
+      const blob = form.get("file");
+      const text = blob instanceof Blob ? await blob.text() : "";
+      const name = String(form.get("filename") ?? "");
+      const parentId = Number(form.get("parent_id"));
+      const created = file(9500 + log.length, parentId, name, "TEXT", text.length);
+      uploads.push({ name, parentId, text });
+      tree = [...tree, created];
+
+      return json(200, { file: created, status: "OK" });
+    }
+
     if (url.pathname === "/v2/files/create-folder") {
       const created = file(9000 + log.length, Number(body.get("parent_id")), body.get("name") ?? "", "FOLDER");
       tree = [...tree, created];
@@ -177,5 +203,5 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     return json(404, { status: "ERROR", error_type: "NOT_FOUND", status_code: 404 });
   };
 
-  return { fetch: fetchImpl, log };
+  return { fetch: fetchImpl, log, uploads };
 };

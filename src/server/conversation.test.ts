@@ -36,6 +36,7 @@ const setup = async (
     seed?: (store: ReturnType<typeof makeStore>) => void;
     holdFirstListing?: Promise<void>;
     holdDownloadToken?: Promise<void>;
+    subtitles?: Parameters<typeof makeFakePutio>[0]["subtitles"];
   } = {},
 ) => {
   const sql = memorySql();
@@ -56,6 +57,7 @@ const setup = async (
     restoreLag: opts.restoreLag ?? 0,
     holdFirstListing: opts.holdFirstListing ?? Promise.resolve(),
     holdDownloadToken: opts.holdDownloadToken ?? Promise.resolve(),
+    subtitles: opts.subtitles ?? {},
   });
 
   const events: Array<ServerEvent> = [];
@@ -116,6 +118,7 @@ describe("a turn", () => {
       ["search_files", true],
       ["propose_changes", true],
       ["plan_layout", true],
+      ["propose_translation", true],
       ["plan_subtitles", true],
       ["plan_free_space", true],
       ["make_download_links", true],
@@ -995,6 +998,68 @@ describe("library freshness", () => {
     await Effect.runPromise(t.agent.receive(send("hi")));
     await t.settle();
     expect(JSON.stringify(t.anthropic.requests[0]?.body.messages.at(-1))).toContain("Last scan: 42 minutes ago, 1 items");
+  });
+});
+
+describe("translate subtitles", () => {
+  const files = [file(1, 0, "Movies", "FOLDER"), file(2, 1, "Heat (1995).mkv", "VIDEO", 2 ** 30)];
+  const english = "1\n00:00:01,000 --> 00:00:02,000\nHello.\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Run!</i>\n";
+
+  const proposeTurns = [
+    { kind: "sse" as const, events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
+    {
+      kind: "sse" as const,
+      events: toolUseTurn({ id: "toolu_t", name: "propose_translation", inputJsonChunks: [JSON.stringify({ paths: ["/Movies/Heat (1995).mkv", "/movies/HEAT (1995).mkv"], language: "tur" })] }, { input: 1, output: 1 }),
+    },
+    { kind: "sse" as const, events: textTurn("plan's up.", { input: 1, output: 1 }) },
+  ];
+
+  const proposeAndApply = async (t: Awaited<ReturnType<typeof setup>>) => {
+    await Effect.runPromise(t.agent.receive(send("turkish subtitles for heat")));
+    await t.settle();
+    const plan = t.store.plans()[0]?.record.plan;
+    const m = month(Date.now());
+    const before = t.store.used(m);
+    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "apply", plan: plan?.id, exclude: [] })));
+    await t.settle();
+
+    return { planId: plan?.id, charged: t.store.used(m) - before };
+  };
+
+  it("translates the English subtitle with Haiku, keeps every timing, uploads it beside the video, and undo trashes only that file", async () => {
+    const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ lines: ["Merhaba.\n\nNasılsın?", ""] }), { input: 1000, output: 1000 }) }], {
+      files,
+      subtitles: { 2: [{ key: "k1", language_code: "eng", source: "mkv", name: "English", srt: english }] },
+    });
+
+    const { planId, charged } = await proposeAndApply(t);
+
+    expect(t.putio.uploads).toEqual([
+      { name: "Heat (1995).tur.srt", parentId: 1, text: "1\n00:00:01,000 --> 00:00:02,000\nMerhaba.\nNasılsın?\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Run!</i>\n" },
+    ]);
+    expect(t.anthropic.requests.at(-1)?.body.model).toBe("claude-haiku-5-5");
+    expect(t.store.plans()[0]?.record.status).toBe("done");
+
+    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "undo", plan: planId })));
+    await t.settle();
+    const deleted = t.putio.log.filter((r) => r.url.pathname === "/v2/files/delete").map((r) => r.body.get("file_ids"));
+    const uploadedId = t.store.snapshot().find((f) => f.name === "Heat (1995).tur.srt")?.id;
+
+    expect(deleted).toHaveLength(1);
+    expect(deleted[0]).not.toBe("2");
+    expect([uploadedId, charged]).toEqual([undefined, Math.ceil((1000 + 1000 * 5) / 20)]);
+  });
+
+  it("fails the step without spending credits when put.io has no English subtitle", async () => {
+    const t = await setup(proposeTurns, { files, subtitles: { 2: [{ key: "k2", language_code: "spa", source: "opensubtitles", name: "Spanish", srt: english }] } });
+    const { charged } = await proposeAndApply(t);
+
+    expect([t.putio.uploads, t.anthropic.requests.length, charged, t.store.plans()[0]?.record.run?.steps[0]?.error]).toEqual([
+      [],
+      3,
+      0,
+      "put.io has no English subtitle for this video",
+    ]);
   });
 });
 

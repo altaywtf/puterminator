@@ -14,7 +14,7 @@ import * as Stream from "effect/Stream";
 import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, initialAgentState, type Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { PlanRecord, Run } from "../shared/actions";
-import { AskInput, applyChange, type StoredPlan, folderIds, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion } from "./changes";
+import { AskInput, applyChange, type StoredPlan, uploadedKey, validateTranslation, folderIds, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion } from "./changes";
 import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
 import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
 import { month, type Store, type StoredRecord } from "./store";
@@ -23,6 +23,7 @@ import type { DownloadLinksOutput, DownloadLinksResponse, FreeSpaceOutput, Layou
 import { planLayout } from "./layout";
 import { planFreeSpace } from "./space";
 import { planSubtitles } from "./subtitles";
+import { LanguageCode, LANGUAGES, translateSubtitle } from "./translate";
 
 const SYSTEM = `You are puterminator, an agent that helps one person understand and tidy their put.io library.
 
@@ -35,6 +36,7 @@ Who you are:
 You can scan, score, list folders, search files and make download links; every file you name links to put.io and videos play in the app. You can also change the library, but only through a plan the user approves:
 - To make the library work with Plex, Infuse, Jellyfin or Kodi, call plan_layout: it builds the whole plan itself. If the snapshot doesn't show which folders hold movies and shows, ask with ask_user, offering existing top-level folders or new 'Movies' and 'TV Shows'. Afterwards, one line on what it did and how many files it left alone.
 - To fix subtitles put.io or a media server doesn't show, call plan_subtitles: it renames each stray .srt to its video's name and moves it next to the video. One line afterwards; say how many it left alone and why.
+- To translate subtitles, call propose_translation with the videos and the language. It needs put.io to have an English subtitle for each video; offer it for films the user names, at most 20 at a time.
 - To free up space, call plan_free_space with the amount the user wants back (0 if they gave none). It trashes exact copies and junk itself. For each choice it returns (one title in two versions), ask with ask_user which copy to keep, then propose_changes for the rest. Hints (big never-played files) are only suggestions; name them, never trash them unasked.
 - To trash, rename or move anything else, call propose_changes with every change. The app shows it as a diff; the user applies, edits or discards it. You never apply anything yourself, and nothing changes until they click apply.
 - Trash goes to put.io's trash, never a permanent delete. Prefer trash for junk, rename for messy release names, move for wrapper folders.
@@ -356,6 +358,36 @@ export const makeAgent = (deps: AgentDeps) =>
             continue;
           }
 
+          if (change.op === "translate") {
+            const lang = change.to?.match(/\.([a-z]{3})\.srt$/)?.[1];
+            const m = month(yield* Clock.currentTimeMillis);
+
+            if (!lang || !Schema.is(LanguageCode)(lang) || !change.to) {
+              setStep(step.change, "failed", "no language in the subtitle name");
+              continue;
+            }
+
+            setStep(step.change, "running");
+            const parentId = first.parents?.[step.change] ?? state.folder.id;
+            const spend = { allowed: () => store.used(m) < deps.monthlyTokenCap, charge: (tokens: number) => store.charge(m, tokens) };
+            const done = yield* Effect.exit(translateSubtitle(fileId, parentId, change.to.slice(change.to.lastIndexOf("/") + 1), lang, spend).pipe(Effect.provide(deps.anthropic)));
+            yield* refreshCredits;
+
+            if (Exit.isSuccess(done)) {
+              const p = plans.get(planId);
+
+              if (p) saveRecord({ ...p, ids: { ...p.ids, [uploadedKey(step.change)]: done.value } });
+              setStep(step.change, "done");
+            } else {
+              const err = Exit.findErrorOption(done);
+
+              if (Option.isSome(err)) setStep(step.change, "failed", stepMessage(err.value), maybeApplied(err.value));
+              else setStep(step.change, "failed", "didn’t finish", true);
+            }
+
+            continue;
+          }
+
           if (change.op === "trash" && !trashOn) {
             setStep(step.change, "failed", "trash is off in your put.io settings, so this would delete for good");
             continue;
@@ -448,7 +480,7 @@ export const makeAgent = (deps: AgentDeps) =>
       const run = p?.record.run;
 
       if (!p || !run || p.record.status !== "done" || runFibers.size > 0) return;
-      const changes = undoChanges(run);
+      const changes = undoChanges(run).filter((c) => p.ids[c.id] !== undefined);
 
       if (changes.length === 0) return;
       const back: Run = { id: planId, title: run.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
@@ -629,6 +661,27 @@ export const makeAgent = (deps: AgentDeps) =>
             if ("error" in layout) return JSON.stringify(layout);
 
             return proposeGenerated(all.success, "media server layout", layout, "Nothing to move: every video it can name is already laid out.");
+          }),
+      }),
+      effectTool({
+        name: "propose_translation",
+        description:
+          "Propose translating the English subtitles of 1 to 20 videos from the snapshot into one language. Each lands beside its video as '<video name>.<language>.srt', which put.io and media servers pick up. The user sees the plan and applies it; nothing is translated until they do. Each film uses a little of their monthly credits.",
+        input: Schema.Struct({
+          paths: Schema.Array(Schema.String).annotate({ description: "video paths from the snapshot" }),
+          language: LanguageCode.annotate({ description: "ISO 639-2 code of the language to translate into, e.g. 'tur'" }),
+        }),
+        run: ({ paths, language }) =>
+          Effect.sync(() => {
+            const all = snapshotHere();
+
+            if (Result.isFailure(all)) return all.failure;
+            const out = validateTranslation(all.success, paths, language, `${LANGUAGES[language].toLowerCase()} subtitles`, newId());
+
+            if ("error" in out) return JSON.stringify(out);
+            storePlan(out);
+
+            return JSON.stringify(out.plan);
           }),
       }),
       effectTool({

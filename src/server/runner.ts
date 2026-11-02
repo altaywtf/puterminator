@@ -35,7 +35,9 @@ export const anthropicLayer = (opts: {
     return new Anthropic(options);
   });
 
-const weightedTokens = (u: BetaUsage) =>
+type Usage = Pick<BetaUsage, "input_tokens" | "output_tokens" | "cache_creation_input_tokens" | "cache_read_input_tokens">;
+
+export const weightedTokens = (u: Usage) =>
   Math.round(
     u.input_tokens + (u.cache_creation_input_tokens ?? 0) * 1.25 + (u.cache_read_input_tokens ?? 0) * 0.1 + u.output_tokens * 5,
   );

@@ -194,6 +194,7 @@ const back: Run["changes"] = [...cleanup].reverse().map((c) =>
     Match.when("trash", (): Change => ({ ...c, op: "restore" })),
     Match.when("rename", (): Change => ({ ...c, path: `${c.path.slice(0, c.path.lastIndexOf("/"))}/${c.to ?? ""}`, to: nameOf(c.path), bytes: 0 })),
     Match.whenOr("move", "restore", (): Change => ({ ...c, path: c.to ?? c.path, to: c.path, bytes: 0 })),
+    Match.when("translate", (): Change => ({ ...c, id: `${c.id}u`, op: "trash", path: c.to ?? c.path, to: null })),
     Match.exhaustive,
   ),
 );

@@ -355,6 +355,9 @@ const planOrRun = (h: H, ctx: Ctx, plan: Plan, live: boolean): Html => {
   return planCard(h, ctx, plan, live);
 };
 
+const proposedPlanCard: Card = (h, ctx, _key, output, live) =>
+  Option.match(decodePlan(output), { onNone: () => null, onSome: (p) => planOrRun(h, ctx, p, live) });
+
 const generatedPlanCard: Card = (h, ctx, _key, output, live) =>
   Option.match(Option.flatMapNullishOr(decodeLayout(output), (o) => ctx.plans[o.plan]), { onNone: () => null, onSome: (r) => planOrRun(h, ctx, r.plan, live) });
 
@@ -362,7 +365,8 @@ const CARDS = {
   scan_library: (h, ctx, key, output, live) => Option.match(auditOf(output), { onNone: () => null, onSome: (a) => scoreCard(h, ctx, a, key, live) }),
   list_folder: (h, ctx, key, output, live) => Option.match(decodeListFolder(output), { onNone: () => null, onSome: (o) => folderCard(h, ctx, key, o, live) }),
   search_files: (h, ctx, key, output, live) => Option.match(decodeSearchFiles(output), { onNone: () => null, onSome: (o) => searchCard(h, ctx, key, o, live) }),
-  propose_changes: (h, ctx, _key, output, live) => Option.match(decodePlan(output), { onNone: () => null, onSome: (p) => planOrRun(h, ctx, p, live) }),
+  propose_changes: proposedPlanCard,
+  propose_translation: proposedPlanCard,
   plan_layout: generatedPlanCard,
   plan_subtitles: generatedPlanCard,
   plan_free_space: (h, ctx, _key, output, live) =>

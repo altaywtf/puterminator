@@ -5,7 +5,7 @@ import * as Schema from "effect/Schema";
     `items`: set for a folder, how many files and folders are under it. */
 export const Change = Schema.Struct({
   id: Schema.String,
-  op: Schema.Literals(["trash", "rename", "move", "restore"]),
+  op: Schema.Literals(["trash", "rename", "move", "restore", "translate"]),
   path: Schema.String,
   to: Schema.NullOr(Schema.String),
   bytes: Schema.Finite,

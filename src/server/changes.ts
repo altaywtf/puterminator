@@ -210,6 +210,50 @@ export const staleChanges = (snapshot: ReadonlyArray<WalkedFile>, changes: Reado
   });
 };
 
+const MAX_TRANSLATIONS = 20;
+
+export const validateTranslation = (snapshot: ReadonlyArray<WalkedFile>, paths: ReadonlyArray<string>, language: string, title: string, id: string): StoredPlan | { error: string } => {
+  if (paths.length === 0 || paths.length > MAX_TRANSLATIONS) return { error: `Give 1 to ${MAX_TRANSLATIONS} videos.` };
+  const byPath = new Map(snapshot.map((f) => [f.path.toLowerCase(), f]));
+  const changes: Change[] = [];
+  const ids: Record<string, number> = {};
+  const parents: Record<string, number> = {};
+  const problems: string[] = [];
+
+  const seenVideos = new Set<number>();
+  const targets = new Set<string>();
+
+  for (const raw of paths.map(clean)) {
+    const video = byPath.get(raw.toLowerCase());
+
+    if (!video || video.file_type !== "VIDEO") {
+      problems.push(`${raw}: not a video in the snapshot`);
+      continue;
+    }
+
+    if (seenVideos.has(video.id)) continue;
+    seenVideos.add(video.id);
+    const to = `${parentOf(video.path).replace(/\/$/, "")}/${stemOf(video.name)}.${language}.srt`;
+
+    if (byPath.has(to.toLowerCase()) || targets.has(to.toLowerCase())) {
+      problems.push(`${video.path}: ${nameOf(to)} already exists or another video in this plan gets it`);
+      continue;
+    }
+
+    targets.add(to.toLowerCase());
+
+    const changeId = `c${changes.length + 1}`;
+    ids[changeId] = video.id;
+
+    if (video.parent_id != null) parents[changeId] = video.parent_id;
+    changes.push({ id: changeId, op: "translate", path: video.path, to, bytes: 0 });
+  }
+
+  if (problems.length > 0) return { error: `Fix these and propose again: ${problems.slice(0, 10).join("; ")}` };
+
+  return { plan: { id, title, changes }, ids, parents };
+};
+
 export const validateQuestion = (input: AskInput, id: string): Question | { error: string } => {
   if (!input.prompt.trim()) return { error: "The question is empty." };
 
@@ -223,7 +267,11 @@ export const validateQuestion = (input: AskInput, id: string): Question | { erro
   };
 };
 
-/** The reverse of every step that may have reached put.io, last first. Each keeps its change id, so it acts on the same file. */
+export const uploadedKey = (changeId: string) => `${changeId}u`;
+
+/** The reverse of every step that may have reached put.io, last first. Each keeps its change id, so it acts on the same file,
+    except a translation, whose reverse trashes the uploaded subtitle under `uploadedKey`. */
+
 export const undoChanges = (run: Run): Change[] => {
   const done = new Set(run.steps.filter((s) => s.state === "done" || (s.state === "failed" && s.maybeApplied)).map((s) => s.change));
   const reversed = run.changes.filter((c) => done.has(c.id)).reverse();
@@ -237,6 +285,8 @@ export const undoChanges = (run: Run): Change[] => {
       if (c.op === "rename") return { ...c, path: `${parentOf(c.path).replace(/\/$/, "")}/${c.to ?? ""}`, to: nameOf(c.path), bytes: 0 };
 
       if (c.op === "move") return { ...c, path: c.to ?? c.path, to: c.path, bytes: 0 };
+
+      if (c.op === "translate") return { ...c, id: uploadedKey(c.id), op: "trash", path: c.to ?? c.path, to: null };
 
       return c;
     });
@@ -285,6 +335,8 @@ export const applyChange = (change: Change, fileId: number, folders: Map<string,
   if (change.op === "trash") return trashFile(fileId).pipe(Effect.asVoid);
 
   if (change.op === "restore") return restoreFile(fileId).pipe(Effect.asVoid);
+
+  if (change.op === "translate") return Effect.fail(new PutioFailed({ message: "translations run through translateSubtitle", refused: true }));
   const from = currentPath(folders, fileId, change.path);
 
   if (change.op === "rename")

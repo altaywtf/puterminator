@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { text as readBody } from "node:stream/consumers";
+import { buffer as readBytes, text as readBody } from "node:stream/consumers";
 import * as Predicate from "effect/Predicate";
 import type { Json, JsonObject } from "effect/Schema";
 
@@ -170,6 +170,35 @@ const putio = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
     const info = { user_id: 4242, username: "altay", mail: "dev@localhost", avatar_url: "https://www.gravatar.com/avatar/0?d=identicon&s=80", disk: { avail: 12 * GB, used: 988 * GB, size: 1000 * GB } };
 
     return json(res, 200, { info: url.searchParams.get("download_token") === "1" ? { ...info, download_token: "fake-dl" } : info, status: "OK" });
+  }
+
+  const subs = route.match(/^GET \/v2\/files\/(\d+)\/subtitles(?:\/([^/]+))?$/);
+  const video = subs && files.find((f) => f.id === Number(subs[1]) && f.file_type === "VIDEO");
+
+  if (subs && !subs[2]) {
+    const list = video ? [{ key: `eng-${video.id}`, language: "English", language_code: "eng", name: "English", source: "mkv", format: "srt", url: "" }] : [];
+
+    return json(res, 200, { subtitles: list, default: null, status: "OK" });
+  }
+
+  if (subs && video) {
+    const cues = ["I'm not going back.", "Then where are you going?", "Somewhere they can't find me.", "<i>Everybody gets found.</i>", "- Not me.\n- Everybody."];
+
+    res.writeHead(200, { "content-type": "text/plain" });
+
+    return res.end(cues.map((c, i) => `${i + 1}\n00:00:${String(i * 3 + 1).padStart(2, "0")},000 --> 00:00:${String(i * 3 + 3).padStart(2, "0")},500\n${c}`).join("\n\n"));
+  }
+
+  if (route === "POST /v2/files/upload") {
+    const form = await new Response(await readBytes(req), { headers: { "content-type": req.headers["content-type"] ?? "" } }).formData();
+    const blob = form.get("file");
+    const text = blob instanceof Blob ? await blob.text() : "";
+    const id = add(Number(form.get("parent_id")), String(form.get("filename") ?? "upload.srt"), "TEXT", text.length);
+    log(`uploaded ${form.get("filename")} (${text.length} bytes)`);
+
+    const uploaded = files.find((f) => f.id === id);
+
+    return uploaded ? json(res, 200, { file: uploaded, status: "OK" }) : json(res, 500, { status: "ERROR" });
   }
 
   const one = route.match(/^GET \/v2\/files\/(\d+)$/);
@@ -358,6 +387,12 @@ const plan = (messages: Array<Message>): Array<Step> => {
 
     if (call?.name === "make_download_links") return [{ kind: "text", delayMs: 40, text: "the links are in the card above." }];
 
+    if (call?.name === "propose_translation") {
+      const p = JSON.parse(raw);
+
+      return [{ kind: "text", delayMs: 40, text: p.error ? `couldn't plan that: ${p.error}` : "plan's up. apply it and i'll translate them." }];
+    }
+
     if (call?.name === "plan_subtitles") {
       const p = JSON.parse(raw);
 
@@ -398,6 +433,10 @@ const plan = (messages: Array<Message>): Array<Step> => {
       { kind: "thinking", text: "No fresh snapshot for this folder. Scan first, then answer from the numbers." },
       { kind: "tool", name: "scan_library", input: {} },
     ];
+  }
+
+  if (/translate|turkish/.test(ask)) {
+    return [{ kind: "tool", name: "propose_translation", input: { paths: ["/Movies/Heat (1983)/Heat (1983).mkv", "/Movies/Alien (1987)/Alien (1987).mkv"], language: "tur" } }];
   }
 
   if (/subtitle|subs\b/.test(ask)) {
@@ -503,7 +542,8 @@ const anthropic = async (req: IncomingMessage, res: ServerResponse) => {
     return json(res, 400, { type: "error", error: { type: "invalid_request_error", message: problems.join("; ") } });
   }
 
-  const steps = plan(body.messages);
+  const lines = Predicate.isString(body.system) && body.system.startsWith("Translate English") ? JSON.parse(textOf(body.messages.at(-1))).lines : null;
+  const steps: Array<Step> = Array.isArray(lines) ? [{ kind: "text", text: JSON.stringify({ lines: lines.map((l: string) => `[tr] ${l}`) }), delayMs: 5 }] : plan(body.messages);
   log(`messages model=${body.model} turns=${body.messages.length} → ${steps.map((s) => s.kind).join(",")}`);
   let closed = false;
   res.on("close", () => {

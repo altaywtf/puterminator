@@ -1,7 +1,8 @@
 import * as Schema from "effect/Schema";
 
 export const PUTIO_API = "https://api.put.io";
-const UPSTREAMS = new Set([PUTIO_API, "https://api.anthropic.com"]);
+export const UPLOAD_API = "https://upload.put.io";
+const UPSTREAMS = new Set([PUTIO_API, UPLOAD_API, "https://api.anthropic.com"]);
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
