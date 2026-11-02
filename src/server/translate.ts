@@ -119,19 +119,20 @@ const translateBatch = (batch: ReadonlyArray<Numbered>, language: string, spend:
     spend.charge(Math.ceil(weightedTokens(message.usage) * PRICE_SHARE));
     const out = decodeLines(message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join(""));
     const wanted = new Set(batch.map((c) => c.id));
+    const got = new Map(Option.isSome(out) ? out.value.lines.filter((l) => wanted.has(l.id)).map((l) => [l.id, l.text] as const) : []);
 
-    return new Map(Option.isSome(out) ? out.value.lines.filter((l) => wanted.has(l.id)).map((l) => [l.id, l.text] as const) : []);
+    return { got, why: Option.isNone(out) ? `unreadable reply, ${message.stop_reason}` : `${got.size} of ${batch.length} lines back` };
   });
 
 const translateAll = (batch: ReadonlyArray<Numbered>, language: string, spend: Spend) =>
   Effect.gen(function* () {
-    const got = yield* translateBatch(batch, language, spend);
+    const { got } = yield* translateBatch(batch, language, spend);
     const missing = batch.filter((c) => !got.has(c.id));
 
     if (missing.length === 0) return got;
-    const retried = yield* translateBatch(missing, language, spend);
+    const { got: retried, why } = yield* translateBatch(missing, language, spend);
 
-    if (missing.some((c) => !retried.has(c.id))) return yield* Effect.fail(new PutioFailed({ message: "the translation skipped some lines", refused: true }));
+    if (missing.some((c) => !retried.has(c.id))) return yield* Effect.fail(new PutioFailed({ message: `the translation skipped some lines (${why})`, refused: true }));
 
     return new Map([...got, ...retried]);
   });
