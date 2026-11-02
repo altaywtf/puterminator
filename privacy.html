@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0d0b08" />
     <meta name="color-scheme" content="dark" />
     <title>puterminator privacy</title>
-    <meta name="description" content="what puterminator reads, where it goes, and what it changes" />
+    <meta name="description" content="what puterminator keeps, where it goes, and how to delete it" />
     <link rel="icon" type="image/svg+xml" href="/src/client/logo.svg" />
     <link href="/src/client/styles.css" rel="stylesheet" />
   </head>
@@ -17,53 +17,45 @@
           <img src="/src/client/logo.svg" alt="" width="22" height="22" style="image-rendering: pixelated" />puterminator
         </a>
         <h1 class="m-0 font-display text-[28px] leading-tight font-medium text-fg-strong">privacy and disclaimer</h1>
-        <p class="m-0">puterminator is a side project by uinaf. put.io doesn’t make, run or endorse it.</p>
+        <p class="m-0">puterminator is a uinaf side project. put.io doesn’t make, run or endorse it.</p>
       </header>
 
       <section class="grid gap-2">
-        <h2 class="m-0 font-mono text-meta font-normal text-accent"># what it reads</h2>
+        <h2 class="m-0 font-mono text-meta font-normal text-accent"># what it keeps</h2>
         <ul class="m-0 grid list-disc gap-1 ps-5 marker:text-fg-4">
-          <li>Your put.io file list under the folder you pick: names, sizes, types, dates, checksums, and whether a file was ever played.</li>
-          <li>Your put.io username and avatar, to show who is signed in.</li>
+          <li>Your put.io username, avatar and put.io token.</li>
+          <li>A snapshot of your file list: names, sizes, dates, checksums and whether each file was played.</li>
+          <li>Your chats and plans.</li>
+          <li>All of it lives in a Cloudflare database that only your account can reach.</li>
         </ul>
       </section>
 
       <section class="grid gap-2">
         <h2 class="m-0 font-mono text-meta font-normal text-accent"># where it goes</h2>
         <ul class="m-0 grid list-disc gap-1 ps-5 marker:text-fg-4">
-          <li>The file list, your chat and your plans stay in storage on Cloudflare that belongs to your put.io account alone.</li>
-          <li>
-            To answer you, your messages and the file names they need go to Claude through Anthropic’s API, under
-            <a class="text-accent" href="https://www.anthropic.com/legal/commercial-terms">Anthropic’s commercial terms</a>.
-          </li>
-          <li>Video previews stream from put.io straight to your browser.</li>
-          <li>No ads and no third-party trackers. Cloudflare Web Analytics counts page views without cookies.</li>
+          <li>Your messages and the file names they need go to Claude, under <a class="text-accent" href="https://www.anthropic.com/legal/commercial-terms">Anthropic’s commercial terms</a>.</li>
+          <li>Videos stream from put.io straight to your browser.</li>
+          <li>No ads, no trackers. Cloudflare Web Analytics counts page views without cookies.</li>
         </ul>
       </section>
 
       <section class="grid gap-2">
         <h2 class="m-0 font-mono text-meta font-normal text-accent"># what it changes</h2>
         <ul class="m-0 grid list-disc gap-1 ps-5 marker:text-fg-4">
-          <li>Renames, moves and trash run only when you apply a plan in the browser. The model proposes plans; it can't apply them.</li>
-          <li>Trash goes to your put.io trash, where you can restore it. Undo reverses what a plan did.</li>
-          <li>If trash is off in your put.io settings, puterminator refuses to trash anything, since that would delete for good.</li>
+          <li>Nothing changes until you apply a plan. The model can propose a plan but can’t apply one.</li>
+          <li>Trashed files go to your put.io trash. Undo reverses a plan you applied.</li>
+          <li>If trash is off in your put.io settings, puterminator won’t trash anything.</li>
+          <li>puterminator comes as is, with no warranty. The model can be wrong about a file, so read every plan before you apply it.</li>
         </ul>
-      </section>
-
-      <section class="grid gap-2">
-        <h2 class="m-0 font-mono text-meta font-normal text-accent"># no warranty</h2>
-        <p class="m-0">
-          puterminator comes as is, with no warranty of any kind. The model can be wrong about what a file is. Read every plan before you
-          apply it: you are responsible for the plans you apply.
-        </p>
       </section>
 
       <section class="grid gap-2">
         <h2 class="m-0 font-mono text-meta font-normal text-accent"># your data</h2>
         <ul class="m-0 grid list-disc gap-1 ps-5 marker:text-fg-4">
-          <li>Sign out to end every session and drop your put.io token.</li>
-          <li>To remove access for good, revoke puterminator in your put.io account settings.</li>
-          <li>To delete everything puterminator keeps for you, or to ask anything, email <a class="text-accent" href="mailto:dev@uinaf.dev">dev@uinaf.dev</a>.</li>
+          <li>Sign out ends every session and deletes your put.io token.</li>
+          <li><strong class="font-medium text-fg-strong">delete my data</strong> in the account menu deletes your chats, plans, file list snapshot, put.io token, username and avatar, then signs you out everywhere. It keeps only this month’s usage count, so deleting doesn’t reset the monthly limit. Your put.io files stay as they are.</li>
+          <li>To cut access for good, revoke puterminator in your put.io account settings.</li>
+          <li>Questions: <a class="text-accent" href="mailto:dev@uinaf.dev">dev@uinaf.dev</a></li>
         </ul>
       </section>
     </main>
