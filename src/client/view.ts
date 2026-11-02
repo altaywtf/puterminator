@@ -6,7 +6,7 @@ import { creditsLeft } from "../shared/contract";
 import { type Item, type Turn, toTurns } from "../shared/thread";
 import { art, type IconName, icon } from "./art";
 import logoUrl from "./logo.svg?inline";
-import { COMPOSER_ID, isBusy, isLocked, LENGTH_ERROR, Message, type Model, Session, THREAD_ID } from "./main";
+import { COMPOSER_ID, DELETE_CANCEL_ID, isBusy, isLocked, LENGTH_ERROR, Message, type Model, Session, THREAD_ID } from "./main";
 import { toolCard } from "./cards";
 import { playerView, treeDrawer } from "./files";
 import { landingView } from "./landing";
@@ -155,9 +155,42 @@ const accountMenu = (h: H, model: Model, username: string, url: string | null) =
       h.a([h.Href("/privacy"), h.Class(MENU_ACTION)], [icon(h, "lock"), "privacy"]),
       menuRule(h),
       menuItem(h, "exit", "sign out", Message.ClickedSignOut(), MENU_DANGER),
+      menuItem(h, "trash", "delete my data", Message.ClickedDeleteData(), MENU_DANGER),
     ],
   ),
 ];
+
+const deleteDialog = (h: H, model: Model) =>
+  model.confirmingDelete
+    ? [
+        h.div(
+          [
+            h.Class("fixed inset-0 z-40 grid place-items-center bg-black/70 p-4"),
+            h.Role("alertdialog"),
+            h.AriaModal(true),
+            h.AriaLabelledBy("delete-title"),
+            h.AriaDescribedBy("delete-body"),
+            h.OnKeyDownPreventDefault((key) => (key === "Escape" ? Option.some(Message.CancelledDelete()) : Option.none())),
+          ],
+          [
+            h.button([h.Type("button"), h.Tabindex(-1), h.AriaLabel("cancel"), h.Class("absolute inset-0 cursor-default"), h.OnClick(Message.CancelledDelete())], []),
+            h.div(
+              [h.Class("pop relative grid w-full max-w-[400px] gap-3 rounded-xl border border-line-strong bg-raised p-5 shadow-[0_12px_32px_rgb(0_0_0/0.45)]")],
+              [
+                h.h2([h.Id("delete-title"), h.Class("m-0 text-[15px] font-medium text-fg-strong")], ["delete your data?"]),
+                h.p([h.Id("delete-body"), h.Class("m-0 text-[13px] leading-[1.6] text-fg-2")], [
+                  "your chats, plans, library snapshot and put.io sign-in go for good, and every session signs out. your put.io files stay as they are.",
+                ]),
+                h.div([h.Class("mt-2 flex justify-end gap-2")], [
+                  h.button([h.Type("button"), h.Id(DELETE_CANCEL_ID), h.Class("btn btn-sm border-transparent text-fg-2"), h.OnClick(Message.CancelledDelete())], ["cancel"]),
+                  h.button([h.Type("button"), h.Class("btn btn-sm border-danger/40 bg-danger/10 text-danger"), h.OnClick(Message.ConfirmedDelete())], ["delete everything"]),
+                ]),
+              ],
+            ),
+          ],
+        ),
+      ]
+    : [];
 
 const shell = (h: H, model: Model, children: Html[]) =>
   h.div([h.Class("contents")], [
@@ -170,9 +203,10 @@ const shell = (h: H, model: Model, children: Html[]) =>
       ],
       [liveStatus(h, model), ...children, ...treeDrawer(h, model)],
       false,
-      model.player !== null,
+      model.player !== null || model.confirmingDelete,
     ),
     ...playerView(h, model),
+    ...deleteDialog(h, model),
   ]);
 
 const loadingView = (h: H) => h.div([h.Class("h-dvh bg-bg"), h.AriaBusy(true)], [h.span([h.Class("sr-only"), h.Role("status")], ["loading"])]);

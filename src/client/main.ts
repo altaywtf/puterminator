@@ -66,6 +66,7 @@ export const Model = Schema.Struct({
   treeExpanded: Schema.Array(Schema.Finite),
   treeFocus: Schema.NullOr(Schema.Finite),
   avatarFailed: Schema.Boolean,
+  confirmingDelete: Schema.Boolean,
   player: Schema.NullOr(
     Schema.Struct({ id: Schema.Finite, name: Schema.String, src: Schema.NullOr(Schema.String), failed: Schema.Boolean }),
   ),
@@ -131,6 +132,9 @@ export const Message = defineMessageUnion({
   FailedFrame: { error: Schema.String, unsent: Schema.optionalKey(Schema.String) },
   ToggledStep: { key: Schema.String },
   ClickedSignOut: {},
+  ClickedDeleteData: {},
+  CancelledDelete: {},
+  ConfirmedDelete: {},
   CompletedEffect: {},
 });
 
@@ -232,6 +236,23 @@ const SignOut = Command.define("SignOut", {
   ),
 });
 
+const DeleteData = Command.define("DeleteData", {
+  messages: [Message.CompletedEffect, Message.FailedFrame],
+  execute: Effect.gen(function* () {
+    const res = yield* Effect.tryPromise(() => fetch("/auth/delete", { method: "POST" })).pipe(Effect.option);
+
+    if (Option.isSome(res) && (res.value.ok || res.value.status === 401)) {
+      yield* Effect.sync(() => location.reload());
+
+      return Message.CompletedEffect();
+    }
+
+    return Message.FailedFrame({
+      error: Option.isSome(res) && res.value.status === 409 ? "wait for the reply or plan run to finish, then delete your data" : "couldn’t delete your data; try again",
+    });
+  }),
+});
+
 const ArmStop = Command.define("ArmStop", {
   messages: [Message.ArmedStop],
   execute: Effect.sleep(Duration.millis(300)).pipe(Effect.as(Message.ArmedStop())),
@@ -276,6 +297,7 @@ const FocusComposer = Command.define("FocusComposer", {
 export const treeNodeId = (id: number) => `tree-${id}`;
 export const PLAYER_ID = "player";
 export const PLAYER_CLOSE_ID = "player-close";
+export const DELETE_CANCEL_ID = "delete-cancel";
 
 let lastFocus: Element | null = null;
 
@@ -284,22 +306,26 @@ if (typeof document !== "undefined")
     if (e.target instanceof Element && !e.target.closest("[role=dialog]")) lastFocus = e.target;
   });
 
-let beforePlayer: Element | null = null;
+let beforeDialog: Element | null = null;
 
-const FocusPlayer = Command.define("FocusPlayer", {
-  args: { open: Schema.Boolean },
+const FocusDialog = Command.define("FocusDialog", {
+  args: { focus: Schema.NullOr(Schema.String) },
   messages: [Message.CompletedEffect],
-  execute: ({ open }) => {
-    if (open) beforePlayer = lastFocus;
+  execute: ({ focus }) => {
+    if (focus !== null) {
+      const menu = lastFocus?.closest("[popover]");
+
+      beforeDialog = menu ? document.querySelector(`[popovertarget="${menu.id}"]`) : lastFocus;
+    }
 
     return Render.afterCommit.pipe(
       Effect.flatMap(() =>
         Effect.sync(() => {
-          if (open) {
-            document.getElementById(PLAYER_CLOSE_ID)?.focus({ preventScroll: true });
+          if (focus !== null) {
+            document.getElementById(focus)?.focus({ preventScroll: true });
           } else {
-            if (beforePlayer instanceof HTMLElement && beforePlayer.isConnected) beforePlayer.focus({ preventScroll: true });
-            beforePlayer = null;
+            if (beforeDialog instanceof HTMLElement && beforeDialog.isConnected) beforeDialog.focus({ preventScroll: true });
+            beforeDialog = null;
           }
         }),
       ),
@@ -568,7 +594,7 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     }),
     OpenedPlayer: ({ id, name }) => ({
       model: modifyFields(model, { player: () => ({ id, name, src: null, failed: false }) }),
-      commands: [FetchStream({ id }), FocusPlayer({ open: true })],
+      commands: [FetchStream({ id }), FocusDialog({ focus: PLAYER_CLOSE_ID })],
     }),
     GotStream: ({ id, src }) =>
       model.player?.id === id
@@ -589,10 +615,13 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     },
     ClosedPlayer: () => ({
       model: modifyFields(model, { player: () => null }),
-      commands: [DetachPlayer(), FocusPlayer({ open: false })],
+      commands: [DetachPlayer(), FocusDialog({ focus: null })],
     }),
     FailedAvatar: () => ({ model: modifyFields(model, { avatarFailed: () => true }) }),
     ClickedSignOut: () => ({ model, commands: [SignOut()] }),
+    ClickedDeleteData: () => ({ model: modifyFields(model, { confirmingDelete: () => true }), commands: [FocusDialog({ focus: DELETE_CANCEL_ID })] }),
+    CancelledDelete: () => ({ model: modifyFields(model, { confirmingDelete: () => false }), commands: [FocusDialog({ focus: null })] }),
+    ConfirmedDelete: () => ({ model: modifyFields(model, { confirmingDelete: () => false }), commands: [FocusDialog({ focus: null }), DeleteData()] }),
     CompletedEffect: () => ({ model }),
   });
 
@@ -618,6 +647,7 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     treeExpanded: [],
     treeFocus: null,
     avatarFailed: false,
+    confirmingDelete: false,
     player: null,
     links: {},
   },

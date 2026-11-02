@@ -75,6 +75,12 @@ export const makeStore = (sql: Sql) => {
     deleteToken: () => {
       sql.exec("DELETE FROM secrets WHERE key IN ('putio_token', 'download_token')");
     },
+    deleteUserData: (keepMonth: string) =>
+      sql.transaction(() => {
+        for (const table of ["messages", "archived_messages", "files", "plans", "cf_agents_state"]) sql.exec(`DELETE FROM ${table}`);
+        sql.exec("DELETE FROM secrets WHERE key != 'session_gen'");
+        sql.exec("DELETE FROM usage WHERE month != ?", keepMonth);
+      }),
     secret: (key: string): string | null => strOrNull(sql.exec("SELECT value FROM secrets WHERE key = ?", key)[0]?.value),
     setSecret: (key: string, value: string) => {
       sql.exec("INSERT OR REPLACE INTO secrets (key, value) VALUES (?, ?)", key, value);

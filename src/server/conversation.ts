@@ -11,7 +11,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, type Library } from "../shared/contract";
+import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, initialAgentState, type Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { PlanRecord, Run } from "../shared/actions";
 import { AskInput, applyChange, folderIds, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion } from "./changes";
@@ -216,11 +216,15 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const scanLock = yield* Semaphore.make(1);
 
+    let epoch = 0;
+
     const scan = scanLock.withPermits(1)(Effect.gen(function* () {
+      const started = epoch;
       const { id, name } = state.folder;
       const tree = buildTree(yield* listAll, id);
       const a = audit(tree.files, id === 0 ? name : tree.rootName, false, new Date(yield* Clock.currentTimeMillis), id === 0 ? "" : tree.rootName);
 
+      if (started !== epoch) return a;
       store.saveSnapshot(tree.files, id);
       setState({ ...state, lastAudit: { at: a.at, rootName: a.rootName, score: a.score, items: a.totals.items } });
       const lib = library();
@@ -851,6 +855,19 @@ export const makeAgent = (deps: AgentDeps) =>
         store.setSecret("session_gen", String(sessionGen() + 1));
         deps.disconnect();
       }),
+      deleteData: Effect.gen(function* () {
+        if (running || state.busy || runFibers.size > 0) return false;
+        epoch++;
+        store.deleteUserData(month(yield* Clock.currentTimeMillis));
+        store.setSecret("session_gen", String(sessionGen() + 1));
+        plans.clear();
+        thumbs.clear();
+        last = null;
+        state = { ...initialAgentState(state.credits.month), credits: state.credits };
+        deps.disconnect();
+
+        return true;
+      }),
       sessionGen: Effect.sync(() => sessionGen()),
       thumbnail: (id: number) =>
         Effect.suspend(() => {
@@ -860,10 +877,11 @@ export const makeAgent = (deps: AgentDeps) =>
           const hit = thumbs.get(id);
 
           if (hit !== undefined) return Effect.succeed(hit);
+          const started = epoch;
 
           return fileMedia(id).pipe(
             Effect.map((f) => f.screenshot),
-            Effect.tap((url) => Effect.sync(() => thumbs.set(id, url))),
+            Effect.tap((url) => Effect.sync(() => started === epoch && thumbs.set(id, url))),
             Effect.catch(() => Effect.succeed<string | null>(null)),
             Effect.provide(putioLayer(token, deps.putioFetch)),
           );
@@ -886,8 +904,10 @@ export const makeAgent = (deps: AgentDeps) =>
 
           if (!token || !isVideo) return Effect.succeed<string | null>(null);
           const cached = store.secret("download_token");
+          const started = epoch;
+          const fetched = downloadToken.pipe(Effect.tap((t) => Effect.sync(() => started === epoch && store.setSecret("download_token", t))));
 
-          return (cached ? Effect.succeed(cached) : downloadToken.pipe(Effect.tap((t) => Effect.sync(() => store.setSecret("download_token", t))))).pipe(
+          return (cached ? Effect.succeed(cached) : fetched).pipe(
             Effect.map((t): string | null => hlsUrl(id, t, deps.putioBase)),
             Effect.catch(() => Effect.succeed<string | null>(null)),
             Effect.provide(putioLayer(token, deps.putioFetch)),

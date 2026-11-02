@@ -26,6 +26,7 @@ export interface UserAgent {
   readonly setAuth: (token: string, username: string, avatarUrl: string | null) => Effect.Effect<number>;
   /** Drops the token and ends every session signed so far. */
   readonly signOut: () => Effect.Effect<void>;
+  readonly deleteData: () => Effect.Effect<boolean>;
   readonly sessionGen: () => Effect.Effect<number>;
   readonly thumbnail: (id: number) => Effect.Effect<string | null>;
   readonly stream: (id: number) => Effect.Effect<string | null>;
@@ -129,6 +130,17 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
     }
 
     if (Option.isNone(session)) return json({ error: "unauthorized" }, 401);
+
+    if (path === "/auth/delete" && request.method === "POST") {
+      const deleted = yield* deps.agentFor(session.value.uid).deleteData();
+
+      if (!deleted) return json({ error: "busy" }, 409);
+
+      return json({ ok: true }).pipe(
+        HttpServerResponse.expireCookieUnsafe(SESSION_COOKIE, { path: "/", httpOnly: true, secure: true, sameSite: "lax" }),
+      );
+    }
+
     const agent = deps.agentFor(session.value.uid);
 
     const media = path.match(/^\/api\/files\/(\d{1,15})\/(thumb|stream)$/);

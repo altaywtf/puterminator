@@ -112,6 +112,7 @@ describe("OAuth callback", () => {
           return gen;
         }),
       signOut: () => Effect.sync(() => void gen++),
+      deleteData: () => Effect.sync(() => (gen++, true)),
       sessionGen: () => Effect.sync(() => gen),
       thumbnail: () => Effect.succeed(null),
       stream: () => Effect.succeed(null),
@@ -149,6 +150,13 @@ describe("OAuth callback", () => {
     expect((await get("/auth/logout", "POST")).status).toBe(200);
     expect(await (await get("/api/me")).json()).toEqual({ configured: true, signedIn: false });
     expect((await get("/api/files/1/thumb")).status).toBe(401);
+  });
+
+  it("ends the session when the user deletes their data", async () => {
+    const { get } = await callback("good-code");
+    expect((await get("/auth/delete", "POST")).headers.getSetCookie().some((c) => c.startsWith("__Host-pt_session=;"))).toBe(true);
+    expect(await (await get("/api/me")).json()).toEqual({ configured: true, signedIn: false });
+    expect((await get("/auth/delete", "POST")).status).toBe(401);
   });
 
   it("keeps only an https avatar, since the browser loads it directly", async () => {

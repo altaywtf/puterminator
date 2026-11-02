@@ -40,6 +40,7 @@ export type FakePutioOptions = {
   restoreLag?: number;
   /** The first listing waits for this, as when put.io answers slowly. */
   holdFirstListing?: Promise<void>;
+  holdDownloadToken?: Promise<void>;
 };
 
 type PutioRequest = { method: string; url: URL; body: URLSearchParams };
@@ -103,8 +104,11 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
       return json(200, { ...page(Number((body.get("cursor") ?? "c0").slice(1))), status: "OK" });
     }
 
-    if (url.pathname === "/v2/account/info" && url.searchParams.get("download_token") === "1")
+    if (url.pathname === "/v2/account/info" && url.searchParams.get("download_token") === "1") {
+      await opts.holdDownloadToken;
+
       return json(200, { info: { user_id: 1, username: "altay", download_token: "dl-token" }, status: "OK" });
+    }
 
     if (url.pathname === "/v2/account/settings") return json(200, { settings: { trash_enabled: opts.trashEnabled ?? true }, status: "OK" });
 

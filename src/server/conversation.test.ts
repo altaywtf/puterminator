@@ -35,6 +35,7 @@ const setup = async (
     files?: typeof library;
     seed?: (store: ReturnType<typeof makeStore>) => void;
     holdFirstListing?: Promise<void>;
+    holdDownloadToken?: Promise<void>;
   } = {},
 ) => {
   const sql = memorySql();
@@ -54,6 +55,7 @@ const setup = async (
     failRenames: opts.failRenames ?? [],
     restoreLag: opts.restoreLag ?? 0,
     holdFirstListing: opts.holdFirstListing ?? Promise.resolve(),
+    holdDownloadToken: opts.holdDownloadToken ?? Promise.resolve(),
   });
 
   const events: Array<ServerEvent> = [];
@@ -917,12 +919,12 @@ describe("plans", () => {
   });
 });
 
-describe("library freshness", () => {
-  const scanned = (at: string, root = 0) => (store: ReturnType<typeof makeStore>) => {
-    store.saveSnapshot([{ id: 4, parent_id: 0, name: "Alien (1979).mkv", path: "/Alien (1979).mkv", depth: 1, size: 1, file_type: "VIDEO", extension: "mkv", crc32: null, created_at: "2026-01-01T00:00:00", first_accessed_at: null }], root);
-    store.saveState({ ...store.loadState(Date.now()), lastAudit: { at, rootName: "Your Files", score: 90, items: 1 } });
-  };
+const scanned = (at: string, root = 0) => (store: ReturnType<typeof makeStore>) => {
+  store.saveSnapshot([{ id: 4, parent_id: 0, name: "Alien (1979).mkv", path: "/Alien (1979).mkv", depth: 1, size: 1, file_type: "VIDEO", extension: "mkv", crc32: null, created_at: "2026-01-01T00:00:00", first_accessed_at: null }], root);
+  store.saveState({ ...store.loadState(Date.now()), lastAudit: { at, rootName: "Your Files", score: 90, items: 1 } });
+};
 
+describe("library freshness", () => {
   const listings = (t: Awaited<ReturnType<typeof setup>>) => t.putio.log.filter((r) => r.url.pathname === "/v2/files/list").length;
 
   it("rescans in the background when a browser connects to a stale or foreign snapshot, and not when it's fresh", async () => {
@@ -1023,6 +1025,92 @@ describe("sign out", () => {
     const t = await setup([]);
     await Effect.runPromise(t.agent.signOut);
     expect(t.disconnects()).toBe(1);
+  });
+});
+
+describe("delete data", () => {
+  const proposed = JSON.stringify({ title: "x", changes: [{ op: "trash", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: null }] });
+
+  it("keeps only the month's token count and a newer session generation, and ends every session", async () => {
+    const t = await setup([
+      { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
+      { kind: "sse", events: toolUseTurn({ id: "toolu_p", name: "propose_changes", inputJsonChunks: [proposed] }, { input: 10, output: 5 }) },
+      { kind: "sse", events: textTurn("plan's up.", { input: 10, output: 5 }) },
+    ]);
+
+    await Effect.runPromise(t.agent.receive(send("tidy")));
+    await t.settle();
+    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "newThread" })));
+    const m = month(Date.now());
+    const used = t.store.used(m);
+    t.store.charge("2020-01", 7);
+    const gen = await Effect.runPromise(t.agent.sessionGen);
+
+    expect(await Effect.runPromise(t.agent.deleteData)).toBe(true);
+    expect(t.disconnects()).toBe(1);
+    expect(await Effect.runPromise(t.agent.sessionGen)).toBe(gen + 1);
+
+    const tables = ["messages", "archived_messages", "files", "plans", "cf_agents_state"].map((table) => [table, t.sql.exec(`SELECT COUNT(*) AS n FROM ${table}`)[0]?.n]);
+    expect(tables).toEqual(["messages", "archived_messages", "files", "plans", "cf_agents_state"].map((table) => [table, 0]));
+    expect(t.sql.exec("SELECT key FROM secrets").map((r) => r.key)).toEqual(["session_gen"]);
+    expect([used > 0, t.store.used(m), t.store.used("2020-01")]).toEqual([true, used, 0]);
+    expect(t.agent.greeting()).toEqual([{ type: "state", state: { ...t.agent.state(), username: null, avatarUrl: null, lastAudit: null } }, { type: "history", messages: [] }]);
+  });
+
+  it("doesn't keep a download token that arrives after the delete", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+
+    const t = await setup(
+      [
+        { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
+        { kind: "sse", events: textTurn("done", { input: 1, output: 1 }) },
+      ],
+      { holdDownloadToken: held },
+    );
+
+    await Effect.runPromise(t.agent.receive(send("scan")));
+    await t.settle();
+    const stream = Effect.runPromise(t.agent.stream(4));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(await Effect.runPromise(t.agent.deleteData)).toBe(true);
+    release();
+    await stream;
+    expect(t.sql.exec("SELECT key FROM secrets").map((r) => r.key)).toEqual(["session_gen"]);
+  });
+
+  it("lets a rescan that was already listing finish without bringing the snapshot back", async () => {
+    let release = () => {};
+    const slow = new Promise<void>((resolve) => (release = resolve));
+
+    const t = await setup([], { seed: scanned("2026-01-01T00:00:00.000Z"), holdFirstListing: slow });
+
+    t.agent.connected();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(await Effect.runPromise(t.agent.deleteData)).toBe(true);
+    release();
+    await t.settle();
+    expect([t.sql.exec("SELECT COUNT(*) AS n FROM files")[0]?.n, t.store.secret("snapshot_root"), t.agent.state().lastAudit]).toEqual([0, null, null]);
+  });
+
+  it("refuses while a reply is still running", async () => {
+    let release = () => {};
+    const slow = new Promise<void>((resolve) => (release = resolve));
+
+    const t = await setup(
+      [
+        { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
+        { kind: "sse", events: textTurn("scanned.", { input: 10, output: 5 }) },
+      ],
+      { holdFirstListing: slow },
+    );
+
+    await Effect.runPromise(t.agent.receive(send("scan")));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await Effect.runPromise(t.agent.deleteData)).toBe(false);
+    release();
+    await t.settle();
+    expect(t.store.history().length).toBeGreaterThan(0);
   });
 });
 
