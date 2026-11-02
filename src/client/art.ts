@@ -120,3 +120,14 @@ const pixels = <M>(h: HtmlBuilder<M>, rows: readonly string[], fills: Record<str
 
 /** `px` is the height; the width follows the sprite, so props never shrink the face. */
 export const art = <M>(h: HtmlBuilder<M>, mood: Mood, px: number): Html => pixels(h, SPRITES[mood], FILL, px, "art");
+
+const ICONS = {
+  plus: ["...#...", "...#...", "...#...", "#######", "...#...", "...#...", "...#..."],
+  folder: ["###....", "#..####", "#.....#", "#.....#", "#.....#", "#.....#", "#######"],
+  lock: ["..###..", ".#...#.", ".#...#.", "#######", "###.###", "###.###", "#######"],
+  exit: ["####...", "#......", "#...#..", "#.#####", "#...#..", "#......", "####..."],
+} as const;
+
+export type IconName = keyof typeof ICONS;
+
+export const icon = <M>(h: HtmlBuilder<M>, name: IconName): Html => pixels(h, ICONS[name], { "#": "currentColor" }, 14, "");

@@ -4,7 +4,7 @@ import * as Predicate from "effect/Predicate";
 import { createKeyedLazy, type Document, type Html, type HtmlBuilder } from "foldkit/html";
 import { creditsLeft } from "../shared/contract";
 import { type Item, type Turn, toTurns } from "../shared/thread";
-import { art } from "./art";
+import { art, type IconName, icon } from "./art";
 import logoUrl from "./logo.svg?inline";
 import { COMPOSER_ID, isBusy, isLocked, LENGTH_ERROR, Message, type Model, Session, THREAD_ID } from "./main";
 import { toolCard } from "./cards";
@@ -117,17 +117,17 @@ const avatar = (h: H, username: string, url: string | null) =>
 
 const ACCOUNT_MENU_ID = "account-menu";
 
-const menuItem = (h: H, text: string, message: Message) =>
+const MENU_ROW = "flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-start text-[13px] no-underline transition-colors duration-160";
+const MENU_ACTION = `${MENU_ROW} text-fg-2 hover:bg-hover hover:text-fg focus-visible:bg-hover focus-visible:text-fg`;
+const MENU_DANGER = `${MENU_ROW} text-danger hover:bg-danger/10 focus-visible:bg-danger/10`;
+
+const menuItem = (h: H, name: IconName, text: string, message: Message, cls = MENU_ACTION) =>
   h.button(
-    [
-      h.Type("button"),
-      h.Popovertarget(ACCOUNT_MENU_ID),
-      h.Popovertargetaction("hide"),
-      h.Class("flex h-9 items-center rounded-lg px-3 text-start text-[14px] text-fg-2 transition-colors duration-160 hover:bg-hover hover:text-fg focus-visible:bg-hover focus-visible:text-fg"),
-      h.OnClick(message),
-    ],
-    [text],
+    [h.Type("button"), h.Popovertarget(ACCOUNT_MENU_ID), h.Popovertargetaction("hide"), h.Class(cls), h.OnClick(message)],
+    [icon(h, name), text],
   );
+
+const menuRule = (h: H) => h.hr([h.Class("-mx-1 my-1 border-0 border-t border-line")]);
 
 const accountMenu = (h: H, model: Model, username: string, url: string | null) => [
   h.button(
@@ -148,17 +148,13 @@ const accountMenu = (h: H, model: Model, username: string, url: string | null) =
       ),
     ],
     [
-      h.p([h.Class("m-0 truncate px-3 pt-2 pb-1.5 text-meta text-fg-3")], [username]),
-      ...(model.history.length > 0 && !isBusy(model) ? [menuItem(h, "new thread", Message.ClickedNewThread())] : []),
-      ...(model.library ? [menuItem(h, "browse library", Message.ToggledTree())] : []),
-      h.a(
-        [
-          h.Href("/privacy"),
-          h.Class("flex h-9 items-center rounded-lg px-3 text-[14px] text-fg-2 no-underline transition-colors duration-160 hover:bg-hover hover:text-fg focus-visible:bg-hover focus-visible:text-fg"),
-        ],
-        ["privacy"],
-      ),
-      menuItem(h, "sign out", Message.ClickedSignOut()),
+      h.p([h.Class("m-0 truncate px-2.5 pt-1.5 pb-1 text-meta text-fg-4")], [`signed in as ${username}`]),
+      menuRule(h),
+      ...(model.history.length > 0 && !isBusy(model) ? [menuItem(h, "plus", "new thread", Message.ClickedNewThread())] : []),
+      ...(model.library ? [menuItem(h, "folder", "browse library", Message.ToggledTree())] : []),
+      h.a([h.Href("/privacy"), h.Class(MENU_ACTION)], [icon(h, "lock"), "privacy"]),
+      menuRule(h),
+      menuItem(h, "exit", "sign out", Message.ClickedSignOut(), MENU_DANGER),
     ],
   ),
 ];
