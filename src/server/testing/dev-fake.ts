@@ -542,9 +542,9 @@ const anthropic = async (req: IncomingMessage, res: ServerResponse) => {
     return json(res, 400, { type: "error", error: { type: "invalid_request_error", message: problems.join("; ") } });
   }
 
-  const lines = Predicate.isString(body.system) && body.system.startsWith("Translate English") ? JSON.parse(textOf(body.messages.at(-1))).lines : null;
+  const lines = Predicate.isString(body.system) && body.system.startsWith("Translate English") ? JSON.parse(textOf(body.messages.at(-1))).groups : null;
   const verdict = Predicate.isString(body.system) && body.system.startsWith("Subtitle sites") ? [{ kind: "text" as const, text: JSON.stringify({ matches: true }), delayMs: 5 }] : null;
-  const steps: Array<Step> = verdict ?? (Array.isArray(lines) ? [{ kind: "text", text: JSON.stringify({ lines: lines.map((l: { id: number; text: string }) => ({ id: l.id, text: `[tr] ${l.text}` })) }), delayMs: 5 }] : plan(body.messages));
+  const steps: Array<Step> = verdict ?? (Array.isArray(lines) ? [{ kind: "text", text: JSON.stringify({ groups: lines.map((g: { id: number; lines: string[] }) => ({ id: g.id, lines: g.lines.map((l) => `[tr] ${l}`) })) }), delayMs: 5 }] : plan(body.messages));
   log(`messages model=${body.model} turns=${body.messages.length} → ${steps.map((s) => s.kind).join(",")}`);
   let closed = false;
   res.on("close", () => {
