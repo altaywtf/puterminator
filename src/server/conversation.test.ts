@@ -1027,7 +1027,7 @@ describe("translate subtitles", () => {
   };
 
   it("translates the English subtitle with Haiku, keeps every timing, uploads it beside the video, and undo trashes only that file", async () => {
-    const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ lines: ["Merhaba.\n\nNasılsın?", ""] }), { input: 1000, output: 1000 }) }], {
+    const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 0, text: "Merhaba.\n\nNasılsın?" }, { id: 1, text: "" }] }), { input: 1000, output: 1000 }) }], {
       files,
       subtitles: { 2: [{ key: "k1", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: english }] },
     });
@@ -1048,6 +1048,24 @@ describe("translate subtitles", () => {
     expect(deleted).toHaveLength(1);
     expect(deleted[0]).not.toBe("2");
     expect([uploadedId, charged]).toEqual([undefined, Math.ceil((1000 + 1000 * 5) / 20)]);
+  });
+
+  it("asks again for the lines Haiku merged away and puts each translation on its own cue", async () => {
+    const t = await setup(
+      [
+        ...proposeTurns,
+        { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 0, text: "Merhaba. Koş!" }] }), { input: 1, output: 1 }) },
+        { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 1, text: "<i>Koş!</i>" }] }), { input: 1, output: 1 }) },
+      ],
+      { files, subtitles: { 2: [{ key: "k1", language_code: "eng", source: "mkv", name: "English", srt: english }] } },
+    );
+
+    await proposeAndApply(t);
+
+    expect([t.anthropic.requests.at(-1)?.body.messages.at(-1)?.content, t.putio.uploads.map((u) => u.text)]).toEqual([
+      JSON.stringify({ lines: [{ id: 1, text: "<i>Run!</i>" }] }),
+      ["1\n00:00:01,000 --> 00:00:02,000\nMerhaba. Koş!\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Koş!</i>\n"],
+    ]);
   });
 
   it("fails the step without spending credits when put.io has no English subtitle", async () => {

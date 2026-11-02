@@ -7,7 +7,7 @@ import { AnthropicClient, weightedTokens } from "./runner";
 
 const TRANSLATOR = "claude-haiku-5-5";
 const PRICE_SHARE = 0.05;
-const BATCH = 150;
+const BATCH = 100;
 
 export const LanguageCode = Schema.Literals(["ara", "chi", "cze", "dan", "dut", "fin", "fre", "ger", "gre", "heb", "hin", "hun", "ind", "ita", "jpn", "kor", "nor", "pol", "por", "rum", "rus", "spa", "swe", "tha", "tur", "ukr", "vie"]);
 
@@ -72,10 +72,12 @@ const parseSrt = (srt: string): Cue[] =>
 
 const toSrt = (cues: ReadonlyArray<Cue>) => `${cues.map((c) => `${c.head}\n${c.text}`).join("\n\n")}\n`;
 
-const Lines = Schema.Struct({ lines: Schema.Array(Schema.String) });
-const decodeLines = Schema.decodeUnknownOption(Schema.fromJsonString(Lines));
+const Line = Schema.Struct({ id: Schema.Finite, text: Schema.String });
+const decodeLines = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ lines: Schema.Array(Line) })));
 
-const translateBatch = (texts: ReadonlyArray<string>, language: string, spend: Spend) =>
+type Numbered = { readonly id: number; readonly text: string };
+
+const translateBatch = (batch: ReadonlyArray<Numbered>, language: string, spend: Spend) =>
   Effect.gen(function* () {
     if (!spend.allowed()) return yield* Effect.fail(new PutioFailed({ message: "no credits left this month", refused: true }));
     const client = yield* AnthropicClient;
@@ -92,11 +94,21 @@ const translateBatch = (texts: ReadonlyArray<string>, language: string, spend: S
                 effort: "low",
                 format: {
                   type: "json_schema",
-                  schema: { type: "object", properties: { lines: { type: "array", items: { type: "string" } } }, required: ["lines"], additionalProperties: false },
+                  schema: {
+                    type: "object",
+                    properties: {
+                      lines: {
+                        type: "array",
+                        items: { type: "object", properties: { id: { type: "integer" }, text: { type: "string" } }, required: ["id", "text"], additionalProperties: false },
+                      },
+                    },
+                    required: ["lines"],
+                    additionalProperties: false,
+                  },
                 },
               },
-              system: `Translate English film and TV subtitle lines into ${language}. Return exactly one translation per input line, in the same order. Keep line breaks inside a line, italics tags and speaker dashes. Write natural spoken ${language}, as a professional subtitler would.`,
-              messages: [{ role: "user", content: JSON.stringify({ lines: texts }) }],
+              system: `Translate English film and TV subtitle lines into ${language}. Return one entry per input line with the same id. Translate each line on its own, even when a sentence runs on into the next line: never merge, split or skip lines. Keep line breaks inside a line, italics tags and speaker dashes. Write natural spoken ${language}, as a professional subtitler would.`,
+              messages: [{ role: "user", content: JSON.stringify({ lines: batch }) }],
             },
             { signal },
           )
@@ -105,15 +117,24 @@ const translateBatch = (texts: ReadonlyArray<string>, language: string, spend: S
     });
 
     spend.charge(Math.ceil(weightedTokens(message.usage) * PRICE_SHARE));
-    const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-    const out = decodeLines(text);
+    const out = decodeLines(message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join(""));
+    const wanted = new Set(batch.map((c) => c.id));
 
-    if (Option.isNone(out) || out.value.lines.length !== texts.length)
-      return yield* Effect.fail(new PutioFailed({ message: "the translation came back with the wrong number of lines", refused: true }));
-
-    return out.value.lines;
+    return new Map(Option.isSome(out) ? out.value.lines.filter((l) => wanted.has(l.id)).map((l) => [l.id, l.text] as const) : []);
   });
 
+const translateAll = (batch: ReadonlyArray<Numbered>, language: string, spend: Spend) =>
+  Effect.gen(function* () {
+    const got = yield* translateBatch(batch, language, spend);
+    const missing = batch.filter((c) => !got.has(c.id));
+
+    if (missing.length === 0) return got;
+    const retried = yield* translateBatch(missing, language, spend);
+
+    if (missing.some((c) => !retried.has(c.id))) return yield* Effect.fail(new PutioFailed({ message: "the translation skipped some lines", refused: true }));
+
+    return new Map([...got, ...retried]);
+  });
 
 export const translateSubtitle = (videoId: number, parentId: number, name: string, language: LanguageCode, spend: Spend) =>
   Effect.gen(function* () {
@@ -124,10 +145,11 @@ export const translateSubtitle = (videoId: number, parentId: number, name: strin
     const cues = parseSrt(yield* downloadSubtitle(videoId, source.key).pipe(Effect.mapError(nothingWritten)));
 
     if (cues.length === 0) return yield* Effect.fail(new PutioFailed({ message: "the English subtitle is empty", refused: true }));
-    const translated: string[] = [];
+    const numbered = cues.map((c, id) => ({ id, text: c.text }));
+    const translated = new Map<number, string>();
 
-    for (let i = 0; i < cues.length; i += BATCH)
-      translated.push(...(yield* translateBatch(cues.slice(i, i + BATCH).map((c) => c.text), LANGUAGES[language], spend)));
+    for (let i = 0; i < numbered.length; i += BATCH)
+      for (const [id, text] of yield* translateAll(numbered.slice(i, i + BATCH), LANGUAGES[language], spend)) translated.set(id, text);
 
-    return yield* uploadText(name, parentId, toSrt(cues.map((c, i) => ({ head: c.head, text: cueText(translated[i], c.text) }))));
+    return yield* uploadText(name, parentId, toSrt(cues.map((c, id) => ({ head: c.head, text: cueText(translated.get(id), c.text) }))));
   });
