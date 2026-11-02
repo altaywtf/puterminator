@@ -404,7 +404,7 @@ describe("plans", () => {
     const before = t.putio.log.length;
     await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
     await t.settle();
-    expect(t.putio.log.slice(before).filter((r) => r.url.pathname === "/v2/files/list")).toHaveLength(3);
+    expect(t.putio.log.slice(before).filter((r) => r.url.pathname === "/v2/files/list")).toHaveLength(4);
     expect(t.store.snapshot().some((f) => f.id === 3)).toBe(true);
   });
 
@@ -664,6 +664,19 @@ describe("plans", () => {
     await t.settle();
     expect(writes(t).length).toBe(before);
     expect(planOf(t).run?.steps[0]?.error).toMatch(/^the library changed since this plan/);
+  });
+
+  it("checks put.io itself before a run, so a rename made elsewhere since the scan stops it", async () => {
+    const t = await setup(proposeTurn(JSON.stringify({ title: "x", changes: [{ op: "rename", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "Heat (1995).mkv" }] })));
+    await Effect.runPromise(t.agent.receive(send("go")));
+    await t.settle();
+    await t.putio.fetch("https://api.put.io/v2/files/rename", { method: "POST", body: new URLSearchParams({ file_id: "2", name: "Heat.mkv" }) });
+    const before = writes(t).length;
+
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: planOf(t).plan.id, exclude: [] })));
+    await t.settle();
+    expect(writes(t).length).toBe(before);
+    expect(planOf(t).run?.steps[0]?.error).toBe("the library changed since this plan (/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv moved or is gone); ask for a new one");
   });
 
   const twoPlans = async (first: [string, string], second: [string, string], opts: Parameters<typeof setup>[1] = {}) => {

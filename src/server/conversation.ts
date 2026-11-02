@@ -276,7 +276,7 @@ export const makeAgent = (deps: AgentDeps) =>
       ),
     });
 
-    const runSteps = (planId: string) => {
+    const runSteps = (planId: string, eitherEnd: boolean, changed: string) => {
       const token = store.token();
       const first = plans.get(planId);
       const run = first && current(first.record);
@@ -322,8 +322,15 @@ export const makeAgent = (deps: AgentDeps) =>
         : [];
 
       const work = Effect.gen(function* () {
-        const folders = folderIds(store.snapshot(), state.folder.id, original);
         const queued = run.steps.filter((s) => s.state === "queued");
+        const checked = yield* Effect.result(scan);
+
+        if (Result.isFailure(checked)) return update((r) => failUnfinished(r, `couldn’t check put.io first: ${stepMessage(checked.failure)}`), finished);
+        const queuedIds = new Set(queued.map((s) => s.change));
+        const stale = staleChanges(store.snapshot(), run.changes.filter((c) => queuedIds.has(c.id)), first.ids, eitherEnd);
+
+        if (stale.length > 0) return update((r) => failUnfinished(r, `the library changed since this plan (${stale[0]}); ${changed}`), finished);
+        const folders = folderIds(store.snapshot(), state.folder.id, original);
         const needsTrash = queued.some((s) => run.changes.find((c) => c.id === s.change)?.op === "trash");
         const trashOn = needsTrash ? yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)) : true;
 
@@ -413,20 +420,9 @@ export const makeAgent = (deps: AgentDeps) =>
       const changes = p.record.plan.changes.filter((c) => !exclude.includes(c.id) && !exclude.includes(c.id.replace(/s\d+$/, "")));
 
       if (changes.length === 0) return;
-      const stale = scannedHere() ? staleChanges(store.snapshot(), changes, p.ids) : [];
-
-      if (stale.length > 0) {
-        const error = `the library changed since this plan (${stale[0]}); ask for a new one`;
-        const refused: Run = { id: planId, title: p.record.plan.title, changes, steps: changes.map((c) => ({ change: c.id, state: "failed", error })) };
-
-        saveRecord({ ...p, reported: false, record: { ...p.record, status: "done", run: refused } });
-
-        return;
-      }
-
       const run: Run = { id: planId, title: p.record.plan.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
       saveRecord({ ...p, reported: false, record: { ...p.record, status: "applying", run } });
-      runSteps(planId);
+      runSteps(planId, false, "ask for a new one");
     };
 
     const retry = (planId: string) => {
@@ -434,20 +430,9 @@ export const makeAgent = (deps: AgentDeps) =>
       const run = p && current(p.record);
 
       if (!p || !run || (p.record.status !== "done" && p.record.status !== "undone") || runFibers.size > 0) return;
-      const failed = new Set(run.steps.flatMap((s) => (s.state === "failed" ? [s.change] : [])));
-      const taken = scannedHere() ? staleChanges(store.snapshot(), run.changes.filter((c) => failed.has(c.id)), p.ids, true) : [];
-
-      if (taken.length > 0) {
-        const error = `the library changed since this plan (${taken[0]}); ask for a new one`;
-
-        saveRecord({ ...p, reported: false, record: withCurrent(p.record, { ...run, steps: run.steps.map((s) => (s.state === "failed" ? { ...s, error } : s)) }) });
-
-        return;
-      }
-
       const steps = run.steps.map((s) => (s.state === "failed" ? { ...s, state: "queued" as const, error: null } : s));
       saveRecord({ ...p, reported: false, record: withCurrent({ ...p.record, status: p.record.undo ? "undoing" : "applying" }, { ...run, steps }) });
-      runSteps(planId);
+      runSteps(planId, true, p.record.undo ? "undo it by hand" : "ask for a new one");
     };
 
     const undo = (planId: string) => {
@@ -458,18 +443,9 @@ export const makeAgent = (deps: AgentDeps) =>
       const changes = undoChanges(run);
 
       if (changes.length === 0) return;
-      const taken = scannedHere() ? staleChanges(store.snapshot(), changes, p.ids, true) : [];
-      const error = taken.length > 0 ? `the library changed since this plan (${taken[0]}); undo it by hand` : null;
-      const back: Run = { id: planId, title: run.title, changes, steps: changes.map((c) => ({ change: c.id, state: error ? "failed" : "queued", error })) };
-
-      if (error) {
-        saveRecord({ ...p, reported: false, record: { ...p.record, status: "undone", undo: back } });
-
-        return;
-      }
-
+      const back: Run = { id: planId, title: run.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
       saveRecord({ ...p, reported: false, record: { ...p.record, status: "undoing", undo: back } });
-      runSteps(planId);
+      runSteps(planId, true, "undo it by hand");
     };
 
     const discard = (planId: string) => {
