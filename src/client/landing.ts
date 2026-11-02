@@ -30,7 +30,7 @@ const hero = (h: H) =>
         h.span([h.Class("text-accent")], ["put.io"]),
       ]),
       h.p([h.Class("m-0 max-w-[50ch] text-[17px] text-fg-2 max-[480px]:text-[15px]")], [
-        "a chat agent for your put.io library. it scores the mess, finds junk and doubles, and turns release names into folders plex, jellyfin and infuse can read.",
+        "a chat agent for your put.io library. it scores the mess, finds junk and doubles, and turns release names into folders plex, jellyfin, infuse and kodi can read.",
       ]),
       h.div([h.Class("justify-self-start")], [signIn(h)]),
     ]),
@@ -102,12 +102,17 @@ const examples = (h: H, model: Model) =>
     h.div([h.Class("grid grid-cols-2 gap-4 max-[860px]:grid-cols-1")], [score(h, model), names(h), layout(h)]),
   ]);
 
+const FOOTER_LINK = "text-fg-3 underline decoration-fg-4 underline-offset-2 hover:text-fg";
+
 const outro = (h: H) =>
-  h.section([h.Class(`${WIDE} gap-5 border-t border-line pt-12 pb-[max(48px,env(safe-area-inset-bottom))]`)], [
-    h.div([h.Class("justify-self-start")], [signIn(h)]),
-    h.p([h.Class("m-0 text-meta text-fg-4")], [
-      "it reads your file list and asks Claude about it. ",
-      h.a([h.Href("/privacy"), h.Class("text-fg-3 underline decoration-fg-4 underline-offset-2 hover:text-fg")], ["privacy and disclaimer"]),
+  h.footer([h.Class(`${WIDE} gap-2 border-t border-line pt-8 pb-[max(40px,env(safe-area-inset-bottom))] text-meta text-fg-4`)], [
+    h.p([h.Class("m-0 max-w-[72ch]")], ["puterminator is a side project by uinaf. put.io doesn’t make, run or endorse it."]),
+    h.p([h.Class("m-0 max-w-[72ch]")], [
+      "it sends your file names to Claude, which can be wrong about what a file is. read every plan before you apply it; it comes with no warranty.",
+    ]),
+    h.p([h.Class("m-0 flex flex-wrap gap-x-4 gap-y-1")], [
+      h.a([h.Href("/privacy"), h.Class(FOOTER_LINK)], ["privacy and disclaimer"]),
+      h.a([h.Href("mailto:dev@uinaf.dev"), h.Class(FOOTER_LINK)], ["dev@uinaf.dev"]),
     ]),
   ]);
 
