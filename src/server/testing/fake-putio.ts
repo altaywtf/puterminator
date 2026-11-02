@@ -1,13 +1,20 @@
 import * as Predicate from "effect/Predicate";
 import type { Json } from "effect/Schema";
 
-export const file = (id: number, parent_id: number, name: string, file_type: "FOLDER" | "VIDEO" | "TEXT", size = 0) => ({
+export const file = (
+  id: number,
+  parent_id: number,
+  name: string,
+  file_type: "FOLDER" | "VIDEO" | "TEXT",
+  size = 0,
+  seen: { crc32?: string; playedAt?: string } = {},
+) => ({
   content_type: file_type === "FOLDER" ? "application/x-directory" : "video/mp4",
   created_at: "2026-01-01T00:00:00",
-  crc32: null,
+  crc32: seen.crc32 ?? null,
   extension: file_type === "VIDEO" ? "mkv" : null,
   file_type,
-  first_accessed_at: null,
+  first_accessed_at: seen.playedAt ?? null,
   folder_type: "REGULAR",
   icon: null,
   id,
@@ -109,6 +116,8 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
 
       return json(200, { info: { user_id: 1, username: "altay", download_token: "dl-token" }, status: "OK" });
     }
+
+    if (url.pathname === "/v2/account/info") return json(200, { info: { user_id: 1, username: "altay", disk: { avail: 5e9, used: 995e9, size: 1e12 } }, status: "OK" });
 
     if (url.pathname === "/v2/account/settings") return json(200, { settings: { trash_enabled: opts.trashEnabled ?? true }, status: "OK" });
 

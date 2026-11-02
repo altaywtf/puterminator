@@ -55,3 +55,16 @@ export const SearchFilesOutput = Schema.Struct({
 });
 
 export type SearchFilesOutput = typeof SearchFilesOutput.Type;
+
+export const FreeSpaceOutput = Schema.Struct({
+  plan: Schema.NullOr(Schema.String),
+  freed: Schema.Finite,
+  target: Schema.Finite,
+  safe: Schema.Finite,
+  left: Schema.Finite,
+  disk: Schema.NullOr(Schema.Struct({ avail: Schema.Finite, size: Schema.Finite })),
+  choices: Schema.Array(Schema.Struct({ title: Schema.String, options: Schema.Array(Schema.Struct({ path: Schema.String, size: Schema.Finite })) })),
+  hints: Schema.Array(Schema.Struct({ path: Schema.String, size: Schema.Finite, why: Schema.String })),
+});
+
+export type FreeSpaceOutput = typeof FreeSpaceOutput.Type;

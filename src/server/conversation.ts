@@ -15,12 +15,13 @@ import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, 
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { PlanRecord, Run } from "../shared/actions";
 import { AskInput, applyChange, folderIds, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion } from "./changes";
-import { createDownloadLinks, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
+import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
 import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
 import { month, type Store, type StoredRecord } from "./store";
 import { buildTree, type WalkedFile } from "./tree";
-import type { DownloadLinksOutput, DownloadLinksResponse, LayoutOutput, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
+import type { DownloadLinksOutput, DownloadLinksResponse, FreeSpaceOutput, LayoutOutput, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
 import { planLayout } from "./layout";
+import { planFreeSpace } from "./space";
 
 const SYSTEM = `You are puterminator, an agent that helps one person understand and tidy their put.io library.
 
@@ -32,6 +33,7 @@ Who you are:
 
 You can scan, score, list folders, search files and make download links; every file you name links to put.io and videos play in the app. You can also change the library, but only through a plan the user approves:
 - To make the library work with Plex, Infuse, Jellyfin or Kodi, call plan_layout: it builds the whole plan itself. If the snapshot doesn't show which folders hold movies and shows, ask with ask_user, offering existing top-level folders or new 'Movies' and 'TV Shows'. Afterwards, one line on what it did and how many files it left alone.
+- To free up space, call plan_free_space with the amount the user wants back (0 if they gave none). It trashes exact copies and junk itself. For each choice it returns (one title in two versions), ask with ask_user which copy to keep, then propose_changes for the rest. Hints (big never-played files) are only suggestions; name them, never trash them unasked.
 - To trash, rename or move anything else, call propose_changes with every change. The app shows it as a diff; the user applies, edits or discards it. You never apply anything yourself, and nothing changes until they click apply.
 - Trash goes to put.io's trash, never a permanent delete. Prefer trash for junk, rename for messy release names, move for wrapper folders.
 - After propose_changes, stop: at most one line, never a list of the changes; the diff shows them.
@@ -613,6 +615,34 @@ export const makeAgent = (deps: AgentDeps) =>
             saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true });
 
             return JSON.stringify({ plan: out.plan.id, changes: out.plan.changes.length, skipped: layout.skipped.length, remaining: layout.remaining, examples } satisfies LayoutOutput);
+          }),
+      }),
+      effectTool({
+        name: "plan_free_space",
+        description:
+          "Free up space: trash exact duplicate copies, then junk, biggest first, until the target is met. Returns the plan as a diff, the same titles kept in two versions for the user to choose between, and big never-played files as hints. Also reads put.io's disk use.",
+        input: Schema.Struct({ free_gb: Schema.Finite.annotate({ description: "GB the user wants back; 0 for everything safe" }) }),
+        run: ({ free_gb }) =>
+          Effect.gen(function* () {
+            const all = snapshotHere();
+
+            if (Result.isFailure(all)) return all.failure;
+            const token = store.token();
+            const readDisk = diskUsage.pipe(Effect.timeout("3 seconds"), Effect.option, Effect.map(Option.getOrNull));
+            const disk = token ? yield* readDisk.pipe(Effect.provide(putioLayer(token, deps.putioFetch))) : null;
+            const target = Math.max(0, free_gb) * 1e9;
+            const space = planFreeSpace(all.success, target, state.folder.id === 0 ? "" : state.folder.name);
+            let plan: string | null = null;
+
+            if (space.changes.length > 0) {
+              const out = validatePlan(all.success, { title: "free up space", changes: space.changes }, newId());
+
+              if ("error" in out) return JSON.stringify(out);
+              saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true });
+              plan = out.plan.id;
+            }
+
+            return JSON.stringify({ plan, freed: space.freed, target, safe: space.safe, left: space.left, disk, choices: space.choices, hints: space.hints } satisfies FreeSpaceOutput);
           }),
       }),
       effectTool({

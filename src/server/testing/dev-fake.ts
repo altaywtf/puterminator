@@ -31,7 +31,7 @@ const files: Array<File> = [];
 const trash: Array<File> = [];
 let nextId = 1000;
 
-const add = (parent: number, name: string, type: File["file_type"], size = 0, played = false): number => {
+const add = (parent: number, name: string, type: File["file_type"], size = 0, played = false, crc32: string | null = null): number => {
   const id = nextId++;
   const extension = type === "FOLDER" ? null : (name.split(".").pop() ?? null);
   files.push({
@@ -41,7 +41,7 @@ const add = (parent: number, name: string, type: File["file_type"], size = 0, pl
     size,
     file_type: type,
     extension,
-    crc32: type === "VIDEO" ? id.toString(16).padStart(8, "0") : null,
+    crc32: crc32 ?? (type === "VIDEO" ? id.toString(16).padStart(8, "0") : null),
     created_at: `2025-${String((id % 12) + 1).padStart(2, "0")}-14T10:00:00`,
     first_accessed_at: played ? "2026-02-01T21:00:00" : null,
     content_type: type === "FOLDER" ? "application/x-directory" : "application/octet-stream",
@@ -95,6 +95,10 @@ titles.slice(0, 6).forEach((t, i) => {
 });
 
 add(0, "Heat.1995.2160p.WEB-DL.mkv", "VIDEO", 14 * GB);
+
+const memento = files.find((f) => f.name === "Memento (2003).mkv");
+
+if (memento) add(downloads, "Memento (2003).mkv", "VIDEO", memento.size, false, memento.crc32);
 
 add(0, "www.Torrenting.com - Notes.url", "TEXT", 200);
 
@@ -161,7 +165,7 @@ const putio = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
   if (!authorized(req)) return json(res, 401, { status: "ERROR", error_type: "invalid_grant", status_code: 401 });
 
   if (route === "GET /v2/account/info") {
-    const info = { user_id: 4242, username: "altay", mail: "dev@localhost", avatar_url: "https://www.gravatar.com/avatar/0?d=identicon&s=80", disk: {} };
+    const info = { user_id: 4242, username: "altay", mail: "dev@localhost", avatar_url: "https://www.gravatar.com/avatar/0?d=identicon&s=80", disk: { avail: 12 * GB, used: 988 * GB, size: 1000 * GB } };
 
     return json(res, 200, { info: url.searchParams.get("download_token") === "1" ? { ...info, download_token: "fake-dl" } : info, status: "OK" });
   }
@@ -352,6 +356,21 @@ const plan = (messages: Array<Message>): Array<Step> => {
 
     if (call?.name === "make_download_links") return [{ kind: "text", delayMs: 40, text: "the links are in the card above." }];
 
+    if (call?.name === "plan_free_space") {
+      const p = JSON.parse(raw);
+      const pick = p.choices?.[0];
+
+      return [
+        {
+          kind: "text",
+          delayMs: 40,
+          text: p.error
+            ? `couldn't plan that: ${p.error}`
+            : `plan's up: ${(p.freed / GB).toFixed(1)} GB of copies and junk.${pick ? ` ${p.choices.length} titles come in two versions; ask me "which ${pick.title} to keep".` : ""}`,
+        },
+      ];
+    }
+
     if (call?.name === "plan_layout") {
       const p = JSON.parse(raw);
 
@@ -413,6 +432,10 @@ const plan = (messages: Array<Message>): Array<Step> => {
         },
       },
     ];
+  }
+
+  if (/space|free up/.test(ask)) {
+    return [{ kind: "tool", name: "plan_free_space", input: { free_gb: 0 } }];
   }
 
   if (/plex|jellyfin|infuse|kodi|layout/.test(ask)) {

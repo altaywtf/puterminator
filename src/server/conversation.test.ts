@@ -116,6 +116,7 @@ describe("a turn", () => {
       ["search_files", true],
       ["propose_changes", true],
       ["plan_layout", true],
+      ["plan_free_space", true],
       ["make_download_links", true],
       ["ask_user", true],
     ]);
@@ -993,6 +994,65 @@ describe("library freshness", () => {
     await Effect.runPromise(t.agent.receive(send("hi")));
     await t.settle();
     expect(JSON.stringify(t.anthropic.requests[0]?.body.messages.at(-1))).toContain("Last scan: 42 minutes ago, 1 items");
+  });
+});
+
+describe("free up space", () => {
+  const GB = 1e9;
+
+  const files = [
+    file(1, 0, "Movies", "FOLDER"),
+    file(2, 1, "Heat (1995).mkv", "VIDEO", 4 * GB, { crc32: "aaaa0001", playedAt: "2026-02-01T00:00:00" }),
+    file(3, 0, "Heat.1995.1080p.BluRay.x264-GRP.mkv", "VIDEO", 4 * GB, { crc32: "aaaa0001" }),
+    file(4, 1, "Alien (1979).mkv", "VIDEO", 2 * GB, { crc32: "bbbb0001" }),
+    file(5, 0, "Alien.1979.720p.WEB.x264-GRP.mkv", "VIDEO", GB, { crc32: "bbbb0002" }),
+    file(6, 0, "RARBG_DO_NOT_MIRROR.exe", "TEXT", 100),
+    file(7, 1, "Dune (2021).mkv", "VIDEO", 8 * GB, { crc32: "cccc0001" }),
+    file(8, 0, "__MACOSX", "FOLDER"),
+    file(9, 8, "Heat (1995).mkv", "VIDEO", 4 * GB, { crc32: "aaaa0001" }),
+    file(10, 0, "Old", "FOLDER"),
+    file(11, 10, "Alien.1979.720p.WEB.x264-GRP.mkv", "VIDEO", GB, { crc32: "bbbb0002" }),
+  ];
+
+  const run = async (freeGb: number) => {
+    const t = await setup(
+      [
+        { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
+        { kind: "sse", events: toolUseTurn({ id: "toolu_f", name: "plan_free_space", inputJsonChunks: [JSON.stringify({ free_gb: freeGb })] }, { input: 1, output: 1 }) },
+        { kind: "sse", events: textTurn("plan's up.", { input: 1, output: 1 }) },
+      ],
+      { files },
+    );
+
+    await Effect.runPromise(t.agent.receive(send("free up space")));
+    await t.settle();
+    const out = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_f");
+    const result = JSON.parse(String(out?.type === "tool_result" && out.content));
+
+    return { result, plan: t.store.plans().find((p) => p.record.plan.id === result.plan)?.record.plan };
+  };
+
+  it("trashes the messier exact copy and junk, asks about versions, and only hints at unplayed files", async () => {
+    const { result, plan } = await run(0);
+
+    expect(plan?.changes.map((c) => [c.op, c.path])).toEqual([
+      ["trash", "/Heat.1995.1080p.BluRay.x264-GRP.mkv"],
+      ["trash", "/Old/Alien.1979.720p.WEB.x264-GRP.mkv"],
+      ["trash", "/__MACOSX/Heat (1995).mkv"],
+      ["trash", "/RARBG_DO_NOT_MIRROR.exe"],
+    ]);
+    expect(result).toMatchObject({
+      freed: 9 * GB + 100,
+      disk: { avail: 5e9, size: 1e12 },
+      choices: [{ options: [{ path: "/Movies/Alien (1979).mkv" }, { path: "/Alien.1979.720p.WEB.x264-GRP.mkv" }] }],
+    });
+    expect(result.hints.map((h: { path: string }) => h.path)).toEqual(["/Movies/Dune (2021).mkv"]);
+  });
+
+  it("stops once the target is met", async () => {
+    const { result, plan } = await run(1);
+
+    expect([plan?.changes.map((c) => c.path), result.freed, result.left]).toEqual([["/Heat.1995.1080p.BluRay.x264-GRP.mkv"], 4 * GB, 3]);
   });
 });
 

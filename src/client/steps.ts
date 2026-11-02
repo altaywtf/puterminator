@@ -1,6 +1,7 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { Audit } from "../shared/audit";
+import { FreeSpaceOutput } from "../shared/tools";
 
 export const fmt = (n: number) => n.toLocaleString("en-US");
 
@@ -21,6 +22,7 @@ export const auditOf = (output: string | null): Option.Option<Audit> =>
 
 const decodeOutput = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.JsonObject));
 const decodeToolError = Schema.decodeUnknownOption(Schema.Struct({ error: Schema.String }));
+const decodeFreeSpaceSummary = Schema.decodeUnknownOption(FreeSpaceOutput);
 const decodeLayoutSummary = Schema.decodeUnknownOption(Schema.Struct({ changes: Schema.Finite, skipped: Schema.Finite }));
 const decodeLinkedFiles = Schema.decodeUnknownOption(Schema.Struct({ files: Schema.Finite }));
 const decodeFolderCount = Schema.decodeUnknownOption(Schema.Struct({ count: Schema.Finite }));
@@ -68,6 +70,17 @@ export function describeStep(name: string, input: Schema.Json, output: string | 
       detail: Option.match(layout, {
         onNone: () => null,
         onSome: ({ changes, skipped }) => `${fmt(changes)} ${changes === 1 ? "change" : "changes"}${skipped > 0 ? `, ${fmt(skipped)} left alone` : ""}`,
+      }),
+      lines: [],
+    };
+  }
+
+  if (name === "plan_free_space") {
+    return {
+      title: "plan what to trash for space",
+      detail: Option.match(Option.flatMap(out, decodeFreeSpaceSummary), {
+        onNone: () => null,
+        onSome: ({ freed, choices }) => `frees ${size(freed)}${choices.length > 0 ? `, ${fmt(choices.length)} for you to pick` : ""}`,
       }),
       lines: [],
     };

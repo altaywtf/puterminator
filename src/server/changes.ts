@@ -5,7 +5,7 @@ import type { Change, Plan, Question, Run } from "../shared/actions";
 import { createFolder, moveFile, type PutioError, PutioFailed, renameFile, restoreFile, stepMessage, trashFile } from "./putio";
 import type { WalkedFile } from "./tree";
 
-const MAX_CHANGES = 200;
+export const MAX_CHANGES = 200;
 
 export const ProposeInput = Schema.Struct({
   title: Schema.String.annotate({ description: "short, lowercase, e.g. 'clean up Downloads'" }),

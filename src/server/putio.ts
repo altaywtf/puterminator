@@ -123,6 +123,10 @@ export const accountInfo = read("/account/info", requestJson(AccountInfo, { meth
   Effect.map(({ info }) => ({ userId: info.user_id, username: info.username, avatarUrl: httpsUrl(info.avatar_url) })),
 );
 
+const Disk = Schema.Struct({ info: Schema.Struct({ disk: Schema.Struct({ avail: Schema.Finite, size: Schema.Finite }) }) });
+
+export const diskUsage = read("/account/info", requestJson(Disk, { method: "GET", path: "/v2/account/info" })).pipe(Effect.map(({ info }) => info.disk));
+
 const ScanFile = Schema.Struct({
   id: Schema.Finite,
   parent_id: Schema.NullOr(Schema.Finite),

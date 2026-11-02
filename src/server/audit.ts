@@ -126,6 +126,41 @@ export function mediaKey(name: string, show = "") {
   return `${title}|${year.value}${rest ? `|${rest}` : ""}${extras}`;
 }
 
+export function duplicateGroups(videos: ReadonlyArray<WalkedFile>, rootShow = ""): WalkedFile[][] {
+  const crcOf = (v: WalkedFile) => (v.crc32 ? `crc:${v.crc32}:${v.size}` : null);
+  const link = new Map<WalkedFile, WalkedFile>();
+
+  const find = (v: WalkedFile): WalkedFile => {
+    const up = link.get(v) ?? v;
+
+    return up === v ? v : find(up);
+  };
+
+  const firstWith = new Map<string, WalkedFile>();
+
+  for (const v of videos) {
+    for (const k of [crcOf(v), mediaKey(v.name, showOf(v.path) || rootShow)]) {
+      if (!k) continue;
+      const seen = firstWith.get(k);
+
+      if (seen) link.set(find(v), find(seen));
+      else firstWith.set(k, v);
+    }
+  }
+
+  const byKey = new Map<WalkedFile, WalkedFile[]>();
+
+  for (const v of videos) byKey.set(find(v), [...(byKey.get(find(v)) ?? []), v]);
+
+  const keepFirst = (a: WalkedFile, b: WalkedFile) =>
+    b.size - a.size ||
+    Number(isMessyName(a.name)) - Number(isMessyName(b.name)) ||
+    Number(b.first_accessed_at != null) - Number(a.first_accessed_at != null) ||
+    a.depth - b.depth;
+
+  return [...byKey.values()].flatMap((g) => (g.length > 1 ? [[...g].sort(keepFirst)] : []));
+}
+
 const pct = (good: number, total: number) => (total === 0 ? 100 : Math.round((100 * good) / total));
 
 /** `rootShow` names the show when the scanned folder is one, so its bare `S01E01` files still have a title. */
@@ -163,38 +198,7 @@ export function audit(files: WalkedFile[], rootName: string, truncated: boolean,
 
   const junkBytes = junk.reduce((a, x) => a + x.f.size, 0);
 
-  const crcOf = (v: WalkedFile) => (v.crc32 ? `crc:${v.crc32}:${v.size}` : null);
-  const link = new Map<WalkedFile, WalkedFile>();
-
-  const find = (v: WalkedFile): WalkedFile => {
-    const up = link.get(v) ?? v;
-
-    return up === v ? v : find(up);
-  };
-
-  const firstWith = new Map<string, WalkedFile>();
-
-  for (const v of videos) {
-    for (const k of [crcOf(v), mediaKey(v.name, showOf(v.path) || rootShow)]) {
-      if (!k) continue;
-      const seen = firstWith.get(k);
-
-      if (seen) link.set(find(v), find(seen));
-      else firstWith.set(k, v);
-    }
-  }
-
-  const byKey = new Map<WalkedFile, WalkedFile[]>();
-
-  for (const v of videos) byKey.set(find(v), [...(byKey.get(find(v)) ?? []), v]);
-
-  const keepFirst = (a: WalkedFile, b: WalkedFile) =>
-    b.size - a.size ||
-    Number(isMessyName(a.name)) - Number(isMessyName(b.name)) ||
-    Number(b.first_accessed_at != null) - Number(a.first_accessed_at != null) ||
-    a.depth - b.depth;
-
-  const dupGroups = [...byKey.values()].flatMap((g) => (g.length > 1 ? [[...g].sort(keepFirst)] : []));
+  const dupGroups = duplicateGroups(videos, rootShow);
   const dupFiles = dupGroups.reduce((a, g) => a + g.length - 1, 0);
   const wasted = dupGroups.reduce((a, g) => a + g.slice(1).reduce((s, f) => s + f.size, 0), 0);
 
