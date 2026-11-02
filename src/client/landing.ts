@@ -106,10 +106,7 @@ const FOOTER_LINK = "text-fg-3 underline decoration-fg-4 underline-offset-2 hove
 
 const outro = (h: H) =>
   h.footer([h.Class(`${WIDE} gap-2 border-t border-line pt-8 pb-[max(40px,env(safe-area-inset-bottom))] text-meta text-fg-4`)], [
-    h.p([h.Class("m-0 max-w-[72ch]")], ["puterminator is a side project by uinaf. put.io doesn’t make, run or endorse it."]),
-    h.p([h.Class("m-0 max-w-[72ch]")], [
-      "it sends your file names to Claude, which can be wrong about what a file is. read every plan before you apply it; it comes with no warranty.",
-    ]),
+    h.p([h.Class("m-0 max-w-[72ch]")], ["a uinaf side project, not an official put.io app. AI is involved, so use it at your own risk."]),
     h.p([h.Class("m-0 flex flex-wrap gap-x-4 gap-y-1")], [
       h.a([h.Href("/privacy"), h.Class(FOOTER_LINK)], ["privacy and disclaimer"]),
       h.a([h.Href("mailto:dev@uinaf.dev"), h.Class(FOOTER_LINK)], ["dev@uinaf.dev"]),
