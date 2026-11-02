@@ -129,6 +129,7 @@ const MAX_SINGLES = 20;
 
 const translateAll = (batch: ReadonlyArray<Numbered>, language: string, spend: Spend) =>
   Effect.gen(function* () {
+    const english = new Map(batch.map((c) => [c.id, c.text.trim()]));
     const got = new Map<number, string>();
     let missing = batch;
     let why = "";
@@ -136,7 +137,7 @@ const translateAll = (batch: ReadonlyArray<Numbered>, language: string, spend: S
     for (let round = 0; round < ROUNDS && missing.length > 0; round++) {
       const reply = yield* translateBatch(missing, language, spend);
 
-      for (const [id, text] of reply.got) got.set(id, text);
+      for (const [id, text] of reply.got) if (text.trim() && text.trim() !== english.get(id)) got.set(id, text);
       missing = missing.filter((c) => !got.has(c.id));
       why = reply.why;
     }

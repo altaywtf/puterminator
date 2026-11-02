@@ -1027,7 +1027,7 @@ describe("translate subtitles", () => {
   };
 
   it("translates the English subtitle with Haiku, keeps every timing, uploads it beside the video, and undo trashes only that file", async () => {
-    const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 0, text: "Merhaba.\n\nNasılsın?" }, { id: 1, text: "" }] }), { input: 1000, output: 1000 }) }], {
+    const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 0, text: "Merhaba.\n\nNasılsın?" }, { id: 1, text: "<i>Koş!</i>" }] }), { input: 1000, output: 1000 }) }], {
       files,
       subtitles: { 2: [{ key: "k1", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: english }] },
     });
@@ -1035,7 +1035,7 @@ describe("translate subtitles", () => {
     const { planId, charged } = await proposeAndApply(t);
 
     expect(t.putio.uploads).toEqual([
-      { name: "Heat (1995).tur.srt", parentId: 1, text: "1\n00:00:01,000 --> 00:00:02,000\nMerhaba.\nNasılsın?\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Run!</i>\n" },
+      { name: "Heat (1995).tur.srt", parentId: 1, text: "1\n00:00:01,000 --> 00:00:02,000\nMerhaba.\nNasılsın?\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Koş!</i>\n" },
     ]);
     expect(t.anthropic.requests.at(-1)?.body.model).toBe("claude-haiku-5-5");
     expect(t.store.plans()[0]?.record.status).toBe("done");
@@ -1050,13 +1050,13 @@ describe("translate subtitles", () => {
     expect([uploadedId, charged]).toEqual([undefined, Math.ceil((1000 + 1000 * 5) / 20)]);
   });
 
-  it("keeps asking for the lines Haiku merged away, last one at a time, and puts each translation on its own cue", async () => {
+  it("keeps asking for lines Haiku dropped, blanked or left in English, last one at a time, and puts each translation on its own cue", async () => {
     const t = await setup(
       [
         ...proposeTurns,
         { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 0, text: "Merhaba. Koş!" }] }), { input: 1, output: 1 }) },
-        { kind: "sse", events: textTurn(JSON.stringify({ lines: [] }), { input: 1, output: 1 }) },
-        { kind: "sse", events: textTurn("not json", { input: 1, output: 1 }) },
+        { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 1, text: "" }] }), { input: 1, output: 1 }) },
+        { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 1, text: "<i>Run!</i>" }] }), { input: 1, output: 1 }) },
         { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 1, text: "<i>Koş!</i>" }] }), { input: 1, output: 1 }) },
       ],
       { files, subtitles: { 2: [{ key: "k1", language_code: "eng", source: "mkv", name: "English", srt: english }] } },
