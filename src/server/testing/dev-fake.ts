@@ -64,6 +64,8 @@ titles.forEach((t, i) => {
   const year = 1979 + i * 4;
   const folder = add(movies, `${t} (${year})`, "FOLDER");
   add(folder, `${t} (${year}).mkv`, "VIDEO", (2 + i) * GB, i % 3 === 0);
+
+  if (i < 2) add(add(folder, "Subs", "FOLDER"), "English.srt", "TEXT", 60 * 1024);
 });
 
 titles.slice(0, 6).forEach((t, i) => {
@@ -356,6 +358,12 @@ const plan = (messages: Array<Message>): Array<Step> => {
 
     if (call?.name === "make_download_links") return [{ kind: "text", delayMs: 40, text: "the links are in the card above." }];
 
+    if (call?.name === "plan_subtitles") {
+      const p = JSON.parse(raw);
+
+      return [{ kind: "text", delayMs: 40, text: p.error ? `nothing to fix: ${p.error}` : `plan's up. ${p.skipped} subtitles i couldn't place stay where they are.` }];
+    }
+
     if (call?.name === "plan_free_space") {
       const p = JSON.parse(raw);
       const pick = p.choices?.[0];
@@ -390,6 +398,10 @@ const plan = (messages: Array<Message>): Array<Step> => {
       { kind: "thinking", text: "No fresh snapshot for this folder. Scan first, then answer from the numbers." },
       { kind: "tool", name: "scan_library", input: {} },
     ];
+  }
+
+  if (/subtitle|subs\b/.test(ask)) {
+    return [{ kind: "tool", name: "plan_subtitles", input: { within: "" } }];
   }
 
   if (/clean/.test(ask)) {

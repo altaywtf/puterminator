@@ -14,7 +14,7 @@ import * as Stream from "effect/Stream";
 import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, initialAgentState, type Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { PlanRecord, Run } from "../shared/actions";
-import { AskInput, applyChange, folderIds, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion } from "./changes";
+import { AskInput, applyChange, type StoredPlan, folderIds, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion } from "./changes";
 import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
 import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
 import { month, type Store, type StoredRecord } from "./store";
@@ -22,6 +22,7 @@ import { buildTree, type WalkedFile } from "./tree";
 import type { DownloadLinksOutput, DownloadLinksResponse, FreeSpaceOutput, LayoutOutput, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
 import { planLayout } from "./layout";
 import { planFreeSpace } from "./space";
+import { planSubtitles } from "./subtitles";
 
 const SYSTEM = `You are puterminator, an agent that helps one person understand and tidy their put.io library.
 
@@ -33,6 +34,7 @@ Who you are:
 
 You can scan, score, list folders, search files and make download links; every file you name links to put.io and videos play in the app. You can also change the library, but only through a plan the user approves:
 - To make the library work with Plex, Infuse, Jellyfin or Kodi, call plan_layout: it builds the whole plan itself. If the snapshot doesn't show which folders hold movies and shows, ask with ask_user, offering existing top-level folders or new 'Movies' and 'TV Shows'. Afterwards, one line on what it did and how many files it left alone.
+- To fix subtitles put.io doesn't show, call plan_subtitles: it renames each stray .srt to its video's name and moves it next to the video. One line afterwards; say how many it left alone and why.
 - To free up space, call plan_free_space with the amount the user wants back (0 if they gave none). It trashes exact copies and junk itself. For each choice it returns (one title in two versions), ask with ask_user which copy to keep, then propose_changes for the rest. Hints (big never-played files) are only suggestions; name them, never trash them unasked.
 - To trash, rename or move anything else, call propose_changes with every change. The app shows it as a diff; the user applies, edits or discards it. You never apply anything yourself, and nothing changes until they click apply.
 - Trash goes to put.io's trash, never a permanent delete. Prefer trash for junk, rename for messy release names, move for wrapper folders.
@@ -484,6 +486,26 @@ export const makeAgent = (deps: AgentDeps) =>
         ];
       });
 
+    const storePlan = (out: StoredPlan) =>
+      saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true });
+
+    const proposeGenerated = (
+      snapshot: ReadonlyArray<WalkedFile>,
+      title: string,
+      result: { changes: ProposeInput["changes"]; skipped: ReadonlyArray<{ path: string; why: string }>; remaining: number },
+      nothingToDo: string,
+    ) => {
+      const examples = result.skipped.slice(0, 5);
+
+      if (result.changes.length === 0) return JSON.stringify({ error: `${nothingToDo} ${result.skipped.length} left alone.`, examples });
+      const out = validatePlan(snapshot, { title, changes: result.changes }, newId());
+
+      if ("error" in out) return JSON.stringify(out);
+      storePlan(out);
+
+      return JSON.stringify({ plan: out.plan.id, changes: out.plan.changes.length, skipped: result.skipped.length, remaining: result.remaining, examples } satisfies LayoutOutput);
+    };
+
     const tools = [
       effectTool({
         name: "scan_library",
@@ -583,7 +605,7 @@ export const makeAgent = (deps: AgentDeps) =>
             const out = validatePlan(all.success, input, newId());
 
             if ("error" in out) return JSON.stringify(out);
-            saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true });
+            storePlan(out);
 
             return JSON.stringify(out.plan);
           }),
@@ -605,16 +627,25 @@ export const makeAgent = (deps: AgentDeps) =>
             const layout = planLayout(all.success, movies, shows, within);
 
             if ("error" in layout) return JSON.stringify(layout);
-            const examples = layout.skipped.slice(0, 5);
 
-            if (layout.changes.length === 0)
-              return JSON.stringify({ error: `Nothing to move: every video it can name is already laid out. ${layout.skipped.length} left alone.`, examples });
-            const out = validatePlan(all.success, { title: "media server layout", changes: layout.changes }, newId());
+            return proposeGenerated(all.success, "media server layout", layout, "Nothing to move: every video it can name is already laid out.");
+          }),
+      }),
+      effectTool({
+        name: "plan_subtitles",
+        description:
+          "Tidy subtitles so put.io shows them: put.io only picks up a .srt named exactly like its video and sitting beside it. Renames each stray .srt to its video's name, moving it out of a Subs folder if needed. Leaves alone videos with several stray subtitles or one already in place.",
+        input: Schema.Struct({ within: Schema.String.annotate({ description: "only under this folder, e.g. '/Movies'; '' for the whole snapshot" }) }),
+        run: ({ within }) =>
+          Effect.sync(() => {
+            const all = snapshotHere();
 
-            if ("error" in out) return JSON.stringify(out);
-            saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true });
+            if (Result.isFailure(all)) return all.failure;
+            const tidy = planSubtitles(all.success, within);
 
-            return JSON.stringify({ plan: out.plan.id, changes: out.plan.changes.length, skipped: layout.skipped.length, remaining: layout.remaining, examples } satisfies LayoutOutput);
+            if ("error" in tidy) return JSON.stringify(tidy);
+
+            return proposeGenerated(all.success, "tidy subtitles", tidy, "No stray subtitles to fix.");
           }),
       }),
       effectTool({
@@ -638,7 +669,7 @@ export const makeAgent = (deps: AgentDeps) =>
               const out = validatePlan(all.success, { title: "free up space", changes: space.changes }, newId());
 
               if ("error" in out) return JSON.stringify(out);
-              saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true });
+              storePlan(out);
               plan = out.plan.id;
             }
 

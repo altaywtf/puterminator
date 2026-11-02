@@ -116,6 +116,7 @@ describe("a turn", () => {
       ["search_files", true],
       ["propose_changes", true],
       ["plan_layout", true],
+      ["plan_subtitles", true],
       ["plan_free_space", true],
       ["make_download_links", true],
       ["ask_user", true],
@@ -994,6 +995,63 @@ describe("library freshness", () => {
     await Effect.runPromise(t.agent.receive(send("hi")));
     await t.settle();
     expect(JSON.stringify(t.anthropic.requests[0]?.body.messages.at(-1))).toContain("Last scan: 42 minutes ago, 1 items");
+  });
+});
+
+describe("tidy subtitles", () => {
+  const files = [
+    file(1, 0, "Heat (1995)", "FOLDER"),
+    file(2, 1, "Heat (1995).mkv", "VIDEO", 2 ** 30),
+    file(3, 1, "Subs", "FOLDER"),
+    file(4, 3, "English.srt", "TEXT", 100),
+    file(18, 1, "Heat (1995)-trailer.mkv", "VIDEO", 120 * 2 ** 20),
+    file(5, 0, "Alien (1979)", "FOLDER"),
+    file(6, 5, "Alien (1979).mkv", "VIDEO", 2 ** 30),
+    file(7, 5, "alien-eng.srt", "TEXT", 100),
+    file(8, 0, "Drive (2011)", "FOLDER"),
+    file(9, 8, "Drive (2011).mkv", "VIDEO", 2 ** 30),
+    file(10, 8, "Drive (2011).srt", "TEXT", 100),
+    file(11, 8, "forced.srt", "TEXT", 100),
+    file(12, 0, "Dune (2021)", "FOLDER"),
+    file(13, 12, "Dune (2021).mkv", "VIDEO", 2 ** 30),
+    file(14, 12, "Subs", "FOLDER"),
+    file(15, 14, "1_English.srt", "TEXT", 100),
+    file(16, 14, "2_Turkish.srt", "TEXT", 100),
+    file(17, 0, "random.srt", "TEXT", 100),
+  ];
+
+  const run = async (within: string) => {
+    const t = await setup(
+      [
+        { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
+        { kind: "sse", events: toolUseTurn({ id: "toolu_t", name: "plan_subtitles", inputJsonChunks: [JSON.stringify({ within })] }, { input: 1, output: 1 }) },
+        { kind: "sse", events: textTurn("plan's up.", { input: 1, output: 1 }) },
+      ],
+      { files },
+    );
+
+    await Effect.runPromise(t.agent.receive(send("fix my subtitles")));
+    await t.settle();
+    const out = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_t");
+    const result = JSON.parse(String(out?.type === "tool_result" && out.content));
+
+    return { result, plan: t.store.plans().find((p) => p.record.plan.id === result.plan)?.record.plan };
+  };
+
+  it("puts each lone stray .srt beside its video under the video's name, and leaves the unclear ones alone", async () => {
+    const { result, plan } = await run("");
+
+    expect(plan?.changes.map((c) => [c.op, c.path, c.to])).toEqual([
+      ["move", "/Heat (1995)/Subs/English.srt", "/Heat (1995)/Heat (1995).srt"],
+      ["rename", "/Alien (1979)/alien-eng.srt", "Alien (1979).srt"],
+    ]);
+    expect(result.skipped).toBe(4);
+  });
+
+  it("matches the folder it's limited to the way plan_layout does", async () => {
+    const { plan } = await run("heat (1995)/");
+
+    expect(plan?.changes.map((c) => c.path)).toEqual(["/Heat (1995)/Subs/English.srt"]);
   });
 });
 

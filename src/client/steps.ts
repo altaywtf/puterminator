@@ -75,6 +75,17 @@ export function describeStep(name: string, input: Schema.Json, output: string | 
     };
   }
 
+  if (name === "plan_subtitles") {
+    return {
+      title: "tidy subtitles",
+      detail: Option.match(Option.flatMap(out, decodeLayoutSummary), {
+        onNone: () => null,
+        onSome: ({ changes, skipped }) => `${fmt(changes)} ${changes === 1 ? "subtitle" : "subtitles"}${skipped > 0 ? `, ${fmt(skipped)} left alone` : ""}`,
+      }),
+      lines: [],
+    };
+  }
+
   if (name === "plan_free_space") {
     return {
       title: "plan what to trash for space",

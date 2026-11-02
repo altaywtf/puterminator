@@ -53,7 +53,7 @@ export type LayoutResult = {
   remaining: number;
 };
 
-const stemOf = (name: string) => name.replace(/\.[a-z0-9]{2,4}$/i, "");
+export const stemOf = (name: string) => name.replace(/\.[a-z0-9]{2,4}$/i, "");
 const extOf = (name: string) => name.match(/\.([a-z0-9]{2,4})$/i)?.[1]?.toLowerCase() ?? "";
 const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf("/"));
@@ -239,6 +239,17 @@ export function targetPath(media: Media, ext: string, movies: string, shows: str
   return `${shows}/${label}/Season ${pad(media.season)}/${label} - ${episodeToken(media.season, media.first, media.last)}.${ext}`;
 }
 
+export const isExtraVideo = (f: WalkedFile) => EXTRA.test(stemOf(f.name));
+
+export const resolveScope = (snapshot: ReadonlyArray<WalkedFile>, within: string): { scope: string } | { error: string } => {
+  const wanted = normalRoot(within);
+
+  if (!wanted) return { scope: "" };
+  const folder = snapshot.find((f) => f.file_type === "FOLDER" && pathKey(f.path) === pathKey(wanted));
+
+  return folder ? { scope: folder.path } : { error: `${wanted} isn't a folder in the snapshot.` };
+};
+
 const normalRoot = (path: string) => {
   const parts = path
     .split("/")
@@ -279,7 +290,6 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
   const shows = resolve(wantedShows);
   const scope = scopeInput ? resolve(scopeInput) : "";
   const junk = junkFinder(snapshot);
-  const isExtra = (f: WalkedFile) => EXTRA.test(stemOf(f.name));
   const same = (a: string, b: string) => pathKey(a) === pathKey(b);
   const isUnder = (path: string, root: string) => pathKey(path).startsWith(`${pathKey(root)}/`);
   const byParent = new Map<string, WalkedFile[]>();
@@ -292,7 +302,7 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
   }
 
   const childrenOf = (path: string) => byParent.get(pathKey(path)) ?? [];
-  const realVideos = (files: ReadonlyArray<WalkedFile>) => files.filter((g) => g.file_type === "VIDEO" && !junk(g) && !isExtra(g));
+  const realVideos = (files: ReadonlyArray<WalkedFile>) => files.filter((g) => g.file_type === "VIDEO" && !junk(g) && !isExtraVideo(g));
   const allVideos = realVideos(snapshot).map((f) => ({ f, key: pathKey(f.path) }));
 
   const videosUnder = (folder: string) => {
