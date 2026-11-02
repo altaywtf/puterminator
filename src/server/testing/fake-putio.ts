@@ -169,7 +169,7 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     if (subs) {
       const list = opts.subtitles?.[Number(subs[1])] ?? [];
 
-      if (!subs[2]) return json(200, { subtitles: list.map(({ srt: _, ...rest }) => rest), default: null, status: "OK" });
+      if (!subs[2]) return json(200, { subtitles: list.map(({ key, language_code, source, name }) => ({ key, language_code, source, name })), default: null, status: "OK" });
       const one = list.find((x) => x.key === decodeURIComponent(subs[2] ?? ""));
 
       return one ? new Response(one.srt, { status: 200, headers: { "content-type": "text/plain" } }) : json(404, { status: "ERROR" });
