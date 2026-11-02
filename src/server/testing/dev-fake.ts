@@ -543,7 +543,8 @@ const anthropic = async (req: IncomingMessage, res: ServerResponse) => {
   }
 
   const lines = Predicate.isString(body.system) && body.system.startsWith("Translate English") ? JSON.parse(textOf(body.messages.at(-1))).lines : null;
-  const steps: Array<Step> = Array.isArray(lines) ? [{ kind: "text", text: JSON.stringify({ lines: lines.map((l: { id: number; text: string }) => ({ id: l.id, text: `[tr] ${l.text}` })) }), delayMs: 5 }] : plan(body.messages);
+  const verdict = Predicate.isString(body.system) && body.system.startsWith("Subtitle sites") ? [{ kind: "text" as const, text: JSON.stringify({ matches: true }), delayMs: 5 }] : null;
+  const steps: Array<Step> = verdict ?? (Array.isArray(lines) ? [{ kind: "text", text: JSON.stringify({ lines: lines.map((l: { id: number; text: string }) => ({ id: l.id, text: `[tr] ${l.text}` })) }), delayMs: 5 }] : plan(body.messages));
   log(`messages model=${body.model} turns=${body.messages.length} → ${steps.map((s) => s.kind).join(",")}`);
   let closed = false;
   res.on("close", () => {

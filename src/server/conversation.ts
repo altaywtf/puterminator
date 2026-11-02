@@ -96,6 +96,7 @@ export interface AgentDeps {
   readonly store: Store;
   readonly model: string;
   readonly monthlyTokenCap: number;
+  readonly unlimitedUsers?: ReadonlyArray<string>;
   readonly anthropic: Layer.Layer<AnthropicClient>;
   /** Sends to every open socket. */
   readonly broadcast: (event: ServerEvent) => void;
@@ -135,6 +136,7 @@ export const makeAgent = (deps: AgentDeps) =>
   Effect.gen(function* () {
     const { store, broadcast } = deps;
     let state: AgentState = store.loadState(yield* Clock.currentTimeMillis);
+    const capFor = () => (state.username !== null && (deps.unlimitedUsers ?? []).includes(state.username) ? Number.MAX_SAFE_INTEGER : deps.monthlyTokenCap);
     let turnFiber: Fiber.Fiber<unknown, unknown> | null = null;
     const thumbs = new Map<number, string | null>();
     let running = false;
@@ -159,7 +161,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const refreshCredits = Effect.gen(function* () {
       const m = month(yield* Clock.currentTimeMillis);
-      const credits: Credits = { month: m, used: store.used(m), cap: deps.monthlyTokenCap };
+      const credits: Credits = { month: m, used: store.used(m), cap: capFor() };
       const c = state.credits;
 
       if (c.month !== m || c.used !== credits.used || c.cap !== credits.cap) setState({ ...state, credits });
@@ -369,8 +371,8 @@ export const makeAgent = (deps: AgentDeps) =>
 
             setStep(step.change, "running");
             const parentId = first.parents?.[step.change] ?? state.folder.id;
-            const spend = { allowed: () => store.used(m) < deps.monthlyTokenCap, charge: (tokens: number) => store.charge(m, tokens) };
-            const done = yield* Effect.exit(translateSubtitle(fileId, parentId, change.to.slice(change.to.lastIndexOf("/") + 1), lang, spend).pipe(Effect.provide(deps.anthropic)));
+            const spend = { allowed: () => store.used(m) < capFor(), charge: (tokens: number) => store.charge(m, tokens) };
+            const done = yield* Effect.exit(translateSubtitle(fileId, change.path, parentId, change.to.slice(change.to.lastIndexOf("/") + 1), lang, spend).pipe(Effect.provide(deps.anthropic)));
             yield* refreshCredits;
 
             if (Exit.isSuccess(done)) {

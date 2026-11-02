@@ -32,6 +32,8 @@ export type AppConfig = {
   readonly anthropicApiKey: Redacted.Redacted<string>;
   readonly model: string;
   readonly monthlyTokenCap: number;
+  /** put.io usernames whose credits never run out. */
+  readonly unlimitedUsers: ReadonlyArray<string>;
   /** Local dev only: base URL of the fake put.io and Anthropic. */
   readonly devUpstream: string | null;
 };
@@ -70,6 +72,7 @@ export const readConfig = Effect.gen(function* () {
   const anthropicApiKey = yield* Config.Redacted("ANTHROPIC_API_KEY");
   const model = yield* Config.String("MODEL").pipe(Config.withDefault("claude-sonnet-5-5"));
   const monthlyTokenCap = yield* Config.Int("MONTHLY_TOKEN_CAP").pipe(Config.withDefault(1_000_000));
+  const unlimitedUsers = (yield* Config.String("UNLIMITED_USERS").pipe(Config.withDefault(""))).split(",").map((u) => u.trim()).filter((u) => u.length > 0);
   const devUpstream = Option.getOrNull(yield* Config.schema(DevUpstream, "DEV_FAKE_UPSTREAM").pipe(Config.option));
 
   const auth = yield* validateAuth({
@@ -78,7 +81,7 @@ export const readConfig = Effect.gen(function* () {
     SESSION_SECRET: Redacted.value(SESSION_SECRET),
   });
 
-  const config: AppConfig = { auth, anthropicApiKey, model, monthlyTokenCap, devUpstream };
+  const config: AppConfig = { auth, anthropicApiKey, model, monthlyTokenCap, unlimitedUsers, devUpstream };
 
   return config;
 });

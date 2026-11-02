@@ -1,3 +1,4 @@
+import type { JSONOutputFormat } from "@anthropic-ai/sdk/resources/messages/messages";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -77,7 +78,7 @@ const decodeLines = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Stru
 
 type Numbered = { readonly id: number; readonly text: string };
 
-const translateBatch = (batch: ReadonlyArray<Numbered>, language: string, spend: Spend) =>
+const askHaiku = (system: string, content: string, schema: JSONOutputFormat["schema"], spend: Spend) =>
   Effect.gen(function* () {
     if (!spend.allowed()) return yield* Effect.fail(new PutioFailed({ message: "no credits left this month", refused: true }));
     const client = yield* AnthropicClient;
@@ -90,25 +91,9 @@ const translateBatch = (batch: ReadonlyArray<Numbered>, language: string, spend:
               model: TRANSLATOR,
               max_tokens: 32000,
               thinking: { type: "adaptive" },
-              output_config: {
-                effort: "low",
-                format: {
-                  type: "json_schema",
-                  schema: {
-                    type: "object",
-                    properties: {
-                      lines: {
-                        type: "array",
-                        items: { type: "object", properties: { id: { type: "integer" }, text: { type: "string" } }, required: ["id", "text"], additionalProperties: false },
-                      },
-                    },
-                    required: ["lines"],
-                    additionalProperties: false,
-                  },
-                },
-              },
-              system: `Translate English film and TV subtitle lines into ${language}. Return one entry per input line with the same id. Translate each line on its own, even when a sentence runs on into the next line: never merge, split or skip lines. Keep line breaks inside a line, italics tags and speaker dashes. Write natural spoken ${language}, as a professional subtitler would.`,
-              messages: [{ role: "user", content: JSON.stringify({ lines: batch }) }],
+              output_config: { effort: "low", format: { type: "json_schema", schema } },
+              system,
+              messages: [{ role: "user", content }],
             },
             { signal },
           )
@@ -117,11 +102,71 @@ const translateBatch = (batch: ReadonlyArray<Numbered>, language: string, spend:
     });
 
     spend.charge(Math.ceil(weightedTokens(message.usage) * PRICE_SHARE));
-    const out = decodeLines(message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join(""));
+
+    return { text: message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join(""), stop: message.stop_reason };
+  });
+
+const LINES_SCHEMA: JSONOutputFormat["schema"] = {
+  type: "object",
+  properties: {
+    lines: { type: "array", items: { type: "object", properties: { id: { type: "integer" }, text: { type: "string" } }, required: ["id", "text"], additionalProperties: false } },
+  },
+  required: ["lines"],
+  additionalProperties: false,
+};
+
+const translateBatch = (batch: ReadonlyArray<Numbered>, language: string, spend: Spend) =>
+  Effect.gen(function* () {
+    const reply = yield* askHaiku(
+      `Translate English film and TV subtitle lines into ${language}. Return one entry per input line with the same id. Translate each line on its own, even when a sentence runs on into the next line: never merge, split or skip lines. Keep line breaks inside a line, italics tags and speaker dashes. Write natural spoken ${language}, as a professional subtitler would.`,
+      JSON.stringify({ lines: batch }),
+      LINES_SCHEMA,
+      spend,
+    );
+
+    const out = decodeLines(reply.text);
     const wanted = new Set(batch.map((c) => c.id));
     const got = new Map(Option.isSome(out) ? out.value.lines.filter((l) => wanted.has(l.id)).map((l) => [l.id, l.text] as const) : []);
 
-    return { got, why: Option.isNone(out) ? `unreadable reply, ${message.stop_reason}` : `${got.size} of ${batch.length} lines back` };
+    return { got, why: Option.isNone(out) ? `unreadable reply, ${reply.stop}` : `${got.size} of ${batch.length} lines back` };
+  });
+
+const SAMPLE = 60;
+const decodeVerdict = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ matches: Schema.Boolean })));
+
+const belongsTo = (videoPath: string, cues: ReadonlyArray<Cue>, spend: Spend) =>
+  Effect.gen(function* () {
+    const start = Math.floor(cues.length / 4);
+    const sample = cues.slice(start, start + SAMPLE).map((c) => c.text.replace(/\n/g, " "));
+
+    const reply = yield* askHaiku(
+      "Subtitle sites match subtitles to videos by file hash and name, and sometimes pick a different film, episode or talk. Given a video's path in someone's library and lines from a subtitle, decide whether the subtitle is for that video. Say it doesn't match only when the lines clearly belong to something else.",
+      JSON.stringify({ video: videoPath, lines: sample }),
+      { type: "object", properties: { matches: { type: "boolean" } }, required: ["matches"], additionalProperties: false },
+      spend,
+    );
+
+    const verdict = decodeVerdict(reply.text);
+
+    return Option.isSome(verdict) && verdict.value.matches;
+  });
+
+const MAX_CANDIDATES = 3;
+
+const pickSource = (videoId: number, videoPath: string, spend: Spend) =>
+  Effect.gen(function* () {
+    const subs = yield* listSubtitles(videoId).pipe(Effect.mapError(nothingWritten));
+    const english = subs.filter((x) => x.language_code === "eng" && sourceRank(x.source) < 2).toSorted((a, b) => sourceRank(a.source) - sourceRank(b.source));
+
+    if (english.length === 0) return yield* Effect.fail(new PutioFailed({ message: "put.io has no English subtitle for this video", refused: true }));
+
+    for (const sub of english.slice(0, MAX_CANDIDATES)) {
+      const cues = parseSrt(yield* downloadSubtitle(videoId, sub.key).pipe(Effect.mapError(nothingWritten)));
+
+      if (cues.length > 0 && (sub.source === "mkv" || (yield* belongsTo(videoPath, cues, spend)))) return cues;
+    }
+
+    return yield* Effect.fail(new PutioFailed({ message: "put.io’s English subtitles are for a different video", refused: true }));
   });
 
 const ROUNDS = 3;
@@ -155,15 +200,9 @@ const translateAll = (batch: ReadonlyArray<Numbered>, language: string, spend: S
     return got;
   });
 
-export const translateSubtitle = (videoId: number, parentId: number, name: string, language: LanguageCode, spend: Spend) =>
+export const translateSubtitle = (videoId: number, videoPath: string, parentId: number, name: string, language: LanguageCode, spend: Spend) =>
   Effect.gen(function* () {
-    const subs = yield* listSubtitles(videoId).pipe(Effect.mapError(nothingWritten));
-    const source = subs.filter((x) => x.language_code === "eng" && sourceRank(x.source) < 2).toSorted((a, b) => sourceRank(a.source) - sourceRank(b.source))[0];
-
-    if (!source) return yield* Effect.fail(new PutioFailed({ message: "put.io has no English subtitle for this video", refused: true }));
-    const cues = parseSrt(yield* downloadSubtitle(videoId, source.key).pipe(Effect.mapError(nothingWritten)));
-
-    if (cues.length === 0) return yield* Effect.fail(new PutioFailed({ message: "the English subtitle is empty", refused: true }));
+    const cues = yield* pickSource(videoId, videoPath, spend);
     const numbered = cues.map((c, id) => ({ id, text: c.text }));
     const translated = new Map<number, string>();
 

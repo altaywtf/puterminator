@@ -62,6 +62,7 @@ jobs:
           PUTIO_CLIENT_ID: ${{ secrets.PUTIO_CLIENT_ID }}
           PUTIO_CLIENT_SECRET: ${{ secrets.PUTIO_CLIENT_SECRET }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          UNLIMITED_USERS: ${{ vars.UNLIMITED_USERS }}
         run: pnpm build && pnpm exec alchemy deploy --stage prod --yes
       - name: Smoke the live site
         run: |

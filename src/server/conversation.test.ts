@@ -24,6 +24,7 @@ const setup = async (
   replies: Array<Reply>,
   opts: {
     cap?: number;
+    unlimited?: ReadonlyArray<string>;
     token?: string | null;
     putioUnauthorized?: boolean;
     history?: Array<MessageParam>;
@@ -69,6 +70,7 @@ const setup = async (
       store,
       model: "claude-sonnet-5-5",
       monthlyTokenCap: opts.cap ?? 1_000_000,
+      unlimitedUsers: opts.unlimited ?? [],
       anthropic: anthropicLayer({ apiKey: Redacted.make("sk-test"), fetch: anthropic.fetch, maxRetries: 0 }),
       putioFetch: putio.fetch,
       broadcast: (e) => events.push(e),
@@ -236,6 +238,14 @@ describe("a turn", () => {
     await t.settle();
     expect(t.anthropic.requests).toHaveLength(0);
     expect(t.store.history().map((m) => m.role)).toEqual(["user", "assistant"]);
+  });
+
+  it("keeps answering with Claude for a user on the unlimited list after the cap", async () => {
+    const t = await setup([{ kind: "sse", events: textTurn("Hi.", { input: 5, output: 1 }) }], { cap: 0, unlimited: ["altay"] });
+    await Effect.runPromise(t.agent.setAuth("tok", "altay", null));
+    await Effect.runPromise(t.agent.receive(send("hi")));
+    await t.settle();
+    expect(t.anthropic.requests).toHaveLength(1);
   });
 
   it("clears a busy flag left by an evicted turn and drops frames that fail to decode", async () => {
@@ -1027,7 +1037,7 @@ describe("translate subtitles", () => {
   };
 
   it("translates the English subtitle with Haiku, keeps every timing, uploads it beside the video, and undo trashes only that file", async () => {
-    const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 0, text: "Merhaba.\n\nNasılsın?" }, { id: 1, text: "<i>Koş!</i>" }] }), { input: 1000, output: 1000 }) }], {
+    const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ matches: true }), { input: 1, output: 1 }) }, { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 0, text: "Merhaba.\n\nNasılsın?" }, { id: 1, text: "<i>Koş!</i>" }] }), { input: 1000, output: 1000 }) }], {
       files,
       subtitles: { 2: [{ key: "k1", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: english }] },
     });
@@ -1047,7 +1057,7 @@ describe("translate subtitles", () => {
 
     expect(deleted).toHaveLength(1);
     expect(deleted[0]).not.toBe("2");
-    expect([uploadedId, charged]).toEqual([undefined, Math.ceil((1000 + 1000 * 5) / 20)]);
+    expect([uploadedId, charged]).toEqual([undefined, Math.ceil((1 + 1 * 5) / 20) + Math.ceil((1000 + 1000 * 5) / 20)]);
   });
 
   it("keeps asking for lines Haiku dropped, blanked or left in English, last one at a time, and puts each translation on its own cue", async () => {
@@ -1069,6 +1079,46 @@ describe("translate subtitles", () => {
       JSON.stringify({ lines: [{ id: 1, text: "<i>Run!</i>" }] }),
       ["1\n00:00:01,000 --> 00:00:02,000\nMerhaba. Koş!\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Koş!</i>\n"],
     ]);
+  });
+
+  it("skips an OpenSubtitles match Haiku says is for another video and translates the next one", async () => {
+    const drama = "1\n00:00:01,000 --> 00:00:02,000\nPut it down now!\n";
+
+    const t = await setup(
+      [
+        ...proposeTurns,
+        { kind: "sse", events: textTurn(JSON.stringify({ matches: false }), { input: 1, output: 1 }) },
+        { kind: "sse", events: textTurn(JSON.stringify({ matches: true }), { input: 1, output: 1 }) },
+        { kind: "sse", events: textTurn(JSON.stringify({ lines: [{ id: 0, text: "Merhaba." }, { id: 1, text: "<i>Koş!</i>" }] }), { input: 1, output: 1 }) },
+      ],
+      {
+        files,
+        subtitles: {
+          2: [
+            { key: "k1", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: drama },
+            { key: "k2", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: english },
+          ],
+        },
+      },
+    );
+
+    await proposeAndApply(t);
+
+    expect([JSON.parse(String(t.anthropic.requests.at(-3)?.body.messages.at(-1)?.content)), t.putio.uploads.map((u) => u.text)]).toEqual([
+      { video: "/Movies/Heat (1995).mkv", lines: ["Put it down now!"] },
+      ["1\n00:00:01,000 --> 00:00:02,000\nMerhaba.\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Koş!</i>\n"],
+    ]);
+  });
+
+  it("writes nothing when every English subtitle is for another video", async () => {
+    const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ matches: false }), { input: 1, output: 1 }) }], {
+      files,
+      subtitles: { 2: [{ key: "k1", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: english }] },
+    });
+
+    await proposeAndApply(t);
+
+    expect([t.putio.uploads, t.store.plans()[0]?.record.run?.steps[0]?.error]).toEqual([[], "put.io’s English subtitles are for a different video"]);
   });
 
   it("fails the step without spending credits when put.io has no English subtitle", async () => {

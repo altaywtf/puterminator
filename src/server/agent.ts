@@ -33,6 +33,7 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         store: makeStore(sql),
         model: config.model,
         monthlyTokenCap: config.monthlyTokenCap,
+        unlimitedUsers: config.unlimitedUsers,
         anthropic: anthropicLayer(dev ? { ...anthropicKey, fetch: dev.fetch } : anthropicKey),
         broadcast: (event: ServerEvent) => {
           const frame = encodeEvent(event);
