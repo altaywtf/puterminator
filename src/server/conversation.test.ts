@@ -1029,7 +1029,7 @@ describe("translate subtitles", () => {
   it("translates the English subtitle with Haiku, keeps every timing, uploads it beside the video, and undo trashes only that file", async () => {
     const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ lines: ["Merhaba.\n\nNasılsın?", ""] }), { input: 1000, output: 1000 }) }], {
       files,
-      subtitles: { 2: [{ key: "k1", language_code: "eng", source: "mkv", name: "English", srt: english }] },
+      subtitles: { 2: [{ key: "k1", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: english }] },
     });
 
     const { planId, charged } = await proposeAndApply(t);
@@ -1051,7 +1051,7 @@ describe("translate subtitles", () => {
   });
 
   it("fails the step without spending credits when put.io has no English subtitle", async () => {
-    const t = await setup(proposeTurns, { files, subtitles: { 2: [{ key: "k2", language_code: "spa", source: "opensubtitles", name: "Spanish", srt: english }] } });
+    const t = await setup(proposeTurns, { files, subtitles: { 2: [{ key: "k2", language_code: "spa", source: "opensubtitles_rest", name: "Spanish", srt: english }] } });
     const { charged } = await proposeAndApply(t);
 
     expect([t.putio.uploads, t.anthropic.requests.length, charged, t.store.plans()[0]?.record.run?.steps[0]?.error]).toEqual([

@@ -43,7 +43,7 @@ export const LANGUAGES: Record<LanguageCode, string> = {
   vie: "Vietnamese",
 };
 
-const SOURCE_ORDER = ["mkv", "opensubtitles"];
+const sourceRank = (source: string) => (source === "mkv" ? 0 : source.startsWith("opensubtitles") ? 1 : 2);
 
 type Cue = { head: string; text: string };
 
@@ -118,7 +118,7 @@ const translateBatch = (texts: ReadonlyArray<string>, language: string, spend: S
 export const translateSubtitle = (videoId: number, parentId: number, name: string, language: LanguageCode, spend: Spend) =>
   Effect.gen(function* () {
     const subs = yield* listSubtitles(videoId).pipe(Effect.mapError(nothingWritten));
-    const source = SOURCE_ORDER.flatMap((s) => subs.filter((x) => x.source === s && x.language_code === "eng"))[0];
+    const source = subs.filter((x) => x.language_code === "eng" && sourceRank(x.source) < 2).toSorted((a, b) => sourceRank(a.source) - sourceRank(b.source))[0];
 
     if (!source) return yield* Effect.fail(new PutioFailed({ message: "put.io has no English subtitle for this video", refused: true }));
     const cues = parseSrt(yield* downloadSubtitle(videoId, source.key).pipe(Effect.mapError(nothingWritten)));
