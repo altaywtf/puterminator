@@ -9,6 +9,7 @@ import { AnthropicClient, weightedTokens } from "./runner";
 const TRANSLATOR = "claude-haiku-5-5";
 const PRICE_SHARE = 0.05;
 const BATCH = 100;
+const PARALLEL = 6;
 
 export const LanguageCode = Schema.Literals(["ara", "chi", "cze", "dan", "dut", "fin", "fre", "ger", "gre", "heb", "hin", "hun", "ind", "ita", "jpn", "kor", "nor", "pol", "por", "rum", "rus", "spa", "swe", "tha", "tur", "ukr", "vie"]);
 
@@ -109,7 +110,7 @@ const toBatches = (sentences: ReadonlyArray<Sentence>) => {
   return batches.map((b) => b.groups);
 };
 
-const askHaiku = (system: string, content: string, schema: JSONOutputFormat["schema"], spend: Spend) =>
+const askHaiku = (system: string, content: string, schema: JSONOutputFormat["schema"], spend: Spend, think: boolean) =>
   Effect.gen(function* () {
     if (!spend.allowed()) return yield* Effect.fail(new PutioFailed({ message: "no credits left this month", refused: true }));
     const client = yield* AnthropicClient;
@@ -121,7 +122,7 @@ const askHaiku = (system: string, content: string, schema: JSONOutputFormat["sch
             {
               model: TRANSLATOR,
               max_tokens: 32000,
-              thinking: { type: "adaptive" },
+              thinking: think ? { type: "adaptive" } : { type: "disabled" },
               output_config: { effort: "low", format: { type: "json_schema", schema } },
               system,
               messages: [{ role: "user", content }],
@@ -150,6 +151,7 @@ const belongsTo = (videoPath: string, cues: ReadonlyArray<Cue>, spend: Spend) =>
       JSON.stringify({ video: videoPath, lines: sample }),
       { type: "object", properties: { matches: { type: "boolean" } }, required: ["matches"], additionalProperties: false },
       spend,
+      true,
     );
 
     const verdict = decodeVerdict(reply.text);
@@ -187,13 +189,14 @@ const GROUPS_SCHEMA: JSONOutputFormat["schema"] = {
   additionalProperties: false,
 };
 
-const translateGroups = (groups: ReadonlyArray<Sentence>, language: string, spend: Spend) =>
+const translateGroups = (groups: ReadonlyArray<Sentence>, language: string, spend: Spend, strict: boolean) =>
   Effect.gen(function* () {
     const reply = yield* askHaiku(
       `Translate English film and TV subtitles into ${language}. Each group is one sentence split across consecutive on-screen cues. Return every group with its id and exactly as many lines as it has, in the same order, each line non-empty and shown while the matching English line is on screen. Keep line breaks inside a line, italics tags and speaker dashes. Write natural spoken ${language}, as a professional subtitler would.`,
       JSON.stringify({ groups }),
       GROUPS_SCHEMA,
       spend,
+      false,
     );
 
     const out = decodeGroups(reply.text);
@@ -202,12 +205,24 @@ const translateGroups = (groups: ReadonlyArray<Sentence>, language: string, spen
     const whole = (g: typeof Group.Type) => {
       const source = english.get(g.id);
 
-      return source !== undefined && g.lines.length === source.length && g.lines.every((l) => l.trim()) && g.lines.join("\n").trim() !== source.join("\n").trim();
+      if (source === undefined || g.lines.length !== source.length) return false;
+
+      return !strict || (g.lines.every((l) => l.trim()) && g.lines.join("\n").trim() !== source.join("\n").trim());
     };
 
     const got = new Map(Option.isSome(out) ? out.value.groups.filter(whole).map((g) => [g.id, g.lines] as const) : []);
 
     return { got, why: Option.isNone(out) ? `unreadable reply, ${reply.stop}` : `${got.size} of ${groups.length} sentences back whole` };
+  });
+
+const translateLine = (line: string, language: string, spend: Spend) =>
+  Effect.gen(function* () {
+    const reply = yield* translateGroups([{ id: 0, lines: [line] }], language, spend, false);
+    const text = reply.got.get(0)?.[0];
+
+    if (text === undefined) return yield* Effect.fail(new PutioFailed({ message: `the translation skipped some lines (${reply.why})`, refused: true }));
+
+    return text;
   });
 
 const ROUNDS = 3;
@@ -220,7 +235,7 @@ const translateAll = (groups: ReadonlyArray<Sentence>, language: string, spend: 
     let why = "";
 
     for (let round = 0; round < ROUNDS && missing.length > 0; round++) {
-      const reply = yield* translateGroups(missing, language, spend);
+      const reply = yield* translateGroups(missing, language, spend, true);
 
       for (const [id, lines] of reply.got) got.set(id, lines);
       missing = missing.filter((g) => !got.has(g.id));
@@ -230,11 +245,9 @@ const translateAll = (groups: ReadonlyArray<Sentence>, language: string, spend: 
     if (missing.length > MAX_SINGLES) return yield* Effect.fail(new PutioFailed({ message: `the translation skipped some lines (${why})`, refused: true }));
 
     for (const group of missing) {
-      const reply = yield* translateGroups([group], language, spend);
-      const lines = reply.got.get(group.id);
+      const whole = (yield* translateGroups([group], language, spend, false)).got.get(group.id);
 
-      if (lines === undefined) return yield* Effect.fail(new PutioFailed({ message: `the translation skipped some lines (${reply.why})`, refused: true }));
-      got.set(group.id, lines);
+      got.set(group.id, whole ?? (yield* Effect.forEach(group.lines, (line) => translateLine(line, language, spend))));
     }
 
     return got;
@@ -243,13 +256,12 @@ const translateAll = (groups: ReadonlyArray<Sentence>, language: string, spend: 
 export const translateSubtitle = (videoId: number, videoPath: string, parentId: number, name: string, language: LanguageCode, spend: Spend) =>
   Effect.gen(function* () {
     const cues = yield* pickSource(videoId, videoPath, spend);
-    const translated: string[] = [];
 
-    for (const batch of toBatches(toSentences(cues))) {
-      const got = yield* translateAll(batch, LANGUAGES[language], spend);
-
-      for (const g of batch) translated.push(...(got.get(g.id) ?? g.lines));
-    }
+    const translated = yield* Effect.forEach(
+      toBatches(toSentences(cues)),
+      (batch) => Effect.map(translateAll(batch, LANGUAGES[language], spend), (got) => batch.flatMap((g) => got.get(g.id) ?? g.lines)),
+      { concurrency: PARALLEL },
+    ).pipe(Effect.map((batches) => batches.flat()));
 
     return yield* uploadText(name, parentId, toSrt(cues.map((c, id) => ({ head: c.head, text: cueText(translated[id], c.text) }))));
   });

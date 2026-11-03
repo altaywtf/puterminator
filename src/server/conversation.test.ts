@@ -1087,6 +1087,16 @@ describe("translate subtitles", () => {
     ]);
   });
 
+  it("keeps a line that reads the same in both languages once it's the last sentence left", async () => {
+    const name = "1\n00:00:01,000 --> 00:00:02,000\nTheo?\n";
+    const echo = { kind: "sse" as const, events: textTurn(JSON.stringify({ groups: [{ id: 0, lines: ["Theo?"] }] }), { input: 1, output: 1 }) };
+    const t = await setup([...proposeTurns, echo, echo, echo, echo], { files, subtitles: { 2: [{ key: "k1", language_code: "eng", source: "mkv", name: "English", srt: name }] } });
+
+    await proposeAndApply(t);
+
+    expect(t.putio.uploads.map((u) => u.text)).toEqual([name]);
+  });
+
   it("skips an OpenSubtitles match Haiku says is for another video and translates the next one", async () => {
     const drama = "1\n00:00:01,000 --> 00:00:02,000\nPut it down now!\n";
 
