@@ -45,8 +45,8 @@ const nameLink = (h: H, n: Node, cls = "") => {
 };
 
 const lsRow = (h: H, n: Node, note: string | null = null) =>
-  h.li([h.Class("grid grid-cols-[7ch_1.5ch_minmax(0,1fr)_auto] items-baseline gap-x-2 px-3 hover:bg-hover")], [
-    h.span([h.Class("text-end text-fg-3 tabular-nums")], [bytes(n)]),
+  h.li([h.Class("grid grid-cols-[9ch_1.5ch_minmax(0,1fr)_auto] items-baseline gap-x-2 px-3 hover:bg-hover")], [
+    h.span([h.Class("text-end whitespace-nowrap text-fg-3 tabular-nums")], [bytes(n)]),
     isPlayable(n)
       ? h.button(
           [h.Type("button"), h.Class("hit text-fg-4 transition-colors duration-160 hover:text-accent focus-visible:text-accent"), h.AriaLabel(`play ${n.name}`), h.Title("play"), h.OnClick(Message.OpenedPlayer({ id: n.id, name: n.name }))],
@@ -145,14 +145,14 @@ const auditLines = (h: H, ctx: Ctx, ix: Index | null, key: string, a: Audit) => 
                 [
                   h.Type("button"),
                   h.AriaExpanded(open),
-                  h.Class("grid grid-cols-[1.5ch_13ch_9ch_8ch_minmax(0,1fr)] items-baseline gap-x-2 px-3 text-start hover:bg-hover max-[520px]:grid-cols-[1.5ch_minmax(0,1fr)_auto_auto]"),
+                  h.Class("grid grid-cols-[1.5ch_13ch_9ch_9ch_minmax(0,1fr)] items-baseline gap-x-2 px-3 text-start hover:bg-hover max-[520px]:grid-cols-[1.5ch_minmax(0,1fr)_auto_auto]"),
                   h.OnClick(Message.ToggledStep({ key: tabKey(t) })),
                 ],
                 [
                   h.span([h.Class("text-fg-4"), h.AriaHidden(true)], [open ? "▾" : "▸"]),
                   h.span([h.Class("truncate text-fg")], [label]),
-                  h.span([h.Class("text-end text-fg-3 tabular-nums")], [count]),
-                  h.span([h.Class("text-end text-fg-3 tabular-nums")], [size(bytes)]),
+                  h.span([h.Class("text-end whitespace-nowrap text-fg-3 tabular-nums")], [count]),
+                  h.span([h.Class("text-end whitespace-nowrap text-fg-3 tabular-nums")], [size(bytes)]),
                   h.span([h.Class("overflow-hidden ps-2 max-[520px]:hidden")], [blocks(h, bytes / Math.max(1, a.totals.bytes), 20)]),
                 ],
               ),
@@ -236,8 +236,8 @@ export const cardHead = (h: H, title: string, meta: string) =>
   ]);
 
 const duRow = (h: H, n: Node, max: number) =>
-  h.li([h.Class("grid grid-cols-[7ch_16ch_minmax(0,1fr)] items-baseline gap-x-3 px-3 hover:bg-hover max-[480px]:grid-cols-[7ch_8ch_minmax(0,1fr)]")], [
-    h.span([h.Class("text-end text-fg-3 tabular-nums")], [bytes(n)]),
+  h.li([h.Class("grid grid-cols-[9ch_16ch_minmax(0,1fr)] items-baseline gap-x-3 px-3 hover:bg-hover max-[480px]:grid-cols-[9ch_8ch_minmax(0,1fr)]")], [
+    h.span([h.Class("text-end whitespace-nowrap text-fg-3 tabular-nums")], [bytes(n)]),
     h.span([h.Class("overflow-hidden")], [blocks(h, max > 0 ? n.size / max : 0, 16, isFolder(n) ? "text-fg-3" : "text-accent/80")]),
     nameLink(h, n, isFolder(n) ? "text-fg" : "text-fg-2"),
   ]);
