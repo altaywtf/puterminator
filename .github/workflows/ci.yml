@@ -32,6 +32,18 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
+      - name: Boot the Worker on fakes
+        run: |
+          pnpm dev:fake > dev-fake.log 2>&1 &
+          deadline=$(($(date +%s) + 120))
+          until curl -sf --max-time 5 http://localhost:1337/api/me | grep -q '"configured":true'; do
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              cat dev-fake.log
+              echo "pnpm dev:fake did not serve /api/me within 2m"
+              exit 1
+            fi
+            sleep 2
+          done
 
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'

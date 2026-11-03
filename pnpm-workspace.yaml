@@ -1,11 +1,17 @@
 # One effect for the whole graph: @putdotio/sdk pins effect exactly, and the @effect/* caret ranges
-# alchemy pulls in float past it. Move these with the package.json pins.
-overrides:
+# alchemy pulls in float past it. The catalog holds the version; package.json and the overrides read it.
+catalog:
   effect: 4.0.7
   "@effect/platform-browser": 4.0.7
   "@effect/platform-node": 4.0.7
   "@effect/platform-node-shared": 4.0.7
   "@effect/sql-d1": 4.0.7
+overrides:
+  effect: "catalog:"
+  "@effect/platform-browser": "catalog:"
+  "@effect/platform-node": "catalog:"
+  "@effect/platform-node-shared": "catalog:"
+  "@effect/sql-d1": "catalog:"
 peerDependencyRules:
   # capnp-es (via @alchemy.run/cloudflare-runtime) needs typescript only in its compiler entry, which nothing loads.
   allowedVersions:
