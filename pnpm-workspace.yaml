@@ -1,12 +1,11 @@
-# One effect for the whole graph. foldkit pins 4.0.0 and @putdotio/sdk pins 4.0.6 exactly;
-# alchemy's @effect/sql-d1 and platform-node-shared need ^4.0.7. Every @effect/* is pinned too,
-# or their caret ranges float to 4.1.x, which this effect cannot load. Upgrade them together.
+# One effect for the whole graph: @putdotio/sdk pins effect exactly, and the @effect/* caret ranges
+# alchemy pulls in float past it. Move these with the package.json pins.
 overrides:
-  effect: 4.0.7
-  "@effect/platform-browser": 4.0.7
-  "@effect/platform-node": 4.0.7
-  "@effect/platform-node-shared": 4.0.7
-  "@effect/sql-d1": 4.0.7
+  effect: 4.1.2
+  "@effect/platform-browser": 4.1.2
+  "@effect/platform-node": 4.1.2
+  "@effect/platform-node-shared": 4.1.2
+  "@effect/sql-d1": 4.1.2
 peerDependencyRules:
   # capnp-es (via @alchemy.run/cloudflare-runtime) needs typescript only in its compiler entry, which nothing loads.
   allowedVersions:
