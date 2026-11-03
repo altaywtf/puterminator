@@ -74,6 +74,8 @@ export const usageMeter = (pay: (tokens: number) => void) => {
   return { charge, chargeStreamed: (m: Metered) => charge({ ...m, usage: withStreamedOutput(m.usage, JSON.stringify(m.content).length) }) };
 };
 
+const STOP_GRACE_MS = 5000;
+
 const SPEND_LIMIT = /usage limit|spend limit|regain access/i;
 
 export const isSpendLimit = (cause: unknown) => cause instanceof Anthropic.APIError && cause.status !== undefined && cause.status >= 400 && cause.status < 500 && SPEND_LIMIT.test(cause.message);
@@ -245,8 +247,11 @@ export const runTurn = <T extends EffectTool<any>>(
         }),
       );
 
+      let work: Promise<void> = Promise.resolve();
+      yield* Effect.addFinalizer(() => Effect.promise(() => work.catch(() => undefined)).pipe(Effect.timeout(STOP_GRACE_MS), Effect.ignore));
+
       yield* Effect.tryPromise({
-        try: async (signal) => {
+        try: (signal) => (work = (async () => {
           signal.addEventListener("abort", () => abort.abort(), { once: true });
 
           const runner = client.beta.messages.toolRunner(
@@ -305,7 +310,7 @@ export const runTurn = <T extends EffectTool<any>>(
 
             if (input.canContinue && !input.canContinue()) break;
           }
-        },
+        })()),
         catch: (e) => fatal ?? mapAnthropicError(e),
       });
       yield* Queue.end(queue);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FileFlag, type Library } from "../shared/contract";
-import { ancestors, indexOf, isRegular, resolve } from "./library";
+import { indexOf, isRegular, resolve } from "./library";
 
 const { folder, video, played, junk } = FileFlag;
 
@@ -54,10 +54,5 @@ describe("library index", () => {
     const mixed = indexOf({ rootId: 0, rootName: "x", files: [[-2, 0, "shared", 9e15, folder], [1, 0, "a.mkv", 5, video]] });
     expect(mixed.top).toEqual([1, -2]);
     expect(mixed.total).toBe(5);
-  });
-
-  it("lists ancestors up to, not including, the root", () => {
-    expect(ancestors(ix, 6)).toEqual([5, 4]);
-    expect(ancestors(ix, 1)).toEqual([]);
   });
 });

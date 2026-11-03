@@ -215,4 +215,13 @@ export const undos: Array<[string, Run, string[]]> = [
 export const plans: Array<[string, Plan, string[]]> = [
   ["proposed", { id: "d1", title: "clean up Downloads", changes: cleanup }, []],
   ["two lines and the moves left out", { id: "d2", title: "clean up Downloads", changes: cleanup }, ["plan.d2.off.t0c", "plan.d2.off.r1", "plan.d2.hunkoff.moves"]],
+  [
+    "translations",
+    {
+      id: "d3",
+      title: "turkish subtitles",
+      changes: FILMS_DL.map(({ t, year }, i): Change => ({ id: `x${i}`, op: "translate", path: `/Movies/${t} (${year})/${t} (${year}).mkv`, to: `/Movies/${t} (${year})/${t} (${year}).tur.srt`, bytes: 0 })),
+    },
+    [],
+  ],
 ];

@@ -262,6 +262,7 @@ const statLine = (changes: readonly Change[]) => {
     ...(n("rename") > 0 ? [`${fmt(n("rename"))} renamed`] : []),
     ...(n("move") > 0 ? [`${fmt(n("move"))} moved`] : []),
     ...(n("restore") > 0 ? [`${fmt(n("restore"))} restored`] : []),
+    ...(n("translate") > 0 ? [`${fmt(n("translate"))} translated`] : []),
     ...(freed > 0 ? [`${size(freed)} freed`] : []),
   ].join(", ");
 };

@@ -113,15 +113,3 @@ export const resolve = (ix: Index, text: string): Node | null => {
 
   return id === undefined || id === -1 ? null : (ix.nodes.get(id) ?? null);
 };
-
-export const ancestors = (ix: Index, id: number): number[] => {
-  const out: number[] = [];
-  let n = ix.nodes.get(id);
-
-  while (n && n.parent !== ix.rootId) {
-    out.push(n.parent);
-    n = ix.nodes.get(n.parent);
-  }
-
-  return out;
-};

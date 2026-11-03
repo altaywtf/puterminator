@@ -250,13 +250,12 @@ describe("a turn", () => {
     expect(t.events.filter((e) => e.type === "error")).toEqual([{ type: "error", message: expect.stringMatching(/^out of credits until [a-z]{3} 1\.$/) }]);
   });
 
-  it("charges a stopped turn for the text it streamed before the stop", async () => {
+  it("charges a stopped turn for the text it streamed, before the stop returns", async () => {
     const t = await setup([{ kind: "hang", text: "x".repeat(400) }]);
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
     await t.anthropic.hanging;
     await new Promise((r) => setTimeout(r, 20));
     await t.receive({ type: "stop" });
-    await new Promise((r) => setTimeout(r, 50));
     expect(t.store.used(month(Date.now()))).toBeGreaterThanOrEqual(1 + (400 / 4) * 5);
   });
 
@@ -315,6 +314,21 @@ describe("previews", () => {
     expect(await Effect.runPromise(t.agent.stream(unscannedId))).toBeNull();
     expect(await Effect.runPromise(t.agent.thumbnail(4))).toBe("https://img.put.io/s/4.jpg");
     expect(await Effect.runPromise(t.agent.thumbnail(unscannedId))).toBeNull();
+  });
+  it("reuses the download token, and asks put.io again after a new sign-in in case it was reset", async () => {
+    const t = await setup([
+      tool("toolu_1", "scan_library"),
+      say("done"),
+    ]);
+
+    await t.receive(send("Audit my library"));
+    const tokenFetches = () => t.putio.log.filter((r) => r.url.searchParams.get("download_token") === "1").length;
+    await Effect.runPromise(t.agent.stream(4));
+    await Effect.runPromise(t.agent.stream(4));
+    expect(tokenFetches()).toBe(1);
+    await Effect.runPromise(t.agent.setAuth("putio-token-2", "altay", null));
+    await Effect.runPromise(t.agent.stream(4));
+    expect(tokenFetches()).toBe(2);
   });
 });
 
@@ -520,13 +534,15 @@ describe("plans", () => {
     ]);
   });
 
-  it("undoes a write whose answer was lost, even after a refused retry, since put.io may have done it", async () => {
-    const { t, id } = await applied(proposal, { loseWriteAnswers: [3] });
-    expect(planOf(t).run?.steps[0]).toMatchObject({ change: "c1", state: "failed", maybeApplied: true });
+  it("undoes a write whose answer was lost, even after put.io refuses its retry, since the first try may have landed", async () => {
+    const failWrites: number[] = [];
+    const { t, id } = await applied(proposal, { loseWriteAnswers: [2], failWrites });
+    expect(planOf(t).run?.steps[1]).toMatchObject({ change: "c2", state: "failed", maybeApplied: true });
+    failWrites.push(2);
     await t.receive({ type: "retry", plan: id });
-    expect(planOf(t).run?.steps[0]).toMatchObject({ state: "failed", maybeApplied: true });
+    expect(planOf(t).run?.steps[1]).toMatchObject({ state: "failed", error: "put.io /files/rename → 400", maybeApplied: true });
     await t.receive({ type: "undo", plan: id });
-    expect(writes(t).at(-1)).toEqual(["/v2/trash/restore", { file_ids: "3" }]);
+    expect(writes(t).at(-2)).toEqual(["/v2/files/rename", { file_id: "2", name: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }]);
   });
 
   it("fails a run when the put.io sign-in is gone, instead of leaving it applying", async () => {
@@ -766,7 +782,7 @@ describe("plans", () => {
     expect(await rejection([{ op: "trash", path: "/nope.txt", to: null }])).toContain("not in the snapshot");
   });
 
-  it("rejects changes that collide: into or inside a trashed folder, onto one path, onto an existing name", async () => {
+  it("rejects changes that collide: into or inside a trashed folder, onto one path, onto an existing name in any case", async () => {
     expect(await rejection([{ op: "trash", path: "/Movies", to: null }, { op: "move", path: "/Alien (1979).mkv", to: "/Movies/Alien (1979).mkv" }])).toContain(
       "lands in /Movies, which this plan trashes",
     );
@@ -776,10 +792,10 @@ describe("plans", () => {
     expect(
       await rejection([
         { op: "move", path: "/Alien (1979).mkv", to: "/Movies/x.mkv" },
-        { op: "move", path: heat, to: "/Movies/x.mkv" },
+        { op: "move", path: heat, to: "/Movies/X.mkv" },
       ]),
     ).toContain("two changes end there");
-    expect(await rejection([{ op: "rename", path: heat, to: "RARBG_DO_NOT_MIRROR.exe" }])).toContain("already exists there");
+    expect(await rejection([{ op: "rename", path: heat, to: "rarbg_do_not_mirror.EXE" }])).toContain("already exists there");
   });
 
   it("leaves another cut's subtitles alone, and keeps subtitles with their video when it's left out", async () => {
@@ -1256,27 +1272,6 @@ describe("delete data", () => {
     expect(t.sql.exec("SELECT key FROM secrets").map((r) => r.key)).toEqual(["session_gen"]);
     expect([used > 0, t.store.used(m), t.store.used("2020-01")]).toEqual([true, used, 0]);
     expect(t.agent.greeting()).toEqual([{ type: "state", state: { ...t.agent.state(), username: null, avatarUrl: null, lastAudit: null } }, { type: "history", messages: [] }]);
-  });
-
-  it("doesn't keep a download token that arrives after the delete", async () => {
-    let release = () => {};
-    const held = new Promise<void>((resolve) => (release = resolve));
-
-    const t = await setup(
-      [
-        tool("toolu_s", "scan_library"),
-        say("done"),
-      ],
-      { holdDownloadToken: held },
-    );
-
-    await t.receive(send("scan"));
-    const stream = Effect.runPromise(t.agent.stream(4));
-    await new Promise((r) => setTimeout(r, 20));
-    expect(await Effect.runPromise(t.agent.deleteData)).toBe(true);
-    release();
-    await stream;
-    expect(t.sql.exec("SELECT key FROM secrets").map((r) => r.key)).toEqual(["session_gen"]);
   });
 
   it("lets a rescan that was already listing finish without bringing the snapshot back", async () => {

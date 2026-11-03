@@ -46,6 +46,7 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
 
   if (input.changes.length > MAX_CHANGES) return { error: `At most ${MAX_CHANGES} changes per plan; split it.` };
   const byPath = new Map(snapshot.map((f) => [f.path, f]));
+  const taken = takenIn(snapshot);
   const seen = new Set<number>();
   const changes: Change[] = [];
   const ids: Record<string, number> = {};
@@ -68,7 +69,7 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
 
       if (name === f.name) return void problems.push(`${path}: already named that`);
 
-      if (byPath.has(joinPath(parentOf(path), name))) return void problems.push(`${path}: ${name} already exists there`);
+      if (taken(joinPath(parentOf(path), name), f.id)) return void problems.push(`${path}: ${name} already exists there`);
       to = name;
     } else if (c.op === "move") {
       if (!c.to) return void problems.push(`${path}: move needs the new full path`);
@@ -80,7 +81,7 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
 
       if (target.split("/").slice(1).some(badName)) return void problems.push(`${path}: bad target path`);
 
-      if (byPath.has(target)) return void problems.push(`${target}: already exists`);
+      if (taken(target, f.id)) return void problems.push(`${target}: already exists`);
       to = target;
     }
 
@@ -94,12 +95,18 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
   problems.push(...conflicts(changes));
 
   if (problems.length > 0) return { error: `Fix these and propose again: ${problems.slice(0, 10).join("; ")}` };
-  const withSubtitles = changes.flatMap((c) => [c, ...subtitlesFor(snapshot, byPath, c, seen, ids, parents)]);
+  const withSubtitles = changes.flatMap((c) => [c, ...subtitlesFor(snapshot, byPath, taken, c, seen, ids, parents)]);
   const clashes = conflicts(withSubtitles);
 
   if (clashes.length > 0) return { error: `Their subtitles would collide; fix these and propose again: ${clashes.slice(0, 10).join("; ")}` };
 
   return { plan: { id, title: input.title.trim().slice(0, 80) || "changes", changes: withSubtitles }, ids, parents };
+};
+
+const takenIn = (snapshot: ReadonlyArray<WalkedFile>) => {
+  const byPath = new Map(snapshot.map((f) => [f.path.toLowerCase(), f.id]));
+
+  return (path: string, self: number) => (byPath.get(path.toLowerCase()) ?? self) !== self;
 };
 
 const finalPath = (c: Change) => (c.op === "rename" ? joinPath(parentOf(c.path), c.to ?? "") : (c.to ?? c.path));
@@ -121,8 +128,8 @@ const conflicts = (changes: ReadonlyArray<Change>): string[] => {
 
     if (lands) problems.push(`${end}: lands in ${lands}, which this plan trashes`);
 
-    if (ends.has(end)) problems.push(`${end}: two changes end there`);
-    ends.add(end);
+    if (ends.has(end.toLowerCase())) problems.push(`${end}: two changes end there`);
+    ends.add(end.toLowerCase());
   }
 
   return problems;
@@ -133,6 +140,7 @@ const SUBTITLE = /^((?:[._ -][a-z]{2,8})*\.(?:srt|sub|idx|ass|ssa|vtt))$/i;
 const subtitlesFor = (
   snapshot: ReadonlyArray<WalkedFile>,
   byPath: Map<string, WalkedFile>,
+  taken: (path: string, self: number) => boolean,
   c: Change,
   seen: Set<number>,
   ids: Record<string, number>,
@@ -151,7 +159,7 @@ const subtitlesFor = (
     .flatMap((f, k) => {
       const name = newStem + f.name.slice(stem.length);
 
-      if (byPath.has(joinPath(folder, name))) return [];
+      if (taken(joinPath(folder, name), f.id)) return [];
       seen.add(f.id);
       const id = `${c.id}s${k + 1}`;
       ids[id] = f.id;

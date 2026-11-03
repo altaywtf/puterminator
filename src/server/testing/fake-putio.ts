@@ -40,7 +40,6 @@ export type FakePutioOptions = {
   loseWriteAnswers?: ReadonlyArray<number>;
   restoreLagListings?: number;
   holdFirstListing?: Promise<void>;
-  holdDownloadToken?: Promise<void>;
   subtitles?: Readonly<Record<number, ReadonlyArray<{ key: string; language_code: string; source: string; name: string; srt: string }>>>;
 };
 
@@ -107,8 +106,6 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     }
 
     if (url.pathname === "/v2/account/info" && url.searchParams.get("download_token") === "1") {
-      await opts.holdDownloadToken;
-
       return json(200, { info: { user_id: 1, username: "altay", download_token: "dl-token" }, status: "OK" });
     }
 

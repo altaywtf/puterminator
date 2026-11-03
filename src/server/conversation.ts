@@ -124,6 +124,7 @@ export interface AgentDeps {
 const MINUTE_MS = 60_000;
 const PARALLEL_TRANSLATIONS = 3;
 const SOURCE_CHECKS = 6;
+const MAX_THUMBS = 500;
 
 const describeAge = (ms: number) => {
   const minutes = Math.floor(ms / MINUTE_MS);
@@ -152,6 +153,15 @@ export const makeAgent = (deps: AgentDeps) =>
     let dirty = false;
     let turnFiber: Fiber.Fiber<unknown, unknown> | null = null;
     const thumbs = new Map<number, string | null>();
+    let streamToken: string | null = null;
+
+    const remember = (id: number, url: string | null) => {
+      thumbs.set(id, url);
+      const oldest = thumbs.size > MAX_THUMBS ? thumbs.keys().next() : null;
+
+      if (oldest && !oldest.done) thumbs.delete(oldest.value);
+    };
+
     let running = false;
     let asked = false;
     const calls = new Set<string>();
@@ -1058,6 +1068,7 @@ export const makeAgent = (deps: AgentDeps) =>
       setAuth: (token: string, username: string, avatarUrl: string | null) =>
         Effect.sync(() => {
           store.deleteToken();
+          streamToken = null;
           store.setToken(token);
           setState({ ...state, username, avatarUrl });
 
@@ -1094,7 +1105,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
           return fileMedia(id).pipe(
             Effect.map((f) => f.screenshot),
-            Effect.tap((url) => Effect.sync(() => started === epoch && thumbs.set(id, url))),
+            Effect.tap((url) => Effect.sync(() => started === epoch && remember(id, url))),
             Effect.catch(() => Effect.succeed<string | null>(null)),
             Effect.provide(putioLayer(token, deps.putioFetch)),
           );
@@ -1116,11 +1127,16 @@ export const makeAgent = (deps: AgentDeps) =>
           const isVideo = store.snapshot().some((f) => f.id === id && f.file_type === "VIDEO");
 
           if (!token || !isVideo) return Effect.succeed<string | null>(null);
-          const cached = store.secret("download_token");
-          const started = epoch;
-          const fetched = downloadToken.pipe(Effect.tap((t) => Effect.sync(() => started === epoch && store.setSecret("download_token", t))));
 
-          return (cached ? Effect.succeed(cached) : fetched).pipe(
+          const fetched = downloadToken.pipe(
+            Effect.tap((t) =>
+              Effect.sync(() => {
+                if (store.token() === token) streamToken = t;
+              }),
+            ),
+          );
+
+          return (streamToken ? Effect.succeed(streamToken) : fetched).pipe(
             Effect.map((t): string | null => hlsUrl(id, t, deps.putioBase)),
             Effect.catch(() => Effect.succeed<string | null>(null)),
             Effect.provide(putioLayer(token, deps.putioFetch)),
