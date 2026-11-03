@@ -60,6 +60,7 @@ export const Model = Schema.Struct({
   draft: Schema.String,
   expanded: Schema.Array(Schema.String),
   clock: ThinkingClock,
+  wait: Schema.NullOr(Schema.Struct({ since: Schema.Finite, now: Schema.Finite })),
   library: Schema.NullOr(Library),
   plans: Schema.Record(Schema.String, PlanRecord),
   treeOpen: Schema.Boolean,
@@ -101,6 +102,7 @@ export const Message = defineMessageUnion({
   ReceivedHistory: { messages: Schema.Array(MessageParam) },
   ReceivedMessage: { message: MessageParam, at: Schema.Finite },
   ReceivedPartial: { content: Schema.NullOr(Schema.Array(ContentBlock)), at: Schema.Finite },
+  Ticked: { at: Schema.Finite },
   ReceivedError: { message: Schema.String },
   ReceivedLibrary: { library: Library },
   ReceivedPlan: { record: PlanRecord },
@@ -514,7 +516,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         ? { model: modifyFields(model, { connection: () => Connection.Connecting() }) }
         : { model },
     ReceivedState: ({ state }) => ({
-      model: modifyFields(model, { agent: () => state, sending: (s) => s && !state.busy, stopping: (s) => s && state.busy }),
+      model: modifyFields(model, {
+        agent: () => state,
+        sending: (s) => s && !state.busy,
+        stopping: (s) => s && state.busy,
+        wait: (w) => (state.busy || model.sending ? w : null),
+      }),
     }),
     ReceivedHistory: ({ messages }) => ({
       model: modifyFields(model, { history: () => messages, partial: () => null, synced: () => true }),
@@ -529,11 +536,16 @@ export const update = (model: Model, message: Message): UpdateReturn =>
       }),
       commands: [ScrollThread({ force: false })],
     }),
+    Ticked: ({ at }) => ({
+      model: modifyFields(model, { wait: (w) => (isLocked(model) ? { since: w?.since ?? at, now: at } : null) }),
+    }),
     ReceivedPartial: ({ content, at }) => ({
       model: modifyFields(model, { partial: () => content, clock: (c) => (content ? onPartial(c, content, at) : c) }),
       commands: [ScrollThread({ force: false })],
     }),
-    ReceivedError: ({ message: error }) => ({ model: modifyFields(model, { error: () => error, sending: () => false }) }),
+    ReceivedError: ({ message: error }) => ({
+      model: modifyFields(model, { error: () => error, sending: () => false, wait: (w) => (isBusy(model) ? w : null) }),
+    }),
     UpdatedDraft: ({ value }) => ({
       model: modifyFields(model, {
         draft: () => value,
@@ -631,6 +643,7 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     draft: "",
     expanded: [],
     clock: emptyClock,
+    wait: null,
     library: null,
     plans: {},
     treeOpen: false,
@@ -702,6 +715,17 @@ export const subscriptions = Subscription.make<Model, Message, AgentSocketServic
             ),
           ),
           Effect.sync(() => isConnected),
+        ),
+    },
+  ),
+  waitTicks: entry(
+    { isLocked: Schema.Boolean },
+    {
+      modelToDependencies: (model) => ({ isLocked: isLocked(model) }),
+      dependenciesToStream: ({ isLocked }) =>
+        Stream.when(
+          Stream.tick(Duration.seconds(1)).pipe(Stream.map(() => Message.Ticked({ at: Date.now() }))),
+          Effect.sync(() => isLocked),
         ),
     },
   ),

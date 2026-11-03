@@ -525,7 +525,10 @@ const plan = (messages: Array<Message>): Array<Step> => {
   ).join("\n");
 
   return [
-    { kind: "thinking", text: "No tool needed. Answer directly." },
+    {
+      kind: "thinking",
+      text: "**Reading the question**\n\nThey want a reply, not a scan. No tool needed.\n\n**Planning the answer**\n\nKeep it short, then offer the next step.",
+    },
     { kind: "text", text: long, delayMs: 120 },
   ];
 };

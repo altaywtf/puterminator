@@ -300,11 +300,32 @@ const detailSpan = (h: H, detail: string | null) =>
 const liveRow = (h: H, text: string, detail: string | null = null) =>
   h.div([h.Class("step-head")], [slot(h, h.span([h.Class("cursor"), h.AriaHidden(true)], [])), h.span([h.Class("text-fg")], [text]), ...detailSpan(h, detail)]);
 
+const waited = (model: Model) => {
+  if (!model.wait) return null;
+  const s = Math.max(0, Math.floor((model.wait.now - model.wait.since) / 1000));
+
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+};
+
+const lastLine = (text: string) =>
+  text
+    .split("\n")
+    .map((l) => l.replace(/\*\*|^#+\s*/g, "").trim())
+    .findLast((l) => l.length > 0) ?? null;
+
 const thinkingRow = (h: H, item: ThinkingItem, model: Model) => {
   const bodyId = `step-${item.key}`;
   const open = model.expanded.includes(item.key);
 
-  if (item.streaming) return h.keyed("div")(item.key, [h.Class("enter-soft")], [liveRow(h, "thinking")]);
+  if (item.streaming) {
+    const line = lastLine(item.text);
+
+    return h.keyed("div")(item.key, [h.Class("grid min-w-0 enter-soft")], [
+      liveRow(h, "thinking", waited(model)),
+      ...(line ? [stepBody(h, bodyId, [h.div([h.Class("min-w-0 truncate text-[12px]")], [line])])] : []),
+    ]);
+  }
+
   const seconds = thoughtSeconds(model.clock, item.key);
 
   return h.keyed("div")(item.key, [h.Class("grid")], [
@@ -408,7 +429,7 @@ const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live
 
   flush();
 
-  return out.length > 0 ? out : [runLog(h, `${turn.key}.wait`, [liveRow(h, "working")])];
+  return out.length > 0 ? out : [runLog(h, `${turn.key}.wait`, [liveRow(h, "thinking", waited(model))])];
 };
 
 const agentView = (h: H, turn: Turn, model: Model, caretKey: string | null, live: boolean, settled = false) =>
