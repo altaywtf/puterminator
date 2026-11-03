@@ -31,7 +31,12 @@ export type AppConfig = {
   readonly auth: AuthConfig | null;
   readonly anthropicApiKey: Redacted.Redacted<string>;
   readonly model: string;
-  readonly monthlyTokenCap: number;
+  /** Each user's monthly credits. */
+  readonly monthlyCredits: number;
+  /** Everyone's monthly credits together; the pace line spreads them over the month. */
+  readonly poolBudgetCredits: number;
+  /** `YYYY-MM:credits` the Anthropic console reported at deploy; the month's pool total never reads lower. */
+  readonly consoleSpend: string;
   /** put.io usernames whose credits never run out. */
   readonly unlimitedUsers: ReadonlyArray<string>;
   /** Local dev only: base URL of the fake put.io and Anthropic. */
@@ -71,7 +76,9 @@ export const readConfig = Effect.gen(function* () {
   const SESSION_SECRET = yield* Config.Redacted("SESSION_SECRET");
   const anthropicApiKey = yield* Config.Redacted("ANTHROPIC_API_KEY");
   const model = yield* Config.String("MODEL").pipe(Config.withDefault("claude-sonnet-5-5"));
-  const monthlyTokenCap = yield* Config.Int("MONTHLY_TOKEN_CAP").pipe(Config.withDefault(1_000_000));
+  const monthlyCredits = yield* Config.Int("MONTHLY_CREDITS").pipe(Config.withDefault(300));
+  const poolBudgetCredits = yield* Config.Int("POOL_BUDGET_CREDITS").pipe(Config.withDefault(19_000));
+  const consoleSpend = yield* Config.String("CONSOLE_SPEND").pipe(Config.withDefault(""));
   const unlimitedUsers = (yield* Config.String("UNLIMITED_USERS").pipe(Config.withDefault(""))).split(",").map((u) => u.trim()).filter((u) => u.length > 0);
   const devUpstream = Option.getOrNull(yield* Config.schema(DevUpstream, "DEV_FAKE_UPSTREAM").pipe(Config.option));
 
@@ -81,7 +88,7 @@ export const readConfig = Effect.gen(function* () {
     SESSION_SECRET: Redacted.value(SESSION_SECRET),
   });
 
-  const config: AppConfig = { auth, anthropicApiKey, model, monthlyTokenCap, unlimitedUsers, devUpstream };
+  const config: AppConfig = { auth, anthropicApiKey, model, monthlyCredits, poolBudgetCredits, consoleSpend, unlimitedUsers, devUpstream };
 
   return config;
 });

@@ -1,3 +1,4 @@
+import * as Predicate from "effect/Predicate";
 import type { Json } from "effect/Schema";
 
 type Ev = { readonly type: string; readonly [field: string]: Json };
@@ -5,13 +6,17 @@ type Ev = { readonly type: string; readonly [field: string]: Json };
 const enc = new TextEncoder();
 const frame = (e: Ev) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`;
 
+const DEFAULT_MODEL = "claude-sonnet-5-5";
+
+const asModel = (e: Ev, model: string) => frame(e).replace(`"model":"${DEFAULT_MODEL}"`, `"model":${JSON.stringify(model)}`);
+
 const start = (id: string, inputTokens: number) => ({
   type: "message_start",
   message: {
     id,
     type: "message",
     role: "assistant",
-    model: "claude-sonnet-5-5",
+    model: DEFAULT_MODEL,
     content: [],
     stop_reason: null,
     stop_sequence: null,
@@ -43,7 +48,7 @@ export const textTurn = (text: string, usage: { input: number; output: number })
 ];
 
 /** `hang`: message_start, then nothing until the request signal aborts. */
-export type Reply = { kind: "sse"; events: Array<Ev> } | { kind: "hang" };
+export type Reply = { kind: "sse"; events: Array<Ev> } | { kind: "hang"; text?: string } | { kind: "error"; status: number; message: string };
 
 type AnthropicRequest = { body: any; headers: Headers };
 
@@ -57,22 +62,35 @@ export const makeFakeAnthropic = (replies: Array<Reply>) => {
   });
 
   const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    requests.push({ body: JSON.parse(String(init?.body)), headers: new Headers(init?.headers) });
+    const request = { body: JSON.parse(String(init?.body)), headers: new Headers(init?.headers) };
+    requests.push(request);
+    const model: string = Predicate.isString(request.body?.model) ? request.body.model : DEFAULT_MODEL;
     const reply = replies.shift();
 
     if (!reply) throw new Error("fake anthropic: no reply scripted");
+
+    if (reply.kind === "error") {
+      return new Response(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: reply.message } }), { status: reply.status, headers: { "content-type": "application/json" } });
+    }
+
     const signal = init?.signal;
 
     const body = new ReadableStream<Uint8Array>({
       start(c) {
         if (reply.kind === "sse") {
-          for (const e of reply.events) c.enqueue(enc.encode(frame(e)));
+          for (const e of reply.events) c.enqueue(enc.encode(asModel(e, model)));
           c.close();
 
           return;
         }
 
-        c.enqueue(enc.encode(frame(start("msg_hang", 1))));
+        c.enqueue(enc.encode(asModel(start("msg_hang", 1), model)));
+
+        if (reply.text) {
+          c.enqueue(enc.encode(frame({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } })));
+          c.enqueue(enc.encode(frame({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: reply.text } })));
+        }
+
         signal?.addEventListener("abort", () => {
           aborted = true;
           c.error(new DOMException("aborted", "AbortError"));

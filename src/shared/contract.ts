@@ -12,13 +12,30 @@ export type Folder = typeof Folder.Type;
 
 export const ROOT_FOLDER: Folder = { id: 0, name: "Your Files" };
 
-/** `used` and `cap` are weighted tokens for `month` (YYYY-MM). */
-export const Credits = Schema.Struct({ month: Schema.String, used: Schema.Finite, cap: Schema.Finite });
+export const CREDIT_TOKENS = 5000;
+
+export const Blocked = Schema.Struct({ reason: Schema.Literals(["paused", "out"]), until: Schema.String });
+
+export type Blocked = typeof Blocked.Type;
+
+/** `used` and `cap` are weighted tokens (Sonnet input-token equivalents) for `month` (YYYY-MM); `until` is a UTC date. */
+export const Credits = Schema.Struct({ month: Schema.String, used: Schema.Finite, cap: Schema.Finite, blocked: Schema.optionalKey(Schema.NullOr(Blocked)) });
 
 export type Credits = typeof Credits.Type;
 
-/** One credit is 1,000 input-token equivalents. */
-export const creditsLeft = (c: Credits) => Math.max(0, Math.floor((c.cap - c.used) / 1000));
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+export const shortDate = (isoDay: string) => `${MONTHS[Number(isoDay.slice(5, 7)) - 1] ?? ""} ${Number(isoDay.slice(8, 10))}`;
+
+export const blockedText = (b: Blocked) =>
+  b.reason === "out" ? `out of credits until ${shortDate(b.until)}.` : `busy month: everyone's credits are spread over the month. back ${shortDate(b.until)}.`;
+
+/** One credit is one US cent of model use. */
+export const creditsLeft = (c: Credits) => Math.max(0, Math.floor((c.cap - c.used) / CREDIT_TOKENS));
+
+export const creditsTotal = (c: Credits) => Math.floor(c.cap / CREDIT_TOKENS);
+
+export const unlimitedCredits = (c: Credits) => c.cap >= Number.MAX_SAFE_INTEGER;
 
 const LastAudit = Schema.Struct({
   at: Schema.String,

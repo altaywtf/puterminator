@@ -2,7 +2,7 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import { createKeyedLazy, type Document, type Html, type HtmlBuilder } from "foldkit/html";
-import { creditsLeft } from "../shared/contract";
+import { blockedText, type Credits, creditsLeft, creditsTotal, shortDate, unlimitedCredits } from "../shared/contract";
 import { type Item, type Turn, toTurns } from "../shared/thread";
 import { art, type IconName, icon } from "./art";
 import logoUrl from "./logo.svg?inline";
@@ -28,7 +28,7 @@ const STARTERS: Array<[prompt: string, does: string]> = [
   ["download links for my biggest files", "direct links to paste anywhere"],
 ];
 
-const LOW_CREDITS = 100;
+const LOW_CREDITS = 30;
 
 const FAILURES_BEFORE_NOTICE = 2;
 
@@ -119,7 +119,6 @@ const ACCOUNT_MENU_ID = "account-menu";
 
 const MENU_ROW = "flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-start text-[13px] no-underline transition-colors duration-160";
 const MENU_ACTION = `${MENU_ROW} text-fg-2 hover:bg-hover hover:text-fg focus-visible:bg-hover focus-visible:text-fg`;
-const MENU_DANGER = `${MENU_ROW} text-danger hover:bg-danger/10 focus-visible:bg-danger/10`;
 
 const menuItem = (h: H, name: IconName, text: string, message: Message, cls = MENU_ACTION) =>
   h.button(
@@ -128,6 +127,36 @@ const menuItem = (h: H, name: IconName, text: string, message: Message, cls = ME
   );
 
 const menuRule = (h: H) => h.hr([h.Class("-mx-1 my-1 border-0 border-t border-line")]);
+
+const nextMonthDay = (month: string) => {
+  const [y, m] = month.split("-").map(Number);
+
+  return new Date(Date.UTC(y ?? 1970, m ?? 1, 1)).toISOString().slice(0, 10);
+};
+
+const creditsMeter = (h: H, credits: Credits) => {
+  const note = h.p([h.Class(`m-0 text-meta ${credits.blocked ? "text-fg-2" : "text-fg-4"}`)], [credits.blocked ? blockedText(credits.blocked) : `refills ${shortDate(nextMonthDay(credits.month))}`]);
+
+  if (unlimitedCredits(credits)) return [h.div([h.Class("grid gap-1.5 px-2.5 py-1.5")], [h.p([h.Class("m-0 text-[13px] text-fg-2")], ["unlimited credits"]), ...(credits.blocked ? [note] : [])])];
+
+  const total = creditsTotal(credits);
+  const left = creditsLeft(credits);
+  const share = total > 0 ? Math.round((left / total) * 100) : 0;
+
+  return [
+    h.div(
+      [h.Class("grid gap-1.5 px-2.5 py-1.5")],
+      [
+        h.p([h.Class("m-0 flex items-baseline justify-between gap-2 text-[13px] text-fg-2 tabular-nums")], [h.span([], [`${fmt(left)} credits left`]), h.span([h.Class("text-meta text-fg-4")], [`of ${fmt(total)}`])]),
+        h.div(
+          [h.Role("meter"), h.AriaLabel("credits left this month"), h.AriaValuenow(left), h.AriaValuemin(0), h.AriaValuemax(total), h.Class("h-1 overflow-hidden rounded-full bg-hover")],
+          [h.div([h.Class(`h-full rounded-full ${left < LOW_CREDITS || credits.blocked ? "bg-danger" : "bg-accent"}`), h.Style({ width: `${share}%` })], [])],
+        ),
+        note,
+      ],
+    ),
+  ];
+};
 
 const accountMenu = (h: H, model: Model, username: string, url: string | null) => [
   h.button(
@@ -149,13 +178,14 @@ const accountMenu = (h: H, model: Model, username: string, url: string | null) =
     ],
     [
       h.p([h.Class("m-0 truncate px-2.5 pt-1.5 pb-1 text-meta text-fg-4")], [`signed in as ${username}`]),
+      ...(model.agent ? creditsMeter(h, model.agent.credits) : []),
       menuRule(h),
       ...(model.history.length > 0 && !isBusy(model) ? [menuItem(h, "plus", "new thread", Message.ClickedNewThread())] : []),
       ...(model.library ? [menuItem(h, "folder", "browse library", Message.ToggledTree())] : []),
       h.a([h.Href("/privacy"), h.Class(MENU_ACTION)], [icon(h, "lock"), "privacy"]),
+      menuItem(h, "trash", "delete my data", Message.ClickedDeleteData()),
       menuRule(h),
-      menuItem(h, "exit", "sign out", Message.ClickedSignOut(), MENU_DANGER),
-      menuItem(h, "trash", "delete my data", Message.ClickedDeleteData(), MENU_DANGER),
+      menuItem(h, "exit", "sign out", Message.ClickedSignOut()),
     ],
   ),
 ];

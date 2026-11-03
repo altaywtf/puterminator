@@ -7,16 +7,23 @@ import { readConfig } from "./config";
 // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- composition root: the Durable Object wires the agent's dependencies here
 import { type AgentDeps, makeAgent } from "./conversation";
 import { upstreamFetch } from "./dev";
+import { consoleFloor } from "./credits";
 import { anthropicLayer } from "./runner";
 // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- composition root: the Durable Object owns the SQLite handle it passes in
 import { makeStore, type Sql } from "./store";
 
 const encodeEvent = Schema.encodeSync(ServerFrame);
 
+const POOL_NAME = "pool";
+
+type PoolLedger = { readonly poolReport: (m: string, user: string, tokens: number) => Effect.Effect<number> };
+
 export default class Puterminator extends Cloudflare.DurableObject<Puterminator>()(
   "Puterminator",
   Effect.gen(function* () {
     const state = yield* Cloudflare.DurableObjectState;
+    // SAFETY: the scope is this class's own namespace, whose stubs expose the poolReport method returned below.
+    const agents = (yield* Cloudflare.DurableObjectScope) as Cloudflare.DurableObject<PoolLedger>;
 
     return Effect.gen(function* () {
       const config = yield* readConfig.pipe(Effect.orDie);
@@ -29,12 +36,17 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         transaction: (body) => raw.storage.transactionSync(body),
       };
 
+      const store = makeStore(sql);
+      const poolReport = (m: string, user: string, tokens: number) => Math.max(store.poolReport(m, user, tokens), consoleFloor(config.consoleSpend, m));
+
       const deps: AgentDeps = {
-        store: makeStore(sql),
+        store,
         model: config.model,
-        monthlyTokenCap: config.monthlyTokenCap,
+        monthlyCredits: config.monthlyCredits,
+        poolBudgetCredits: config.poolBudgetCredits,
+        pool: (m, user, tokens) => agents.getByName(POOL_NAME).poolReport(m, user, tokens),
         unlimitedUsers: config.unlimitedUsers,
-        anthropic: anthropicLayer(dev ? { ...anthropicKey, fetch: dev.fetch } : anthropicKey),
+        anthropic: anthropicLayer(dev ? { ...anthropicKey, maxRetries: 0, fetch: dev.fetch } : { ...anthropicKey, maxRetries: 0 }),
         broadcast: (event: ServerEvent) => {
           const frame = encodeEvent(event);
 
@@ -80,6 +92,7 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         thumbnail: (id: number) => agent.thumbnail(id),
         stream: (id: number) => agent.stream(id),
         downloadLinks: (id: number) => agent.downloadLinks(id),
+        poolReport: (m: string, user: string, tokens: number) => Effect.sync(() => poolReport(m, user, tokens)),
       };
     });
   }),

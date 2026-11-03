@@ -37,10 +37,30 @@ export const anthropicLayer = (opts: {
 
 type Usage = Pick<BetaUsage, "input_tokens" | "output_tokens" | "cache_creation_input_tokens" | "cache_read_input_tokens">;
 
-export const weightedTokens = (u: Usage) =>
-  Math.round(
-    u.input_tokens + (u.cache_creation_input_tokens ?? 0) * 1.25 + (u.cache_read_input_tokens ?? 0) * 0.1 + u.output_tokens * 5,
+const PRICE_VS_SONNET: ReadonlyArray<readonly [string, number]> = [
+  ["claude-haiku", 0.05],
+  ["claude-sonnet", 1],
+];
+
+const OTHER_MODELS = 2;
+
+const priceVsSonnet = (model: string) => PRICE_VS_SONNET.find(([prefix]) => model.startsWith(prefix))?.[1] ?? OTHER_MODELS;
+
+export const weightedTokens = (u: Usage, model: string) =>
+  Math.ceil(
+    (u.input_tokens + (u.cache_creation_input_tokens ?? 0) * 1.25 + (u.cache_read_input_tokens ?? 0) * 0.1 + u.output_tokens * 5) * priceVsSonnet(model),
   );
+
+const CHARS_PER_TOKEN = 4;
+
+export const withStreamedOutput = (u: Usage, streamedChars: number): Usage => ({
+  ...u,
+  output_tokens: Math.max(u.output_tokens, Math.ceil(streamedChars / CHARS_PER_TOKEN)),
+});
+
+const SPEND_LIMIT = /usage limit|spend limit|regain access/i;
+
+export const isSpendLimit = (cause: unknown) => cause instanceof Anthropic.APIError && cause.status !== undefined && cause.status >= 400 && cause.status < 500 && SPEND_LIMIT.test(cause.message);
 
 class AnthropicRateLimited extends Schema.TaggedError<AnthropicRateLimited>()("AnthropicRateLimited", {
   retryAfterSec: Schema.NullOr(Schema.Finite),
@@ -53,13 +73,17 @@ class AnthropicRejected extends Schema.TaggedError<AnthropicRejected>()("Anthrop
   message: Schema.String,
 }) {}
 
+class AnthropicOutOfBudget extends Schema.TaggedError<AnthropicOutOfBudget>()("AnthropicOutOfBudget", {}) {}
+
 class AnthropicUnavailable extends Schema.TaggedError<AnthropicUnavailable>()("AnthropicUnavailable", {
   message: Schema.String,
 }) {}
 
-export type TurnError = AnthropicRateLimited | AnthropicOverloaded | AnthropicRejected | AnthropicUnavailable | PutioUnauthorized;
+export type TurnError = AnthropicRateLimited | AnthropicOverloaded | AnthropicOutOfBudget | AnthropicRejected | AnthropicUnavailable | PutioUnauthorized;
 
 const mapAnthropicError = (cause: unknown): TurnError => {
+  if (isSpendLimit(cause)) return new AnthropicOutOfBudget({});
+
   if (cause instanceof Anthropic.APIError && cause.status !== undefined) {
     if (cause.status === 429) {
       const ra = Number(cause.headers?.get("retry-after"));
@@ -235,23 +259,34 @@ export const runTurn = <T extends EffectTool<any>>(
           for await (const stream of runner) {
             let sent = 0;
             let charged = 0;
+            let last: BetaMessage | null = null;
 
-            const charge = (usage: BetaUsage) => {
-              const total = weightedTokens(usage);
+            const charge = (usage: Usage, model: string) => {
+              const total = weightedTokens(usage, model);
 
               if (total > charged) input.onUsage?.(total - charged);
               charged = Math.max(charged, total);
             };
 
             stream.on("streamEvent", (e, snapshot) => {
-              if (e.type === "message_start" || e.type === "message_delta") charge(snapshot.usage);
+              last = snapshot;
+
+              if (e.type === "message_start" || e.type === "message_delta") charge(snapshot.usage, snapshot.model);
 
               if (Date.now() - sent < input.partialEveryMs) return;
               sent = Date.now();
               Queue.offerUnsafe(queue, { type: "partial", content: snapshot.content });
             });
-            const message = await stream.finalMessage();
-            charge(message.usage);
+
+            const final = stream.finalMessage();
+
+            final.catch(() => {
+              if (last) charge(withStreamedOutput(last.usage, JSON.stringify(last.content).length), last.model);
+            });
+
+            const message = await final;
+
+            charge(message.usage, message.model);
             Queue.offerUnsafe(queue, { type: "assistant", message });
 
             if (message.stop_reason === "refusal") break;

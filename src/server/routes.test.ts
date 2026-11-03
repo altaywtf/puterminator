@@ -41,9 +41,9 @@ describe("config", () => {
     }
   });
 
-  it("reads defaults for MODEL and MONTHLY_TOKEN_CAP", async () => {
+  it("reads defaults for MODEL and the credit limits", async () => {
     const exit = await configFrom(valid);
-    expect(Exit.isSuccess(exit) && [exit.value.model, exit.value.monthlyTokenCap]).toEqual(["claude-sonnet-5-5", 1_000_000]);
+    expect(Exit.isSuccess(exit) && [exit.value.model, exit.value.monthlyCredits, exit.value.poolBudgetCredits, exit.value.consoleSpend]).toEqual(["claude-sonnet-5-5", 300, 19_000, ""]);
   });
 
   it("serves configured:true and starts OAuth with valid secrets", async () => {

@@ -4,10 +4,11 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import { downloadSubtitle, listSubtitles, type PutioError, PutioFailed, uploadText } from "./putio";
-import { AnthropicClient, weightedTokens } from "./runner";
+import { blockedText } from "../shared/contract";
+import { outOfBudget } from "./credits";
+import { AnthropicClient, isSpendLimit, weightedTokens, withStreamedOutput } from "./runner";
 
 const TRANSLATOR = "claude-haiku-5-5";
-const PRICE_SHARE = 0.05;
 const BATCH = 60;
 const PARALLEL = 8;
 
@@ -49,7 +50,7 @@ const sourceRank = (source: string) => (source === "mkv" ? 0 : source.startsWith
 
 type Cue = { head: string; text: string };
 
-type Spend = { readonly allowed: () => boolean; readonly charge: (tokens: number) => void };
+type Spend = { readonly blocked: () => string | null; readonly charge: (tokens: number) => void };
 
 const nothingWritten = (e: PutioError): PutioError => (Predicate.isTagged(e, "PutioFailed") ? new PutioFailed({ message: e.message, refused: true }) : e);
 
@@ -143,28 +144,55 @@ const toBatches = (sentences: ReadonlyArray<Sentence>) => {
 
 const askHaiku = (system: string, content: string, schema: JSONOutputFormat["schema"], spend: Spend, think: boolean) =>
   Effect.gen(function* () {
-    if (!spend.allowed()) return yield* Effect.fail(new PutioFailed({ message: "no credits left this month", refused: true }));
+    const blocked = spend.blocked();
+
+    if (blocked !== null) return yield* Effect.fail(new PutioFailed({ message: blocked, refused: true }));
     const client = yield* AnthropicClient;
+    let charged = 0;
+
+    const charge = (usage: Parameters<typeof weightedTokens>[0], model: string) => {
+      const total = weightedTokens(usage, model);
+
+      if (total > charged) spend.charge(total - charged);
+      charged = Math.max(charged, total);
+    };
 
     const message = yield* Effect.tryPromise({
-      try: (signal) =>
-        client.messages
-          .stream(
-            {
-              model: TRANSLATOR,
-              max_tokens: 32000,
-              thinking: think ? { type: "adaptive" } : { type: "disabled" },
-              output_config: { effort: "low", format: { type: "json_schema", schema } },
-              system,
-              messages: [{ role: "user", content }],
-            },
-            { signal },
-          )
-          .finalMessage(),
-      catch: (e) => new PutioFailed({ message: `translation failed: ${e instanceof Error ? e.message : String(e)}`, refused: true }),
+      try: (signal) => {
+        const stream = client.messages.stream(
+          {
+            model: TRANSLATOR,
+            max_tokens: 32000,
+            thinking: think ? { type: "adaptive" } : { type: "disabled" },
+            output_config: { effort: "low", format: { type: "json_schema", schema } },
+            system,
+            messages: [{ role: "user", content }],
+          },
+          { signal },
+        );
+
+        stream.on("streamEvent", (e, snapshot) => {
+          if (e.type === "message_start" || e.type === "message_delta") charge(snapshot.usage, snapshot.model);
+        });
+
+        const final = stream.finalMessage();
+
+        final.catch(() => {
+          const last = stream.currentMessage;
+
+          if (last) charge(withStreamedOutput(last.usage, JSON.stringify(last.content).length), last.model);
+        });
+
+        return final;
+      },
+      catch: (e) =>
+        new PutioFailed({
+          message: isSpendLimit(e) ? blockedText(outOfBudget(Date.now())) : `translation failed: ${e instanceof Error ? e.message : String(e)}`,
+          refused: true,
+        }),
     });
 
-    spend.charge(Math.ceil(weightedTokens(message.usage) * PRICE_SHARE));
+    charge(message.usage, message.model);
 
     return { text: message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join(""), stop: message.stop_reason };
   });

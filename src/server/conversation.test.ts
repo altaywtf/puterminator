@@ -3,8 +3,8 @@ import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import { describe, expect, it } from "vitest";
-import type { ClientEvent, MessageParam, ServerEvent } from "../shared/contract";
-import { makeAgent } from "./conversation";
+import { type ClientEvent, CREDIT_TOKENS, type MessageParam, type ServerEvent } from "../shared/contract";
+import { type AgentDeps, makeAgent } from "./conversation";
 import { anthropicLayer } from "./runner";
 import { makeStore, month } from "./store";
 import { makeFakeAnthropic, type Reply, textTurn, toolUseTurn } from "./testing/fake-anthropic";
@@ -24,6 +24,8 @@ const setup = async (
   replies: Array<Reply>,
   opts: {
     cap?: number;
+    budget?: number;
+    pool?: AgentDeps["pool"];
     unlimited?: ReadonlyArray<string>;
     token?: string | null;
     putioUnauthorized?: boolean;
@@ -42,6 +44,7 @@ const setup = async (
 ) => {
   const sql = memorySql();
   const store = makeStore(sql);
+  const poolStore = makeStore(memorySql());
 
   for (const m of opts.history ?? []) store.append(m);
   opts.seed?.(store);
@@ -69,7 +72,9 @@ const setup = async (
     makeAgent({
       store,
       model: "claude-sonnet-5-5",
-      monthlyTokenCap: opts.cap ?? 1_000_000,
+      monthlyCredits: (opts.cap ?? 1_000_000) / CREDIT_TOKENS,
+      poolBudgetCredits: opts.budget ?? 1_000_000,
+      pool: opts.pool ?? ((m, user, tokens) => Effect.sync(() => poolStore.poolReport(m, user, tokens))),
       unlimitedUsers: opts.unlimited ?? [],
       anthropic: anthropicLayer({ apiKey: Redacted.make("sk-test"), fetch: anthropic.fetch, maxRetries: 0 }),
       putioFetch: putio.fetch,
@@ -133,7 +138,7 @@ describe("a turn", () => {
     const m = month(Date.now());
     const weightedTokens = (120 + 40 * 5) + (300 + 12 * 5);
     expect(t.store.used(m)).toBe(weightedTokens);
-    expect(t.agent.state().credits).toEqual({ month: m, used: weightedTokens, cap: 1_000_000 });
+    expect(t.agent.state().credits).toEqual({ month: m, used: weightedTokens, cap: 1_000_000, blocked: null });
 
     expect(t.agent.state().busy).toBe(false);
     expect(t.agent.state().lastAudit?.items).toBe(4);
@@ -241,6 +246,41 @@ describe("a turn", () => {
     expect(t.store.history().map((m) => m.role)).toEqual(["user", "assistant"]);
   });
 
+  it("refuses new work without calling Claude while the shared pool can't be reached", async () => {
+    const t = await setup([], { pool: () => Effect.fail("down") });
+    await Effect.runPromise(t.agent.receive(send("hi")));
+    await t.settle();
+    expect(t.anthropic.requests).toHaveLength(0);
+    expect(t.store.history().at(-1)?.content).toEqual([{ type: "text", text: "can't check credits right now. try again in a minute." }]);
+  });
+
+  it("stops everyone, unlimited users too, once the month's shared budget is spent", async () => {
+    const t = await setup([], { budget: 1, unlimited: ["altay"], pool: () => Effect.succeed(CREDIT_TOKENS) });
+    await Effect.runPromise(t.agent.setAuth("tok", "altay", null));
+    await Effect.runPromise(t.agent.receive(send("hi")));
+    await t.settle();
+    expect(t.anthropic.requests).toHaveLength(0);
+    expect(JSON.stringify(t.store.history().at(-1)?.content)).toMatch(/out of credits until [a-z]{3} 1\./);
+  });
+
+  it("says the user is out of credits when Anthropic refuses for the workspace spend limit", async () => {
+    const t = await setup([{ kind: "error", status: 400, message: "You have reached your specified workspace API usage limits. You will regain access on 2026-12-01 at 00:00 UTC." }]);
+    await Effect.runPromise(t.agent.receive(send("hi")));
+    await t.settle();
+    expect(t.events.filter((e) => e.type === "error")).toEqual([{ type: "error", message: expect.stringMatching(/^out of credits until [a-z]{3} 1\.$/) }]);
+  });
+
+  it("charges a stopped turn for the text it streamed before the stop", async () => {
+    const t = await setup([{ kind: "hang", text: "x".repeat(400) }]);
+    await Effect.runPromise(t.agent.receive(send("Audit my library")));
+    await t.anthropic.hanging;
+    await new Promise((r) => setTimeout(r, 20));
+    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "stop" })));
+    await t.settle();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(t.store.used(month(Date.now()))).toBeGreaterThanOrEqual(1 + (400 / 4) * 5);
+  });
+
   it("keeps answering with Claude for a user on the unlimited list after the cap", async () => {
     const t = await setup([{ kind: "sse", events: textTurn("Hi.", { input: 5, output: 1 }) }], { cap: 0, unlimited: ["altay"] });
     await Effect.runPromise(t.agent.setAuth("tok", "altay", null));
@@ -258,7 +298,9 @@ describe("a turn", () => {
       makeAgent({
         store,
         model: "m",
-        monthlyTokenCap: 1,
+        monthlyCredits: 1,
+        poolBudgetCredits: 1,
+        pool: () => Effect.succeed(0),
         anthropic: anthropicLayer({ apiKey: Redacted.make("sk-test"), fetch: makeFakeAnthropic([]).fetch }),
         broadcast: () => {},
         disconnect: () => {},

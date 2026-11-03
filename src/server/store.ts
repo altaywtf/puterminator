@@ -51,6 +51,7 @@ export const makeStore = (sql: Sql) => {
   sql.exec("CREATE TABLE IF NOT EXISTS cf_agents_state (id TEXT PRIMARY KEY NOT NULL, state TEXT)");
   sql.exec("CREATE TABLE IF NOT EXISTS secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
   sql.exec("CREATE TABLE IF NOT EXISTS usage (month TEXT PRIMARY KEY, tokens INTEGER NOT NULL)");
+  sql.exec("CREATE TABLE IF NOT EXISTS pool_spend (month TEXT NOT NULL, user TEXT NOT NULL, tokens INTEGER NOT NULL, PRIMARY KEY (month, user))");
   sql.exec("CREATE TABLE IF NOT EXISTS messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, json TEXT NOT NULL)");
   sql.exec("CREATE TABLE IF NOT EXISTS archived_messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, json TEXT NOT NULL)");
   sql.exec(`CREATE TABLE IF NOT EXISTS files (
@@ -104,6 +105,17 @@ export const makeStore = (sql: Sql) => {
         m,
         tokens,
       );
+    },
+
+    poolReport: (m: string, user: string, tokens: number): number => {
+      sql.exec(
+        "INSERT INTO pool_spend (month, user, tokens) VALUES (?, ?, ?) ON CONFLICT(month, user) DO UPDATE SET tokens = MAX(tokens, excluded.tokens)",
+        m,
+        user,
+        tokens,
+      );
+
+      return num(sql.exec("SELECT COALESCE(SUM(tokens), 0) AS total FROM pool_spend WHERE month = ?", m)[0]?.total ?? 0);
     },
 
     plans: (): Array<StoredRecord> =>

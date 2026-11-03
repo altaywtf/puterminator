@@ -11,11 +11,12 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, initialAgentState, type Library } from "../shared/contract";
+import { type AgentState, type Blocked, blockedText, ClientFrame, ContentBlock, CREDIT_TOKENS, type Credits, creditsLeft, type Folder, MessageParam, type ServerEvent, FileFlag, initialAgentState, type Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { PlanRecord, Run } from "../shared/actions";
 import { AskInput, applyChange, type StoredPlan, uploadedKey, validateTranslation, untranslated, folderIds, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion } from "./changes";
 import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
+import { blockedBy, outOfBudget } from "./credits";
 import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
 import { month, type Store, type StoredRecord } from "./store";
 import { buildTree, type WalkedFile } from "./tree";
@@ -83,20 +84,26 @@ const isToolUse = Schema.is(Schema.Struct({ type: Schema.Literal("tool_use"), id
 // SAFETY: stored rows are Anthropic's own messages, appended verbatim; the opaque schema keeps every field.
 const toAnthropic = (m: MessageParam) => m as BetaMessageParam;
 
-const NO_CREDITS = "this month's credits are spent. they refill on the 1st.";
+const POOL_DOWN = "can't check credits right now. try again in a minute.";
+const POOL_TIMEOUT = "5 seconds";
+const UNKNOWN_USER = "(signed out)";
 const BROKE = "something broke on my side. try again in a moment.";
 
 const errorMessage = (e: TurnError) =>
   Match.value(e).pipe(
     Match.tag("AnthropicRateLimited", "AnthropicOverloaded", () => "the model is busy. try again in a minute."),
     Match.tag("PutioUnauthorized", () => "put.io signed you out. sign in again."),
+    Match.tag("AnthropicOutOfBudget", () => blockedText(outOfBudget(Date.now()))),
     Match.orElse(() => BROKE),
   );
 
 export interface AgentDeps {
   readonly store: Store;
   readonly model: string;
-  readonly monthlyTokenCap: number;
+  readonly monthlyCredits: number;
+  readonly poolBudgetCredits: number;
+  /** Records a user's month total in the shared pool and returns everyone's total; totals only grow, so a retry is harmless. */
+  readonly pool: (month: string, user: string, tokens: number) => Effect.Effect<number, unknown>;
   readonly unlimitedUsers?: ReadonlyArray<string>;
   readonly anthropic: Layer.Layer<AnthropicClient>;
   /** Sends to every open socket. */
@@ -139,7 +146,11 @@ export const makeAgent = (deps: AgentDeps) =>
   Effect.gen(function* () {
     const { store, broadcast } = deps;
     let state: AgentState = store.loadState(yield* Clock.currentTimeMillis);
-    const capFor = () => (state.username !== null && (deps.unlimitedUsers ?? []).includes(state.username) ? Number.MAX_SAFE_INTEGER : deps.monthlyTokenCap);
+    const capFor = () => (state.username !== null && (deps.unlimitedUsers ?? []).includes(state.username) ? Number.MAX_SAFE_INTEGER : deps.monthlyCredits * CREDIT_TOKENS);
+    const budget = deps.poolBudgetCredits * CREDIT_TOKENS;
+    let poolTotal: number | null = null;
+    let syncing = false;
+    let dirty = false;
     let turnFiber: Fiber.Fiber<unknown, unknown> | null = null;
     const thumbs = new Map<number, string | null>();
     let running = false;
@@ -162,14 +173,52 @@ export const makeAgent = (deps: AgentDeps) =>
       broadcast({ type: "state", state: next });
     };
 
+    const blockedAt = (now: number): Blocked | null => blockedBy({ now, used: store.used(month(now)), cap: capFor(), pool: poolTotal ?? budget, budget });
+
     const refreshCredits = Effect.gen(function* () {
-      const m = month(yield* Clock.currentTimeMillis);
-      const credits: Credits = { month: m, used: store.used(m), cap: capFor() };
+      const now = yield* Clock.currentTimeMillis;
+      const m = month(now);
+      const credits: Credits = { month: m, used: store.used(m), cap: capFor(), blocked: poolTotal === null ? null : blockedAt(now) };
       const c = state.credits;
 
-      if (c.month !== m || c.used !== credits.used || c.cap !== credits.cap) setState({ ...state, credits });
+      if (c.month !== m || c.used !== credits.used || c.cap !== credits.cap || c.blocked?.reason !== credits.blocked?.reason || c.blocked?.until !== credits.blocked?.until) setState({ ...state, credits });
 
       return credits;
+    });
+
+    const syncPool = Effect.gen(function* () {
+      const m = month(yield* Clock.currentTimeMillis);
+      const total = yield* deps.pool(m, state.username ?? UNKNOWN_USER, store.used(m)).pipe(Effect.timeout(POOL_TIMEOUT), Effect.option);
+      poolTotal = Option.getOrNull(total);
+    });
+
+    const pushPool: Effect.Effect<void> = Effect.gen(function* () {
+      while (dirty) {
+        dirty = false;
+        yield* syncPool;
+      }
+
+      syncing = false;
+      yield* refreshCredits;
+    });
+
+    const charge = (m: string, tokens: number) => {
+      store.charge(m, tokens);
+      dirty = true;
+
+      if (syncing) return;
+      syncing = true;
+      deps.background(pushPool);
+    };
+
+    const spendFor = (m: string) => ({
+      blocked: () => {
+        if (poolTotal === null) return POOL_DOWN;
+        const b = blockedAt(Date.now());
+
+        return b === null ? null : blockedText(b);
+      },
+      charge: (tokens: number) => charge(m, tokens),
     });
 
     let last: MessageParam | null = store.history().at(-1) ?? null;
@@ -367,7 +416,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
             setStep(step.change, "running");
             const parentId = first.parents?.[step.change] ?? state.folder.id;
-            const spend = { allowed: () => store.used(m) < capFor(), charge: (tokens: number) => store.charge(m, tokens) };
+            const spend = spendFor(m);
             const done = yield* Effect.exit(translateSubtitle(fileId, change.path, parentId, change.to.slice(change.to.lastIndexOf("/") + 1), lang, spend).pipe(Effect.provide(deps.anthropic)));
             yield* refreshCredits;
 
@@ -384,6 +433,7 @@ export const makeAgent = (deps: AgentDeps) =>
             }
           });
 
+        if (queued.some((step) => run.changes.find((c) => c.id === step.change)?.op === "translate")) yield* syncPool;
         yield* Effect.forEach(queued, translate, { concurrency: PARALLEL_TRANSLATIONS, discard: true });
 
         const failedVideos = new Set<string>();
@@ -693,8 +743,8 @@ export const makeAgent = (deps: AgentDeps) =>
             const out = validateTranslation(all.success, paths, language, `${LANGUAGES[language].toLowerCase()} subtitles`, newId());
 
             if ("error" in out) return JSON.stringify(out);
-            const m = month(yield* Clock.currentTimeMillis);
-            const spend = { allowed: () => store.used(m) < capFor(), charge: (tokens: number) => store.charge(m, tokens) };
+            yield* syncPool;
+            const spend = spendFor(month(yield* Clock.currentTimeMillis));
 
             const checks = yield* Effect.forEach(
               out.plan.changes,
@@ -827,6 +877,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const converse = (text: string) =>
       Effect.gen(function* () {
+        yield* syncPool;
         const credits = yield* refreshCredits;
         const lastAudit = state.lastAudit;
         const scanAge = lastAudit ? describeAge(scanAgeMs(yield* Clock.currentTimeMillis)) : "";
@@ -836,7 +887,7 @@ export const makeAgent = (deps: AgentDeps) =>
           lastAudit
             ? `Last scan: ${scanAge}, ${lastAudit.items} items, score ${lastAudit.score}.`
             : "No scan yet.",
-          `Credits left this month: ${Math.max(0, Math.floor((credits.cap - credits.used) / 1000))}.`,
+          `Credits left this month: ${creditsLeft(credits)}.`,
           ...planNews(),
         ].join(" ");
 
@@ -849,8 +900,10 @@ export const makeAgent = (deps: AgentDeps) =>
           ],
         });
 
-        if (credits.used >= credits.cap) {
-          append({ role: "assistant", content: [{ type: "text", text: NO_CREDITS }] });
+        const refusal = poolTotal === null ? POOL_DOWN : credits.blocked ? blockedText(credits.blocked) : null;
+
+        if (refusal !== null) {
+          append({ role: "assistant", content: [{ type: "text", text: refusal }] });
 
           return;
         }
@@ -864,8 +917,8 @@ export const makeAgent = (deps: AgentDeps) =>
           messages: store.history().map(toAnthropic),
           tools,
           partialEveryMs: deps.partialEveryMs ?? 60,
-          onUsage: (tokens) => store.charge(m, tokens),
-          canContinue: () => !asked && store.used(m) < credits.cap,
+          onUsage: (tokens) => charge(m, tokens),
+          canContinue: () => !asked && poolTotal !== null && blockedAt(Date.now()) === null,
         });
 
         yield* Stream.runForEach(events, (event) =>
