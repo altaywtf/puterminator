@@ -18,6 +18,10 @@ puterminator is a chat agent for one person's put.io library, live at <https://p
 | UI: update in [`main.ts`](src/client/main.ts), view in [`view.ts`](src/client/view.ts), tool cards in the `CARDS` registry of [`cards.ts`](src/client/cards.ts) | [`src/client`](src/client) |
 | Infra, secrets, domain | [`alchemy.run.ts`](alchemy.run.ts), [`worker.ts`](src/server/worker.ts), [`config.ts`](src/server/config.ts) |
 
+## Skills
+
+- Effect code: read `node_modules/effect/AGENTS.md` first, then `node_modules/effect/src`. Effect setup: [`effect-ts`](.agents/skills/effect-ts/SKILL.md), keeping the pinned `effect` version.
+
 ## Lifecycle
 
 ```bash
