@@ -206,12 +206,6 @@
     border-radius: 999px;
     background: var(--fg-subtle);
   }
-  .dot-live {
-    background: var(--accent);
-  }
-  .dot-ok {
-    background: var(--ok);
-  }
   .dot-warn {
     background: var(--warn);
   }
@@ -272,20 +266,6 @@
   .step-head .name {
     transition: color var(--duration-fast) ease-out;
   }
-  .pick {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 28px;
-    padding: 0 8px;
-    border-radius: 8px;
-    color: var(--fg-subtle);
-    font-size: var(--size-meta);
-    white-space: nowrap;
-    transition:
-      color var(--duration-fast) var(--ease-snappy),
-      background-color var(--duration-fast) var(--ease-snappy);
-  }
   /* Small controls reach ~40px tall without growing their box. */
   .hit {
     position: relative;
@@ -296,16 +276,11 @@
     inset: -8px -4px;
   }
   /* Phones have no hover; a press shows the same color. */
-  button.step-head:active .name,
-  button.pick:active {
+  button.step-head:active .name {
     color: var(--fg);
   }
   @media (hover: hover) and (pointer: fine) {
     button.step-head:hover .name {
-      color: var(--fg);
-    }
-    button.pick:hover {
-      background: var(--bg-hover);
       color: var(--fg);
     }
   }
@@ -320,7 +295,7 @@
   animation: rise-soft var(--duration-base) var(--ease-snappy) both;
 }
 
-/* Menus scale from their trigger (origin set where they render). */
+/* Dialogs scale in as they open. */
 @utility pop {
   animation: pop var(--duration-fast) var(--ease-snappy) both;
 }
@@ -343,11 +318,6 @@
     transform: scale(0.97);
   }
 }
-@keyframes grow {
-  from {
-    transform: scaleX(0.04);
-  }
-}
 @keyframes fade {
   from {
     opacity: 0;
@@ -359,12 +329,6 @@
   }
 }
 
-/* Only a score card that arrives live animates its bars; cards replayed from history render settled. */
-.live .grow-bar {
-  transform-origin: left;
-  animation: grow var(--duration-base) var(--ease-snappy) both;
-}
-
 /* Reduced motion drops movement, not feedback: reveals still fade, colors still change. */
 @media (prefers-reduced-motion: reduce) {
   .enter,
@@ -372,7 +336,6 @@
   .pop {
     animation-name: fade;
   }
-  .live .grow-bar,
   .caret,
   .cursor {
     animation: none;

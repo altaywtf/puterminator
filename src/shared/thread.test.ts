@@ -57,6 +57,16 @@ describe("toTurns", () => {
     expect(toTurns([ask, call], null, false)[1]!.items[1]).toMatchObject({ state: "error" });
   });
 
+  it("appends a live partial to the assistant turn that holds the finished tool step", () => {
+    const turns = toTurns([ask, call, result(false)], [{ type: "text", text: "Your score" }], true);
+    expect(turns.map((t) => t.role)).toEqual(["user", "assistant"]);
+    expect(turns[1]!.items.map((i) => [i.kind, i.key])).toEqual([
+      ["thinking", "m1.0"],
+      ["tool", "m1.1"],
+      ["text", "live.0"],
+    ]);
+  });
+
   it("streams only the last thinking block of the partial", () => {
     const turns = toTurns([ask], [{ type: "thinking", thinking: "Hm" }], true);
     expect(turns[1]!.items).toEqual([{ kind: "thinking", key: "live.0", text: "Hm", streaming: true }]);

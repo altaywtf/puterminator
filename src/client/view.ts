@@ -51,7 +51,7 @@ const mark = (h: H, px: number) =>
     h.Style({ width: `${px}px`, height: `${px}px` }),
   ]);
 
-const dot = (h: H, tone: "live" | "ok" | "warn" | "error" | null = null) =>
+const dot = (h: H, tone: "warn" | "error" | null = null) =>
   h.span([h.Class(`dot ${tone ? `dot-${tone}` : ""}`), h.AriaHidden(true)], []);
 
 const status = (h: H, model: Model) =>
@@ -64,9 +64,9 @@ const status = (h: H, model: Model) =>
         ]),
       ];
 
-const frame = (h: H, topbarEnd: Html[], children: Html[], busy = false, inert = false) =>
+const frame = (h: H, topbarEnd: Html[], children: Html[], inert: boolean) =>
   h.div(
-    [h.Class("grid h-dvh grid-rows-[auto_minmax(0,1fr)] bg-bg text-fg"), ...(busy ? [h.AriaBusy(true)] : []), ...(inert ? [h.Inert(true)] : [])],
+    [h.Class("grid h-dvh grid-rows-[auto_minmax(0,1fr)] bg-bg text-fg"), ...(inert ? [h.Inert(true)] : [])],
     [
       h.header(
         [h.Class("flex-none")],
@@ -232,7 +232,6 @@ const shell = (h: H, model: Model, children: Html[]) =>
         ...(model.agent?.username ? accountMenu(h, model, model.agent.username, model.avatarFailed ? null : (model.agent.avatarUrl ?? null)) : []),
       ],
       [liveStatus(h, model), ...children, ...treeDrawer(h, model)],
-      false,
       model.player !== null || model.confirmingDelete,
     ),
     ...playerView(h, model),

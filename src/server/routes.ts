@@ -41,6 +41,7 @@ export interface RouteDeps {
 }
 
 const text = (body: string, status: number) => HttpServerResponse.text(body, { status });
+const expireCookie = (name: string) => HttpServerResponse.expireCookieUnsafe(name, { path: "/", httpOnly: true, secure: true, sameSite: "lax" });
 const json = (body: Schema.Json, status = 200) => HttpServerResponse.jsonUnsafe(body, { status });
 
 /** Every Worker route. `publicUrl` is the Worker's own URL: the custom domain, or localhost under dev. */
@@ -63,9 +64,8 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
 
     if (path === "/api/me") {
       const session = yield* current(request.cookies[SESSION_COOKIE]);
-      const me: Me = { configured: auth !== null, signedIn: Option.isSome(session) };
 
-      return json(me);
+      return json({ configured: auth !== null, signedIn: Option.isSome(session) } satisfies Me);
     }
 
     if (!auth || !origin) {
@@ -115,7 +115,7 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
 
       return HttpServerResponse.redirect("/").pipe(
         HttpServerResponse.setCookieUnsafe(SESSION_COOKIE, session, cookieOptions(SESSION_MAX_AGE_SEC)),
-        HttpServerResponse.expireCookieUnsafe(STATE_COOKIE, { path: "/", httpOnly: true, secure: true, sameSite: "lax" }),
+        expireCookie(STATE_COOKIE),
       );
     }
 
@@ -124,9 +124,7 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
     if (path === "/auth/logout" && request.method === "POST") {
       if (Option.isSome(session)) yield* deps.agentFor(session.value.uid).signOut();
 
-      return json({ ok: true }).pipe(
-        HttpServerResponse.expireCookieUnsafe(SESSION_COOKIE, { path: "/", httpOnly: true, secure: true, sameSite: "lax" }),
-      );
+      return json({ ok: true }).pipe(expireCookie(SESSION_COOKIE));
     }
 
     if (Option.isNone(session)) return json({ error: "unauthorized" }, 401);
@@ -136,9 +134,7 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
 
       if (!deleted) return json({ error: "busy" }, 409);
 
-      return json({ ok: true }).pipe(
-        HttpServerResponse.expireCookieUnsafe(SESSION_COOKIE, { path: "/", httpOnly: true, secure: true, sameSite: "lax" }),
-      );
+      return json({ ok: true }).pipe(expireCookie(SESSION_COOKIE));
     }
 
     const agent = deps.agentFor(session.value.uid);
@@ -152,9 +148,9 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
         const url = yield* agent.thumbnail(id);
         const dev = deps.config.devUpstream;
 
-        return url && (url.startsWith("https://") || (dev !== null && url.startsWith(`${dev}/`)))
-          ? HttpServerResponse.redirect(url).pipe(HttpServerResponse.setHeader("cache-control", "private, max-age=3600"))
-          : HttpServerResponse.empty({ status: 404 }).pipe(HttpServerResponse.setHeader("cache-control", "private, max-age=3600"));
+        return (url && (url.startsWith("https://") || (dev !== null && url.startsWith(`${dev}/`))) ? HttpServerResponse.redirect(url) : HttpServerResponse.empty({ status: 404 })).pipe(
+          HttpServerResponse.setHeader("cache-control", "private, max-age=3600"),
+        );
       }
 
       const hls = yield* agent.stream(id);

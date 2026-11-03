@@ -43,7 +43,7 @@ const ext = (f: WalkedFile) => (f.extension ?? f.name.split(".").pop() ?? "").to
 const isVideo = (f: WalkedFile) => f.file_type === "VIDEO";
 const isFolder = (f: WalkedFile) => f.file_type === "FOLDER";
 
-const stemOf = (name: string) => name.replace(/\.[a-z0-9]{2,4}$/i, "");
+export const stemOf = (name: string) => name.replace(/\.[a-z0-9]{2,4}$/i, "");
 
 export function isMessyName(name: string, folder = false) {
   const stem = (folder ? name : stemOf(name)).replace(MEDIA_SERVER_ID_TAG, "").replace(MEDIA_SERVER_RESOLUTION_SUFFIX, "");

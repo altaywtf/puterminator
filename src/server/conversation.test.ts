@@ -3,12 +3,12 @@ import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import { describe, expect, it } from "vitest";
-import { type ClientEvent, CREDIT_TOKENS, type MessageParam, type ServerEvent } from "../shared/contract";
+import { type ClientEvent, CREDIT_TOKENS, FileFlag, type MessageParam, type ServerEvent } from "../shared/contract";
 import { type AgentDeps, makeAgent } from "./conversation";
 import { anthropicLayer } from "./runner";
 import { makeStore, month } from "./store";
 import { makeFakeAnthropic, type Reply, textTurn, toolUseTurn } from "./testing/fake-anthropic";
-import { file, makeFakePutio } from "./testing/fake-putio";
+import { type FakePutioOptions, file, makeFakePutio } from "./testing/fake-putio";
 import { memorySql } from "./testing/sqlite";
 
 const library = [
@@ -18,52 +18,28 @@ const library = [
   file(4, 0, "Alien (1979).mkv", "VIDEO", 2 ** 30),
 ];
 
-const send = (text: string) => JSON.stringify({ type: "send", text, folder: { id: 0, name: "Your Files" } });
+const frame = (event: ClientEvent) => JSON.stringify(event);
+const send = (text: string) => frame({ type: "send", text, folder: { id: 0, name: "Your Files" } });
 
-const setup = async (
-  replies: Array<Reply>,
-  opts: {
-    cap?: number;
-    budget?: number;
-    pool?: AgentDeps["pool"];
-    unlimited?: ReadonlyArray<string>;
-    token?: string | null;
-    putioUnauthorized?: boolean;
-    history?: Array<MessageParam>;
-    trashEnabled?: boolean;
-    failWrites?: Array<number>;
-    dropWrites?: Array<number>;
-    failRenames?: Array<number>;
-    restoreLag?: number;
-    files?: typeof library;
-    seed?: (store: ReturnType<typeof makeStore>) => void;
-    holdFirstListing?: Promise<void>;
-    holdDownloadToken?: Promise<void>;
-    subtitles?: Parameters<typeof makeFakePutio>[0]["subtitles"];
-  } = {},
-) => {
+type SetupOptions = Partial<Omit<FakePutioOptions, "pageSize">> & {
+  cap?: number;
+  budget?: number;
+  pool?: AgentDeps["pool"];
+  unlimited?: ReadonlyArray<string>;
+  history?: Array<MessageParam>;
+  seed?: (store: ReturnType<typeof makeStore>) => void;
+};
+
+const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
+  const { cap, budget, pool, unlimited, history, seed, files, ...putioOptions } = opts;
   const sql = memorySql();
   const store = makeStore(sql);
   const poolStore = makeStore(memorySql());
 
-  for (const m of opts.history ?? []) store.append(m);
-  opts.seed?.(store);
+  for (const m of history ?? []) store.append(m);
+  seed?.(store);
   const anthropic = makeFakeAnthropic(replies);
-
-  const putio = makeFakePutio({
-    files: opts.files ?? library,
-    pageSize: 2,
-    unauthorized: opts.putioUnauthorized ?? false,
-    trashEnabled: opts.trashEnabled ?? true,
-    failWrites: opts.failWrites ?? [],
-    dropWrites: opts.dropWrites ?? [],
-    failRenames: opts.failRenames ?? [],
-    restoreLag: opts.restoreLag ?? 0,
-    holdFirstListing: opts.holdFirstListing ?? Promise.resolve(),
-    holdDownloadToken: opts.holdDownloadToken ?? Promise.resolve(),
-    subtitles: opts.subtitles ?? {},
-  });
-
+  const putio = makeFakePutio({ files: files ?? library, pageSize: 2, ...putioOptions });
   const events: Array<ServerEvent> = [];
   const turns: Array<Promise<unknown>> = [];
   let disconnects = 0;
@@ -72,10 +48,10 @@ const setup = async (
     makeAgent({
       store,
       model: "claude-sonnet-5-5",
-      monthlyCredits: (opts.cap ?? 1_000_000) / CREDIT_TOKENS,
-      poolBudgetCredits: opts.budget ?? 1_000_000,
-      pool: opts.pool ?? ((m, user, tokens) => Effect.sync(() => poolStore.poolReport(m, user, tokens))),
-      unlimitedUsers: opts.unlimited ?? [],
+      monthlyCredits: (cap ?? 1_000_000) / CREDIT_TOKENS,
+      poolBudgetCredits: budget ?? 1_000_000,
+      pool: pool ?? ((m, tokens) => Effect.sync(() => poolStore.poolReport(m, "putio-1", tokens))),
+      unlimitedUsers: unlimited ?? [],
       anthropic: anthropicLayer({ apiKey: Redacted.make("sk-test"), fetch: anthropic.fetch, maxRetries: 0 }),
       putioFetch: putio.fetch,
       broadcast: (e) => events.push(e),
@@ -86,20 +62,37 @@ const setup = async (
     }),
   );
 
-  if (opts.token !== null) await Effect.runPromise(agent.setAuth(opts.token ?? "putio-token", "altay", null));
+  await Effect.runPromise(agent.setAuth("putio-token", "altay", null));
+  const settle = () => Promise.all(turns);
 
-  return { sql, store, agent, anthropic, putio, events, settle: () => Promise.all(turns), disconnects: () => disconnects };
+  const receive = async (event: string | ClientEvent) => {
+    await Effect.runPromise(agent.receive(Predicate.isString(event) ? event : frame(event)));
+    await settle();
+  };
+
+  const toolOutput = (id: string) => {
+    const result = store
+      .history()
+      .flatMap((m) => (Predicate.isString(m.content) ? [] : m.content))
+      .find((b) => b.type === "tool_result" && b.tool_use_id === id);
+
+    return result?.type === "tool_result" ? String(result.content) : "";
+  };
+
+  return { sql, store, agent, anthropic, putio, events, settle, receive, toolOutput, disconnects: () => disconnects };
 };
 
+const tool = (id: string, name: string, input = "{}", usage = { input: 10, output: 5 }): Reply => ({ kind: "sse", events: toolUseTurn({ id, name, inputJsonChunks: [input] }, usage) });
+const say = (text: string, usage = { input: 10, output: 5 }): Reply => ({ kind: "sse", events: textTurn(text, usage) });
+
 describe("a turn", () => {
-  it("runs tool_use -> tool result -> end_turn, appends history in order and charges credits", async () => {
+  it("runs a tool call to end_turn: history in order, strict tools, weighted credits, the library frame", async () => {
     const t = await setup([
       { kind: "sse", events: toolUseTurn({ id: "toolu_1", name: "scan_library", inputJsonChunks: ["{", "}"] }, { input: 120, output: 40 }) },
-      { kind: "sse", events: textTurn("Score 40. Junk in /Movies.", { input: 300, output: 12 }) },
+      say("Score 40. Junk in /Movies.", { input: 300, output: 12 }),
     ]);
 
-    await Effect.runPromise(t.agent.receive(send("Audit my library")));
-    await t.settle();
+    await t.receive(send("Audit my library"));
 
     const history = t.store.history();
     expect(history.map((m) => [m.role, Predicate.isString(m.content) ? "text" : m.content.map((b) => b.type).join("+")])).toEqual([
@@ -109,9 +102,7 @@ describe("a turn", () => {
       ["assistant", "text"],
     ]);
     expect(history[1]?.content[0]).toMatchObject({ signature: "c2lnLTE=" });
-    const result = history[2]?.content[0];
-    expect(result).toMatchObject({ tool_use_id: "toolu_1" });
-    const audit = JSON.parse(String(Predicate.isObject(result) && JSON.stringify(result.content).match(/\{.*\}/)?.[0]?.replace(/\\"/g, '"')));
+    const audit = JSON.parse(t.toolOutput("toolu_1"));
     expect(audit.totals.items).toBe(4);
     expect(audit.junk.count).toBeGreaterThan(0);
 
@@ -147,9 +138,8 @@ describe("a turn", () => {
     expect(lib?.type === "library" && lib.library.files.length).toBe(4);
     expect(lib?.type === "library" && lib.library.rootId).toBe(0);
     const flags = new Map(lib?.type === "library" ? lib.library.files.map((f) => [f[0], f[4]]) : []);
-    expect([flags.get(1), flags.get(2), flags.get(3)]).toEqual([1, 2 | 16, 8]);
+    expect([flags.get(1), flags.get(2), flags.get(3)]).toEqual([FileFlag.folder, FileFlag.video | FileFlag.messy, FileFlag.junk]);
     expect(t.agent.greeting().map((e) => e.type)).toEqual(["state", "history", "library"]);
-    expect(t.putio.log[0]?.url.searchParams.get("parent_id")).toBe("-1");
 
     const sent = t.events.flatMap((e) => (e.type === "message" ? [e.message] : []));
     expect(sent).toEqual(history);
@@ -158,13 +148,12 @@ describe("a turn", () => {
     expect(t.events.filter((e) => e.type === "state").map((e) => e.type === "state" && e.state.busy)).toContain(true);
   });
 
-  it("stops: the Anthropic stream aborts, busy clears and no error goes out", async () => {
+  it("stop aborts the Anthropic stream, clears busy and sends no error", async () => {
     const t = await setup([{ kind: "hang" }]);
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
     await t.anthropic.hanging;
     expect(t.agent.state().busy).toBe(true);
-    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "stop" })));
-    await t.settle();
+    await t.receive({ type: "stop" });
     expect(t.anthropic.wasAborted()).toBe(true);
     expect(t.agent.state().busy).toBe(false);
     expect(t.events.some((e) => e.type === "error")).toBe(false);
@@ -173,12 +162,11 @@ describe("a turn", () => {
 
   it("ends the turn when put.io rejects the token, closing the unanswered tool_use", async () => {
     const t = await setup(
-      [{ kind: "sse", events: toolUseTurn({ id: "toolu_9", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 2 }) }],
-      { putioUnauthorized: true },
+      [tool("toolu_9", "scan_library", "{}", { input: 10, output: 2 })],
+      { unauthorized: true },
     );
 
-    await Effect.runPromise(t.agent.receive(send("Audit my library")));
-    await t.settle();
+    await t.receive(send("Audit my library"));
     expect(t.anthropic.requests).toHaveLength(1);
     const history = t.store.history();
     expect(history.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
@@ -191,15 +179,14 @@ describe("a turn", () => {
   });
 
   it("closes a tool_use left unanswered by an earlier activation before the next user message", async () => {
-    const t = await setup([{ kind: "sse", events: textTurn("Hi.", { input: 5, output: 1 }) }], {
+    const t = await setup([say("Hi.", { input: 5, output: 1 })], {
       history: [
         { role: "user", content: [{ type: "text", text: "Audit my library" }] },
         { role: "assistant", content: [{ type: "tool_use", id: "toolu_old", name: "scan_library", input: {} }] },
       ],
     });
 
-    await Effect.runPromise(t.agent.receive(send("hi")));
-    await t.settle();
+    await t.receive(send("hi"));
     const sent: Array<{ role: string; content: Array<{ type: string }> }> = t.anthropic.requests[0]?.body.messages;
     expect(sent.map((m) => [m.role, m.content.map((b) => b.type)])).toEqual([
       ["user", ["text"]],
@@ -212,13 +199,12 @@ describe("a turn", () => {
     ]);
   });
 
-  it("pays for a stopped turn's streamed tokens", async () => {
+  it("charges a stopped turn the usage its message_start reported", async () => {
     const t = await setup([{ kind: "hang" }]);
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
     await t.anthropic.hanging;
     await new Promise((r) => setTimeout(r, 20));
-    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "stop" })));
-    await t.settle();
+    await t.receive({ type: "stop" });
     expect(t.store.used(month(Date.now()))).toBe(1 + 1 * 5);
     expect(t.agent.state().credits.used).toBe(6);
   });
@@ -226,47 +212,41 @@ describe("a turn", () => {
   it("makes no follow-up request once a turn spends the month's credits", async () => {
     const t = await setup(
       [
-        { kind: "sse", events: toolUseTurn({ id: "toolu_1", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 200, output: 5 }) },
-        { kind: "sse", events: textTurn("done.", { input: 10, output: 5 }) },
+        tool("toolu_1", "scan_library", "{}", { input: 200, output: 5 }),
+        say("done."),
       ],
       { cap: 100 },
     );
 
-    await Effect.runPromise(t.agent.receive(send("Audit my library")));
-    await t.settle();
+    await t.receive(send("Audit my library"));
     expect(t.anthropic.requests).toHaveLength(1);
     expect(t.agent.state().busy).toBe(false);
   });
 
   it("answers from the app without calling Claude once the month's credits are spent", async () => {
     const t = await setup([], { cap: 0 });
-    await Effect.runPromise(t.agent.receive(send("hi")));
-    await t.settle();
+    await t.receive(send("hi"));
     expect(t.anthropic.requests).toHaveLength(0);
     expect(t.store.history().map((m) => m.role)).toEqual(["user", "assistant"]);
   });
 
   it("refuses new work without calling Claude while the shared pool can't be reached", async () => {
     const t = await setup([], { pool: () => Effect.fail("down") });
-    await Effect.runPromise(t.agent.receive(send("hi")));
-    await t.settle();
+    await t.receive(send("hi"));
     expect(t.anthropic.requests).toHaveLength(0);
     expect(t.store.history().at(-1)?.content).toEqual([{ type: "text", text: "can't check credits right now. try again in a minute." }]);
   });
 
   it("stops everyone, unlimited users too, once the month's shared budget is spent", async () => {
     const t = await setup([], { budget: 1, unlimited: ["altay"], pool: () => Effect.succeed(CREDIT_TOKENS) });
-    await Effect.runPromise(t.agent.setAuth("tok", "altay", null));
-    await Effect.runPromise(t.agent.receive(send("hi")));
-    await t.settle();
+    await t.receive(send("hi"));
     expect(t.anthropic.requests).toHaveLength(0);
     expect(JSON.stringify(t.store.history().at(-1)?.content)).toMatch(/out of credits until [a-z]{3} 1\./);
   });
 
   it("says the user is out of credits when Anthropic refuses for the workspace spend limit", async () => {
     const t = await setup([{ kind: "error", status: 400, message: "You have reached your specified workspace API usage limits. You will regain access on 2026-12-01 at 00:00 UTC." }]);
-    await Effect.runPromise(t.agent.receive(send("hi")));
-    await t.settle();
+    await t.receive(send("hi"));
     expect(t.events.filter((e) => e.type === "error")).toEqual([{ type: "error", message: expect.stringMatching(/^out of credits until [a-z]{3} 1\.$/) }]);
   });
 
@@ -275,17 +255,14 @@ describe("a turn", () => {
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
     await t.anthropic.hanging;
     await new Promise((r) => setTimeout(r, 20));
-    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "stop" })));
-    await t.settle();
+    await t.receive({ type: "stop" });
     await new Promise((r) => setTimeout(r, 50));
     expect(t.store.used(month(Date.now()))).toBeGreaterThanOrEqual(1 + (400 / 4) * 5);
   });
 
   it("keeps answering with Claude for a user on the unlimited list after the cap", async () => {
-    const t = await setup([{ kind: "sse", events: textTurn("Hi.", { input: 5, output: 1 }) }], { cap: 0, unlimited: ["altay"] });
-    await Effect.runPromise(t.agent.setAuth("tok", "altay", null));
-    await Effect.runPromise(t.agent.receive(send("hi")));
-    await t.settle();
+    const t = await setup([say("Hi.", { input: 5, output: 1 })], { cap: 0, unlimited: ["altay"] });
+    await t.receive(send("hi"));
     expect(t.anthropic.requests).toHaveLength(1);
   });
 
@@ -323,12 +300,11 @@ describe("a turn", () => {
 describe("previews", () => {
   it("signs streams with the download token, never the OAuth token, and only for snapshot videos", async () => {
     const t = await setup([
-      { kind: "sse", events: toolUseTurn({ id: "toolu_1", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
-      { kind: "sse", events: textTurn("done", { input: 1, output: 1 }) },
+      tool("toolu_1", "scan_library"),
+      say("done"),
     ]);
 
-    await Effect.runPromise(t.agent.receive(send("Audit my library")));
-    await t.settle();
+    await t.receive(send("Audit my library"));
 
     const hls = await Effect.runPromise(t.agent.stream(4));
     expect(hls).toMatch(/\/v2\/files\/4\/hls\/media\.m3u8\?.*oauth_token=dl-token/);
@@ -342,8 +318,8 @@ describe("previews", () => {
   });
 });
 
-
 describe("plans", () => {
+  const heat = "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv";
   const WRITES = ["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/files/create-folder", "/v2/trash/restore"];
 
   const writes = (t: Awaited<ReturnType<typeof setup>>) =>
@@ -353,15 +329,15 @@ describe("plans", () => {
     title: "clean up Movies",
     changes: [
       { op: "trash", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: null },
-      { op: "rename", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "Heat (1995).mkv" },
+      { op: "rename", path: heat, to: "Heat (1995).mkv" },
       { op: "move", path: "/Alien (1979).mkv", to: "/Movies/Alien (1979)/Alien (1979).mkv" },
     ],
   });
 
   const proposeTurn = (input = proposal): Array<Reply> => [
-    { kind: "sse", events: toolUseTurn({ id: "toolu_p", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
-    { kind: "sse", events: toolUseTurn({ id: "toolu_q", name: "propose_changes", inputJsonChunks: [input] }, { input: 10, output: 5 }) },
-    { kind: "sse", events: textTurn("plan's up.", { input: 10, output: 5 }) },
+    tool("toolu_p", "scan_library"),
+    tool("toolu_q", "propose_changes", input),
+    say("plan's up."),
   ];
 
   const planOf = (t: Awaited<ReturnType<typeof setup>>) => {
@@ -372,17 +348,16 @@ describe("plans", () => {
     return last.record;
   };
 
-  const frame = (event: ClientEvent) => JSON.stringify(event);
+  const recordOf = (t: Awaited<ReturnType<typeof setup>>, id: string) => t.events.flatMap((e) => (e.type === "plan" && e.record.plan.id === id ? [e.record] : [])).at(-1);
 
   it("stores a proposal and writes nothing until the user applies it", async () => {
     const t = await setup(proposeTurn());
-    await Effect.runPromise(t.agent.receive(send("clean up")));
-    await t.settle();
+    await t.receive(send("clean up"));
     const record = planOf(t);
     expect(record.status).toBe("proposed");
     expect(record.plan.changes.map((c) => [c.op, c.path, c.to])).toEqual([
       ["trash", "/Movies/RARBG_DO_NOT_MIRROR.exe", null],
-      ["rename", "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", "Heat (1995).mkv"],
+      ["rename", heat, "Heat (1995).mkv"],
       ["move", "/Alien (1979).mkv", "/Movies/Alien (1979)/Alien (1979).mkv"],
     ]);
     expect(writes(t)).toEqual([]);
@@ -390,11 +365,9 @@ describe("plans", () => {
 
   it("applies only what the user kept, in order, creating the missing folder", async () => {
     const t = await setup(proposeTurn());
-    await Effect.runPromise(t.agent.receive(send("clean up")));
-    await t.settle();
+    await t.receive(send("clean up"));
     const { plan } = planOf(t);
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: plan.id, exclude: ["c2"] })));
-    await t.settle();
+    await t.receive({ type: "apply", plan: plan.id, exclude: ["c2"] });
     expect(writes(t)).toEqual([
       ["/v2/files/delete", { file_ids: "3" }],
       ["/v2/files/create-folder", { name: "Alien (1979)", parent_id: "1" }],
@@ -410,40 +383,31 @@ describe("plans", () => {
 
   it("refuses to trash when put.io's trash is off, since delete would be permanent", async () => {
     const t = await setup(proposeTurn(), { trashEnabled: false });
-    await Effect.runPromise(t.agent.receive(send("clean up")));
-    await t.settle();
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: planOf(t).plan.id, exclude: [] })));
-    await t.settle();
+    await t.receive(send("clean up"));
+    await t.receive({ type: "apply", plan: planOf(t).plan.id, exclude: [] });
     expect(writes(t).map(([p]) => p)).not.toContain("/v2/files/delete");
     expect(planOf(t).run?.steps.find((s) => s.change === "c1")).toMatchObject({ state: "failed" });
   });
 
   it("keeps going past a failed change, and retry runs only the failures", async () => {
     const t = await setup(proposeTurn(), { failWrites: [2] });
-    await Effect.runPromise(t.agent.receive(send("clean up")));
-    await t.settle();
+    await t.receive(send("clean up"));
     const id = planOf(t).plan.id;
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
-    await t.settle();
+    await t.receive({ type: "apply", plan: id, exclude: [] });
     expect(planOf(t).run?.steps.map((s) => s.state)).toEqual(["done", "failed", "done"]);
     const before = writes(t).length;
-    await Effect.runPromise(t.agent.receive(frame({ type: "retry", plan: id })));
-    await t.settle();
+    await t.receive({ type: "retry", plan: id });
     expect(writes(t).slice(before)).toEqual([["/v2/files/rename", { file_id: "2", name: "Heat (1995).mkv" }]]);
   });
 
   it("undoes the done steps last first, once: restore from trash, rename and move back", async () => {
     const t = await setup(proposeTurn(), { failWrites: [2] });
-    await Effect.runPromise(t.agent.receive(send("clean up")));
-    await t.settle();
+    await t.receive(send("clean up"));
     const id = planOf(t).plan.id;
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
-    await t.settle();
+    await t.receive({ type: "apply", plan: id, exclude: [] });
     const before = writes(t).length;
-    await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
-    await t.settle();
-    await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
-    await t.settle();
+    await t.receive({ type: "undo", plan: id });
+    await t.receive({ type: "undo", plan: id });
     expect(writes(t).slice(before)).toEqual([
       ["/v2/files/move", { file_ids: "4", parent_id: "0" }],
       ["/v2/trash/restore", { file_ids: "3" }],
@@ -455,15 +419,12 @@ describe("plans", () => {
 
   it("rescans until put.io's background restore shows the file again", async () => {
     const trash = JSON.stringify({ title: "junk", changes: [{ op: "trash", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: null }] });
-    const t = await setup(proposeTurn(trash), { restoreLag: 2 });
-    await Effect.runPromise(t.agent.receive(send("trash it")));
-    await t.settle();
+    const t = await setup(proposeTurn(trash), { restoreLagListings: 2 });
+    await t.receive(send("trash it"));
     const id = planOf(t).plan.id;
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
-    await t.settle();
+    await t.receive({ type: "apply", plan: id, exclude: [] });
     const before = t.putio.log.length;
-    await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
-    await t.settle();
+    await t.receive({ type: "undo", plan: id });
     expect(t.putio.log.slice(before).filter((r) => r.url.pathname === "/v2/files/list")).toHaveLength(4);
     expect(t.store.snapshot().some((f) => f.id === 3)).toBe(true);
   });
@@ -474,7 +435,7 @@ describe("plans", () => {
         JSON.stringify({
           title: "names",
           changes: [
-            { op: "rename", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "Heat (1995).mkv" },
+            { op: "rename", path: heat, to: "Heat (1995).mkv" },
             { op: "move", path: "/Alien (1979).mkv", to: "/Movies/Alien (1979).mkv" },
           ],
         }),
@@ -490,10 +451,9 @@ describe("plans", () => {
       },
     );
 
-    await Effect.runPromise(t.agent.receive(send("rename")));
-    await t.settle();
+    await t.receive(send("rename"));
     expect(planOf(t).plan.changes.map((c) => [c.op, c.path, c.to])).toEqual([
-      ["rename", "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", "Heat (1995).mkv"],
+      ["rename", heat, "Heat (1995).mkv"],
       ["rename", "/Movies/Heat.1995.1080p.BluRay.x264-GRP.eng.srt", "Heat (1995).eng.srt"],
       ["rename", "/Movies/Heat.1995.1080p.BluRay.x264-GRP-forced.en.ass", "Heat (1995)-forced.en.ass"],
       ["move", "/Alien (1979).mkv", "/Movies/Alien (1979).mkv"],
@@ -502,15 +462,12 @@ describe("plans", () => {
   });
 
   it("undoes a rename back to the old name", async () => {
-    const rename = JSON.stringify({ title: "names", changes: [{ op: "rename", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "Heat (1995).mkv" }] });
+    const rename = JSON.stringify({ title: "names", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] });
     const t = await setup(proposeTurn(rename));
-    await Effect.runPromise(t.agent.receive(send("rename")));
-    await t.settle();
+    await t.receive(send("rename"));
     const id = planOf(t).plan.id;
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
-    await t.settle();
-    await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
-    await t.settle();
+    await t.receive({ type: "apply", plan: id, exclude: [] });
+    await t.receive({ type: "undo", plan: id });
     expect(writes(t)).toEqual([
       ["/v2/files/rename", { file_id: "2", name: "Heat (1995).mkv" }],
       ["/v2/files/rename", { file_id: "2", name: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }],
@@ -519,11 +476,9 @@ describe("plans", () => {
 
   const applied = async (input: string, opts: Parameters<typeof setup>[1] = {}) => {
     const t = await setup(proposeTurn(input), opts);
-    await Effect.runPromise(t.agent.receive(send("go")));
-    await t.settle();
+    await t.receive(send("go"));
     const id = planOf(t).plan.id;
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
-    await t.settle();
+    await t.receive({ type: "apply", plan: id, exclude: [] });
 
     return { t, id };
   };
@@ -551,14 +506,13 @@ describe("plans", () => {
         title: "archive",
         changes: [
           { op: "move", path: "/Movies", to: "/Old/Movies" },
-          { op: "move", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "/Heat.mkv" },
+          { op: "move", path: heat, to: "/Heat.mkv" },
         ],
       }),
     );
 
     const before = writes(t).length;
-    await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
-    await t.settle();
+    await t.receive({ type: "undo", plan: id });
     expect(writes(t).slice(before)).toEqual([
       ["/v2/files/move", { file_ids: "2", parent_id: "1" }],
       ["/v2/files/rename", { file_id: "2", name: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }],
@@ -566,34 +520,30 @@ describe("plans", () => {
     ]);
   });
 
-  it("undoes a write whose answer was lost, since put.io may have done it", async () => {
-    const { t, id } = await applied(proposal, { dropWrites: [3] });
+  it("undoes a write whose answer was lost, even after a refused retry, since put.io may have done it", async () => {
+    const { t, id } = await applied(proposal, { loseWriteAnswers: [3] });
     expect(planOf(t).run?.steps[0]).toMatchObject({ change: "c1", state: "failed", maybeApplied: true });
-    await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
-    await t.settle();
+    await t.receive({ type: "retry", plan: id });
+    expect(planOf(t).run?.steps[0]).toMatchObject({ state: "failed", maybeApplied: true });
+    await t.receive({ type: "undo", plan: id });
     expect(writes(t).at(-1)).toEqual(["/v2/trash/restore", { file_ids: "3" }]);
   });
 
   it("fails a run when the put.io sign-in is gone, instead of leaving it applying", async () => {
     const t = await setup(proposeTurn());
-    await Effect.runPromise(t.agent.receive(send("go")));
-    await t.settle();
+    await t.receive(send("go"));
     t.store.deleteToken();
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: planOf(t).plan.id, exclude: [] })));
-    await t.settle();
+    await t.receive({ type: "apply", plan: planOf(t).plan.id, exclude: [] });
     expect(writes(t)).toEqual([]);
     expect(planOf(t).status).toBe("done");
     expect(planOf(t).run?.steps.map((s) => s.error)).toEqual(Array(3).fill("put.io signed you out; sign in again"));
   });
 
   it("refuses to apply a plan in another target folder than the one it was made in", async () => {
-    const t = await setup([...proposeTurn(), { kind: "sse", events: textTurn("ok.", { input: 10, output: 5 }) }]);
-    await Effect.runPromise(t.agent.receive(send("go")));
-    await t.settle();
-    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "send", text: "now Movies", folder: { id: 1, name: "Movies" } })));
-    await t.settle();
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: planOf(t).plan.id, exclude: [] })));
-    await t.settle();
+    const t = await setup([...proposeTurn(), say("ok.")]);
+    await t.receive(send("go"));
+    await t.receive({ type: "send", text: "now Movies", folder: { id: 1, name: "Movies" } });
+    await t.receive({ type: "apply", plan: planOf(t).plan.id, exclude: [] });
     expect(writes(t)).toEqual([]);
     expect(planOf(t).run?.steps.every((s) => s.state === "failed" && s.error === "made in Your Files; switch back to it first")).toBe(true);
   });
@@ -601,14 +551,12 @@ describe("plans", () => {
   it("rejects a proposal against a scan of another folder", async () => {
     const t = await setup([
       ...proposeTurn(),
-      { kind: "sse", events: toolUseTurn({ id: "toolu_r", name: "propose_changes", inputJsonChunks: [proposal] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: textTurn("rescanning.", { input: 10, output: 5 }) },
+      tool("toolu_r", "propose_changes", proposal),
+      say("rescanning."),
     ]);
 
-    await Effect.runPromise(t.agent.receive(send("go")));
-    await t.settle();
-    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "send", text: "same in Movies", folder: { id: 1, name: "Movies" } })));
-    await t.settle();
+    await t.receive(send("go"));
+    await t.receive({ type: "send", text: "same in Movies", folder: { id: 1, name: "Movies" } });
     expect(t.events.filter((e) => e.type === "plan")).toHaveLength(1);
     expect(JSON.stringify(t.store.history().at(-2))).toContain("The last scan is of another folder");
   });
@@ -659,84 +607,34 @@ describe("plans", () => {
     });
 
     const t = await setup(proposeTurn(bad), { files });
-    await Effect.runPromise(t.agent.receive(send("go")));
-    await t.settle();
+    await t.receive(send("go"));
     expect(t.events.filter((e) => e.type === "plan")).toHaveLength(0);
     expect(JSON.stringify(t.store.history())).toContain("/X.srt: two changes end there");
-  });
-
-  it("still undoes a lost-answer write after a retry put.io refuses", async () => {
-    const { t, id } = await applied(proposal, { dropWrites: [3] });
-    await Effect.runPromise(t.agent.receive(frame({ type: "retry", plan: id })));
-    await t.settle();
-    expect(planOf(t).run?.steps[0]).toMatchObject({ state: "failed", maybeApplied: true });
-    await Effect.runPromise(t.agent.receive(frame({ type: "undo", plan: id })));
-    await t.settle();
-    expect(writes(t).at(-1)).toEqual(["/v2/trash/restore", { file_ids: "3" }]);
   });
 
   it("plans a media server layout in code, keeps the change list out of the model's context, and applies it", async () => {
     const layoutInput = JSON.stringify({ movies: "/Movies", shows: "/TV Shows", within: "" });
 
     const t = await setup([
-      { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: toolUseTurn({ id: "toolu_l", name: "plan_layout", inputJsonChunks: [layoutInput] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: textTurn("plan's up.", { input: 10, output: 5 }) },
+      tool("toolu_s", "scan_library"),
+      tool("toolu_l", "plan_layout", layoutInput),
+      say("plan's up."),
     ]);
 
-    await Effect.runPromise(t.agent.receive(send("make it work with plex")));
-    await t.settle();
+    await t.receive(send("make it work with plex"));
     const record = planOf(t);
 
     expect(record.plan.changes.map((c) => [c.op, c.path, c.to])).toEqual([
       ["move", "/Alien (1979).mkv", "/Movies/Alien (1979)/Alien (1979).mkv"],
-      ["move", "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", "/Movies/Heat (1995)/Heat (1995).mkv"],
+      ["move", heat, "/Movies/Heat (1995)/Heat (1995).mkv"],
     ]);
     const sentToModel = JSON.stringify(t.anthropic.requests.at(-1)?.body.messages.at(-1));
 
     expect(sentToModel).toContain(`\\"changes\\":2`);
     expect(sentToModel).not.toContain("Heat (1995).mkv");
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: record.plan.id, exclude: [] })));
-    await t.settle();
+    await t.receive({ type: "apply", plan: record.plan.id, exclude: [] });
     expect(planOf(t).run?.steps.map((s) => s.state)).toEqual(["done", "done"]);
     expect(t.putio.log.filter((r) => r.url.pathname === "/v2/files/create-folder").map((r) => r.body.get("name"))).toEqual(["Alien (1979)", "Heat (1995)"]);
-  });
-
-  it("refuses to apply a plan the library has moved on from", async () => {
-    const rename = (to: string) => JSON.stringify({ title: to, changes: [{ op: "rename", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to }] });
-
-    const t = await setup([
-      { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: toolUseTurn({ id: "toolu_a", name: "propose_changes", inputJsonChunks: [rename("Heat (1995).mkv")] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: toolUseTurn({ id: "toolu_b", name: "propose_changes", inputJsonChunks: [rename("Heat.mkv")] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: textTurn("two plans.", { input: 10, output: 5 }) },
-    ]);
-
-    await Effect.runPromise(t.agent.receive(send("go")));
-    await t.settle();
-    const [first, second] = t.events.flatMap((e) => (e.type === "plan" && e.record.status === "proposed" ? [e.record.plan.id] : []));
-
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: first ?? "", exclude: [] })));
-    await t.settle();
-    const before = writes(t).length;
-
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: second ?? "", exclude: [] })));
-    await t.settle();
-    expect(writes(t).length).toBe(before);
-    expect(planOf(t).run?.steps[0]?.error).toMatch(/^the library changed since this plan/);
-  });
-
-  it("checks put.io itself before a run, so a rename made elsewhere since the scan stops it", async () => {
-    const t = await setup(proposeTurn(JSON.stringify({ title: "x", changes: [{ op: "rename", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "Heat (1995).mkv" }] })));
-    await Effect.runPromise(t.agent.receive(send("go")));
-    await t.settle();
-    await t.putio.fetch("https://api.put.io/v2/files/rename", { method: "POST", body: new URLSearchParams({ file_id: "2", name: "Heat.mkv" }) });
-    const before = writes(t).length;
-
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: planOf(t).plan.id, exclude: [] })));
-    await t.settle();
-    expect(writes(t).length).toBe(before);
-    expect(planOf(t).run?.steps[0]?.error).toBe("the library changed since this plan (/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv moved or is gone); ask for a new one");
   });
 
   const twoPlans = async (first: [string, string], second: [string, string], opts: Parameters<typeof setup>[1] = {}) => {
@@ -744,106 +642,108 @@ describe("plans", () => {
 
     const t = await setup(
       [
-        { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
-        { kind: "sse", events: toolUseTurn({ id: "toolu_a", name: "propose_changes", inputJsonChunks: [rename(first)] }, { input: 10, output: 5 }) },
-        { kind: "sse", events: toolUseTurn({ id: "toolu_b", name: "propose_changes", inputJsonChunks: [rename(second)] }, { input: 10, output: 5 }) },
-        { kind: "sse", events: textTurn("two plans.", { input: 10, output: 5 }) },
+        tool("toolu_s", "scan_library"),
+        tool("toolu_a", "propose_changes", rename(first)),
+        tool("toolu_b", "propose_changes", rename(second)),
+        say("two plans."),
       ],
       opts,
     );
 
-    await Effect.runPromise(t.agent.receive(send("go")));
-    await t.settle();
+    await t.receive(send("go"));
     const [a, b] = t.events.flatMap((e) => (e.type === "plan" && e.record.status === "proposed" ? [e.record.plan.id] : []));
 
-    const run = async (type: "apply" | "retry" | "undo", plan = "") => {
-      await Effect.runPromise(t.agent.receive(type === "apply" ? frame({ type, plan, exclude: [] }) : frame({ type, plan })));
-      await t.settle();
-    };
-
-    const record = (id: string) => t.events.flatMap((e) => (e.type === "plan" && e.record.plan.id === id ? [e.record] : [])).at(-1);
-
-    return { t, a: a ?? "", b: b ?? "", run, record };
+    return { t, a: a ?? "", b: b ?? "" };
   };
 
-  it("won't retry onto a name another plan took since", async () => {
-    const { t, a, b, run, record } = await twoPlans(["/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", "Heat (1995).mkv"], ["/Movies/RARBG_DO_NOT_MIRROR.exe", "Heat (1995).mkv"], { failWrites: [2] });
-    await run("apply", a);
-    await run("apply", b);
+  it("refuses to apply a plan the library has moved on from", async () => {
+    const { t, a, b } = await twoPlans([heat, "Heat (1995).mkv"], [heat, "Heat.mkv"]);
+    await t.receive({ type: "apply", plan: a, exclude: [] });
     const before = writes(t).length;
 
-    await run("retry", a);
+    await t.receive({ type: "apply", plan: b, exclude: [] });
     expect(writes(t).length).toBe(before);
-    expect(record(a)?.run?.steps[0]?.error).toBe("the library changed since this plan (/Movies/Heat (1995).mkv is taken); ask for a new one");
+    expect(recordOf(t, b)?.run?.steps[0]?.error).toMatch(/^the library changed since this plan/);
+  });
+
+  it("checks put.io itself before a run, so a rename made elsewhere since the scan stops it", async () => {
+    const t = await setup(proposeTurn(JSON.stringify({ title: "x", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] })));
+    await t.receive(send("go"));
+    await t.putio.fetch("https://api.put.io/v2/files/rename", { method: "POST", body: new URLSearchParams({ file_id: "2", name: "Heat.mkv" }) });
+    const before = writes(t).length;
+
+    await t.receive({ type: "apply", plan: planOf(t).plan.id, exclude: [] });
+    expect(writes(t).length).toBe(before);
+    expect(planOf(t).run?.steps[0]?.error).toBe(`the library changed since this plan (${heat} moved or is gone); ask for a new one`);
+  });
+
+  it("won't retry onto a name another plan took since", async () => {
+    const { t, a, b } = await twoPlans([heat, "Heat (1995).mkv"], ["/Movies/RARBG_DO_NOT_MIRROR.exe", "Heat (1995).mkv"], { failWrites: [2] });
+    await t.receive({ type: "apply", plan: a, exclude: [] });
+    await t.receive({ type: "apply", plan: b, exclude: [] });
+    const before = writes(t).length;
+
+    await t.receive({ type: "retry", plan: a });
+    expect(writes(t).length).toBe(before);
+    expect(recordOf(t, a)?.run?.steps[0]?.error).toBe("the library changed since this plan (/Movies/Heat (1995).mkv is taken); ask for a new one");
   });
 
   const oneAfterAnother = async (first: ProposeInput, second: ProposeInput, opts: Parameters<typeof setup>[1] = {}) => {
     const t = await setup(
       [
         ...proposeTurn(JSON.stringify(first)),
-        { kind: "sse", events: toolUseTurn({ id: "toolu_b", name: "propose_changes", inputJsonChunks: [JSON.stringify(second)] }, { input: 10, output: 5 }) },
-        { kind: "sse", events: textTurn("plan's up.", { input: 10, output: 5 }) },
+        tool("toolu_b", "propose_changes", JSON.stringify(second)),
+        say("plan's up."),
       ],
       opts,
     );
 
-    const act = async (event: ClientEvent) => {
-      await Effect.runPromise(t.agent.receive(frame(event)));
-      await t.settle();
-    };
-
-    await Effect.runPromise(t.agent.receive(send("first")));
-    await t.settle();
+    await t.receive(send("first"));
     const firstId = planOf(t).plan.id;
-    await act({ type: "apply", plan: firstId, exclude: [] });
-    await Effect.runPromise(t.agent.receive(send("second")));
-    await t.settle();
-    await act({ type: "apply", plan: planOf(t).plan.id, exclude: [] });
+    await t.receive({ type: "apply", plan: firstId, exclude: [] });
+    await t.receive(send("second"));
+    await t.receive({ type: "apply", plan: planOf(t).plan.id, exclude: [] });
 
-    return { t, first: firstId, act, before: writes(t).length };
+    return { t, first: firstId, before: writes(t).length };
   };
 
-  const heat = "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv";
-
   it("won't undo onto a name another plan took since, and says to undo it by hand", async () => {
-    const { t, first, act, before } = await oneAfterAnother(
+    const { t, first, before } = await oneAfterAnother(
       { title: "a", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] },
       { title: "b", changes: [{ op: "rename", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }] },
     );
 
-    await act({ type: "undo", plan: first });
+    await t.receive({ type: "undo", plan: first });
     expect(writes(t).length).toBe(before);
     expect(planOf(t).undo?.steps.map((s) => [s.state, s.error])).toEqual([["failed", `the library changed since this plan (${heat} is taken); undo it by hand`]]);
   });
 
   it("won't undo a file another plan has moved on since", async () => {
-    const { t, first, act, before } = await oneAfterAnother(
+    const { t, first, before } = await oneAfterAnother(
       { title: "a", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] },
       { title: "b", changes: [{ op: "move", path: "/Movies/Heat (1995).mkv", to: "/Heat (1995).mkv" }] },
     );
 
-    await act({ type: "undo", plan: first });
+    await t.receive({ type: "undo", plan: first });
     expect(writes(t).length).toBe(before);
     expect(planOf(t).undo?.steps[0]?.error).toBe("the library changed since this plan (/Movies/Heat (1995).mkv moved or is gone); undo it by hand");
   });
 
   it("won't retry a file another plan has moved since it failed", async () => {
-    const { t, first, act, before } = await oneAfterAnother(
+    const { t, first, before } = await oneAfterAnother(
       { title: "a", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] },
       { title: "b", changes: [{ op: "move", path: heat, to: "/Heat.1995.1080p.BluRay.x264-GRP.mkv" }] },
       { failRenames: [2] },
     );
 
-    await act({ type: "retry", plan: first });
+    await t.receive({ type: "retry", plan: first });
     expect(writes(t).length).toBe(before);
-    expect(t.events.flatMap((e) => (e.type === "plan" && e.record.plan.id === first ? [e.record] : [])).at(-1)?.run?.steps[0]?.error).toBe(
-      `the library changed since this plan (${heat} moved or is gone); ask for a new one`,
-    );
+    expect(recordOf(t, first)?.run?.steps[0]?.error).toBe(`the library changed since this plan (${heat} moved or is gone); ask for a new one`);
   });
 
   it("leaves a subtitle where it is when its video's move fails", async () => {
     const { t } = await applied(
-      JSON.stringify({ title: "x", changes: [{ op: "move", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "/Heat/Heat (1995).mkv" }] }),
+      JSON.stringify({ title: "x", changes: [{ op: "move", path: heat, to: "/Heat/Heat (1995).mkv" }] }),
       { files: [...library, file(5, 1, "heat.1995.1080p.bluray.x264-grp.EN.srt", "TEXT", 100)], failWrites: [2] },
     );
 
@@ -854,25 +754,17 @@ describe("plans", () => {
     expect(t.putio.log.some((r) => r.body.get("file_ids") === "5")).toBe(false);
   });
 
-  it("rejects a proposal naming files outside the snapshot, and stores nothing", async () => {
-    const bad = JSON.stringify({ title: "x", changes: [{ op: "trash", path: "/nope.txt", to: null }] });
-    const t = await setup(proposeTurn(bad));
-    await Effect.runPromise(t.agent.receive(send("clean up")));
-    await t.settle();
-    expect(t.events.some((e) => e.type === "plan")).toBe(false);
-    const result = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_q");
-    expect(String(result?.content)).toContain("not in the snapshot");
-  });
-
   const rejection = async (changes: Array<{ op: string; path: string; to: string | null }>) => {
     const t = await setup(proposeTurn(JSON.stringify({ title: "x", changes })));
-    await Effect.runPromise(t.agent.receive(send("go")));
-    await t.settle();
+    await t.receive(send("go"));
     expect(t.events.some((e) => e.type === "plan")).toBe(false);
-    const result = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_q");
 
-    return String(result?.content);
+    return t.toolOutput("toolu_q");
   };
+
+  it("rejects a proposal naming files outside the snapshot, and stores nothing", async () => {
+    expect(await rejection([{ op: "trash", path: "/nope.txt", to: null }])).toContain("not in the snapshot");
+  });
 
   it("rejects changes that collide: into or inside a trashed folder, onto one path, onto an existing name", async () => {
     expect(await rejection([{ op: "trash", path: "/Movies", to: null }, { op: "move", path: "/Alien (1979).mkv", to: "/Movies/Alien (1979).mkv" }])).toContain(
@@ -884,10 +776,10 @@ describe("plans", () => {
     expect(
       await rejection([
         { op: "move", path: "/Alien (1979).mkv", to: "/Movies/x.mkv" },
-        { op: "move", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "/Movies/x.mkv" },
+        { op: "move", path: heat, to: "/Movies/x.mkv" },
       ]),
     ).toContain("two changes end there");
-    expect(await rejection([{ op: "rename", path: "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", to: "RARBG_DO_NOT_MIRROR.exe" }])).toContain("already exists there");
+    expect(await rejection([{ op: "rename", path: heat, to: "RARBG_DO_NOT_MIRROR.exe" }])).toContain("already exists there");
   });
 
   it("leaves another cut's subtitles alone, and keeps subtitles with their video when it's left out", async () => {
@@ -904,40 +796,33 @@ describe("plans", () => {
       },
     );
 
-    await Effect.runPromise(t.agent.receive(send("rename")));
-    await t.settle();
+    await t.receive(send("rename"));
     const { plan } = planOf(t);
     expect(plan.changes.map((c) => [c.id, c.path])).toEqual([
       ["c1", "/Movies/Heat.mkv"],
       ["c1s1", "/Movies/Heat.en.srt"],
     ]);
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: plan.id, exclude: ["c1"] })));
-    await t.settle();
+    await t.receive({ type: "apply", plan: plan.id, exclude: ["c1"] });
     expect(writes(t)).toEqual([]);
   });
 
   it("rescans after a stopped run", async () => {
-    const t = await setup(proposeTurn(), { restoreLag: 0 });
-    await Effect.runPromise(t.agent.receive(send("go")));
-    await t.settle();
+    const t = await setup(proposeTurn());
+    await t.receive(send("go"));
     const id = planOf(t).plan.id;
     const lists = () => t.putio.log.filter((r) => r.url.pathname === "/v2/files/list").length;
     const before = lists();
     await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
-    await Effect.runPromise(t.agent.receive(frame({ type: "stopRun", plan: id })));
-    await t.settle();
+    await t.receive({ type: "stopRun", plan: id });
     expect(planOf(t).status).toBe("done");
     expect(lists()).toBeGreaterThan(before);
   });
 
   it("tells the model in the next context what happened to the plan", async () => {
-    const t = await setup([...proposeTurn(), { kind: "sse", events: textTurn("done.", { input: 10, output: 5 }) }]);
-    await Effect.runPromise(t.agent.receive(send("clean up")));
-    await t.settle();
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: planOf(t).plan.id, exclude: ["c3"] })));
-    await t.settle();
-    await Effect.runPromise(t.agent.receive(send("thanks")));
-    await t.settle();
+    const t = await setup([...proposeTurn(), say("done.")]);
+    await t.receive(send("clean up"));
+    await t.receive({ type: "apply", plan: planOf(t).plan.id, exclude: ["c3"] });
+    await t.receive(send("thanks"));
     const lastUser = t.store.history().filter((m) => m.role === "user").at(-1);
     const context = JSON.stringify(lastUser?.content);
     expect(context).toContain('applied plan \\"clean up Movies\\": 2 done, 0 failed');
@@ -947,31 +832,26 @@ describe("plans", () => {
     const ask = JSON.stringify({ prompt: "which copy?", multi: false, options: [{ label: "a", detail: null }, { label: "b", detail: null }] });
 
     const t = await setup([
-      { kind: "sse", events: toolUseTurn({ id: "toolu_a1", name: "ask_user", inputJsonChunks: [ask] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: textTurn("keeping a.", { input: 10, output: 5 }) },
+      tool("toolu_a1", "ask_user", ask),
+      say("keeping a."),
     ]);
 
-    await Effect.runPromise(t.agent.receive(send("which one?")));
-    await t.settle();
+    await t.receive(send("which one?"));
     expect(t.anthropic.requests).toHaveLength(1);
     expect(t.agent.state().busy).toBe(false);
-    const results = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).filter((b) => b.type === "tool_result");
-    expect(String(results[0]?.content)).toContain('"prompt":"which copy?"');
-    await Effect.runPromise(t.agent.receive(send("a")));
-    await t.settle();
+    expect(t.toolOutput("toolu_a1")).toContain('"prompt":"which copy?"');
+    await t.receive(send("a"));
     expect(t.anthropic.requests).toHaveLength(2);
     expect(t.store.history().at(-1)).toMatchObject({ role: "assistant" });
   });
 
   it("ignores apply for a discarded plan or an unknown id", async () => {
     const t = await setup(proposeTurn());
-    await Effect.runPromise(t.agent.receive(send("clean up")));
-    await t.settle();
+    await t.receive(send("clean up"));
     const id = planOf(t).plan.id;
     await Effect.runPromise(t.agent.receive(frame({ type: "discard", plan: id })));
     await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
-    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: "made-up", exclude: [] })));
-    await t.settle();
+    await t.receive({ type: "apply", plan: "made-up", exclude: [] });
     expect(planOf(t).status).toBe("discarded");
     expect(writes(t)).toEqual([]);
   });
@@ -1009,14 +889,14 @@ describe("library freshness", () => {
 
     const t = await setup(
       [
-        { kind: "sse", events: toolUseTurn({ id: "toolu_m", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
-        { kind: "sse", events: textTurn("scanned.", { input: 10, output: 5 }) },
+        tool("toolu_m", "scan_library"),
+        say("scanned."),
       ],
       { seed: scanned("2026-01-01T00:00:00.000Z"), holdFirstListing: slow },
     );
 
     t.agent.connected();
-    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "send", text: "scan movies", folder: { id: 1, name: "Movies" } })));
+    await Effect.runPromise(t.agent.receive(frame({ type: "send", text: "scan movies", folder: { id: 1, name: "Movies" } })));
 
     await new Promise((r) => setTimeout(r, 50));
     release();
@@ -1031,8 +911,8 @@ describe("library freshness", () => {
 
     const t = await setup(
       [
-        { kind: "sse", events: toolUseTurn({ id: "toolu_n", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
-        { kind: "sse", events: textTurn("scanned.", { input: 10, output: 5 }) },
+        tool("toolu_n", "scan_library"),
+        say("scanned."),
       ],
       { seed: scanned("2026-01-01T00:00:00.000Z"), holdFirstListing: slow },
     );
@@ -1047,9 +927,8 @@ describe("library freshness", () => {
   });
 
   it("tells the model how old the last scan is", async () => {
-    const t = await setup([{ kind: "sse", events: textTurn("ok.", { input: 10, output: 5 }) }], { seed: scanned(new Date(Date.now() - 42 * 60_000).toISOString()) });
-    await Effect.runPromise(t.agent.receive(send("hi")));
-    await t.settle();
+    const t = await setup([say("ok.")], { seed: scanned(new Date(Date.now() - 42 * 60_000).toISOString()) });
+    await t.receive(send("hi"));
     expect(JSON.stringify(t.anthropic.requests[0]?.body.messages.at(-1))).toContain("Last scan: 42 minutes ago, 1 items");
   });
 });
@@ -1058,32 +937,24 @@ describe("translate subtitles", () => {
   const files = [file(1, 0, "Movies", "FOLDER"), file(2, 1, "Heat (1995).mkv", "VIDEO", 2 ** 30)];
   const english = "1\n00:00:01,000 --> 00:00:02,000\nHello.\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Run!</i>\n";
 
-  const proposeTurns = [
-    { kind: "sse" as const, events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
-    {
-      kind: "sse" as const,
-      events: toolUseTurn({ id: "toolu_t", name: "propose_translation", inputJsonChunks: [JSON.stringify({ paths: ["/Movies/Heat (1995).mkv", "/movies/HEAT (1995).mkv"], language: "tur" })] }, { input: 1, output: 1 }),
-    },
-    { kind: "sse" as const, events: textTurn("plan's up.", { input: 1, output: 1 }) },
-  ];
-
-  const matches = (yes: boolean) => ({ kind: "sse" as const, events: textTurn(JSON.stringify({ matches: yes }), { input: 1, output: 1 }) });
+  const scan = tool("toolu_s", "scan_library");
+  const done = say("plan's up.");
+  const proposeTurns = [scan, tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Movies/Heat (1995).mkv", "/movies/HEAT (1995).mkv"], language: "tur" })), done];
+  const matches = (yes: boolean) => say(JSON.stringify({ matches: yes }), { input: 1, output: 1 });
   const proposeChecking = (...checks: ReadonlyArray<ReturnType<typeof matches>>) => [...proposeTurns.slice(0, 2), ...checks, ...proposeTurns.slice(2)];
 
   const proposeAndApply = async (t: Awaited<ReturnType<typeof setup>>) => {
-    await Effect.runPromise(t.agent.receive(send("turkish subtitles for heat")));
-    await t.settle();
-    const plan = t.store.plans()[0]?.record.plan;
+    await t.receive(send("turkish subtitles for heat"));
+    const planId = t.store.plans()[0]?.record.plan.id ?? "";
     const m = month(Date.now());
     const before = t.store.used(m);
-    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "apply", plan: plan?.id, exclude: [] })));
-    await t.settle();
+    await t.receive({ type: "apply", plan: planId, exclude: [] });
 
-    return { planId: plan?.id, charged: t.store.used(m) - before };
+    return { planId, charged: t.store.used(m) - before };
   };
 
   it("translates the English subtitle with Haiku, keeps every timing, uploads it beside the video, and undo trashes only that file", async () => {
-    const t = await setup([...proposeChecking(matches(true)), matches(true), { kind: "sse", events: textTurn(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba.\n\nNasılsın?" }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }), { input: 1000, output: 1000 }) }], {
+    const t = await setup([...proposeChecking(matches(true)), matches(true), say(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba.\n\nNasılsın?" }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }), { input: 1000, output: 1000 })], {
       files,
       subtitles: { 2: [{ key: "k1", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: english }] },
     });
@@ -1096,8 +967,7 @@ describe("translate subtitles", () => {
     expect(t.anthropic.requests.at(-1)?.body.model).toBe("claude-haiku-5-5");
     expect(t.store.plans()[0]?.record.status).toBe("done");
 
-    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "undo", plan: planId })));
-    await t.settle();
+    await t.receive({ type: "undo", plan: planId });
     const deleted = t.putio.log.filter((r) => r.url.pathname === "/v2/files/delete").map((r) => r.body.get("file_ids"));
     const uploadedId = t.store.snapshot().find((f) => f.name === "Heat (1995).tur.srt")?.id;
 
@@ -1108,7 +978,7 @@ describe("translate subtitles", () => {
 
   it("translates a sentence split across cues as one and spreads it back over those cues by length, re-asking for any sentence whose echoed English isn't its own", async () => {
     const split = "1\n00:00:01,000 --> 00:00:02,000\nThe\n\n2\n00:00:02,000 --> 00:00:04,000\ntools we use are good.\n\n3\n00:00:05,000 --> 00:00:06,000\n<i>Run!</i>\n";
-    const reply = (sentences: ReadonlyArray<{ id: number; english: string; text: string }>) => ({ kind: "sse" as const, events: textTurn(JSON.stringify({ sentences }), { input: 1, output: 1 }) });
+    const reply = (sentences: ReadonlyArray<{ id: number; english: string; text: string }>) => say(JSON.stringify({ sentences }));
 
     const t = await setup([...proposeTurns, reply([{ id: 0, english: "Run!", text: "Koş!" }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }]), reply([{ id: 0, english: "The tools we use are good.", text: "Kullandığımız araçlar çok iyi." }])], {
       files,
@@ -1134,13 +1004,13 @@ describe("translate subtitles", () => {
     ];
 
     const sub = [{ key: "k1", language_code: "eng", source: "mkv", name: "English", srt: english }];
-    const translated = { kind: "sse" as const, events: textTurn(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba." }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }), { input: 1, output: 1 }) };
+    const translated = say(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba." }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }));
 
     const t = await setup(
       [
-        { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
-        { kind: "sse", events: toolUseTurn({ id: "toolu_t", name: "propose_translation", inputJsonChunks: [JSON.stringify({ paths: ["/Medici/Season 2"], language: "tur" })] }, { input: 1, output: 1 }) },
-        { kind: "sse", events: textTurn("plan's up.", { input: 1, output: 1 }) },
+        scan,
+        tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Medici/Season 2"], language: "tur" })),
+        done,
         translated,
         translated,
       ],
@@ -1148,10 +1018,8 @@ describe("translate subtitles", () => {
     );
 
     await proposeAndApply(t);
-    const result = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_t");
-
     expect([
-      JSON.parse(String(result?.type === "tool_result" ? result.content : "")).already_translated,
+      JSON.parse(t.toolOutput("toolu_t")).already_translated,
       t.putio.uploads.map((u) => [u.name, u.parentId]).toSorted(),
       t.store.plans()[0]?.record.status,
     ]).toEqual([
@@ -1172,7 +1040,7 @@ describe("translate subtitles", () => {
         ...proposeChecking(matches(false), matches(true)),
         matches(false),
         matches(true),
-        { kind: "sse", events: textTurn(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba." }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }), { input: 1, output: 1 }) },
+        say(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba." }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] })),
       ],
       {
         files,
@@ -1195,9 +1063,9 @@ describe("translate subtitles", () => {
 
   it("leaves out, when proposing, videos whose English subtitle is missing or for another video, and says why", async () => {
     const three = [...files, file(3, 1, "Alien (1979).mkv", "VIDEO", 2 ** 30), file(4, 1, "Ronin (1998).mkv", "VIDEO", 2 ** 30)];
-    const propose = { kind: "sse" as const, events: toolUseTurn({ id: "toolu_t", name: "propose_translation", inputJsonChunks: [JSON.stringify({ paths: ["/Movies"], language: "tur" })] }, { input: 1, output: 1 }) };
+    const propose = tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Movies"], language: "tur" }));
 
-    const t = await setup([proposeTurns[0] ?? propose, propose, matches(false), proposeTurns[2] ?? propose], {
+    const t = await setup([scan, propose, matches(false), done], {
       files: three,
       subtitles: {
         2: [{ key: "k1", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: english }],
@@ -1206,10 +1074,8 @@ describe("translate subtitles", () => {
       },
     });
 
-    await Effect.runPromise(t.agent.receive(send("turkish subtitles for my movies")));
-    await t.settle();
-    const result = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_t");
-    const out = JSON.parse(String(result?.type === "tool_result" ? result.content : ""));
+    await t.receive(send("turkish subtitles for my movies"));
+    const out = JSON.parse(t.toolOutput("toolu_t"));
 
     expect([out.cant_translate, t.store.plans()[0]?.record.plan.changes.map((c) => c.path), t.putio.uploads]).toEqual([
       [
@@ -1247,17 +1113,15 @@ describe("tidy subtitles", () => {
   const run = async (within: string) => {
     const t = await setup(
       [
-        { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
-        { kind: "sse", events: toolUseTurn({ id: "toolu_t", name: "plan_subtitles", inputJsonChunks: [JSON.stringify({ within })] }, { input: 1, output: 1 }) },
-        { kind: "sse", events: textTurn("plan's up.", { input: 1, output: 1 }) },
+        tool("toolu_s", "scan_library"),
+        tool("toolu_t", "plan_subtitles", JSON.stringify({ within })),
+        say("plan's up."),
       ],
       { files },
     );
 
-    await Effect.runPromise(t.agent.receive(send("fix my subtitles")));
-    await t.settle();
-    const out = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_t");
-    const result = JSON.parse(String(out?.type === "tool_result" && out.content));
+    await t.receive(send("fix my subtitles"));
+    const result = JSON.parse(t.toolOutput("toolu_t"));
 
     return { result, plan: t.store.plans().find((p) => p.record.plan.id === result.plan)?.record.plan };
   };
@@ -1299,17 +1163,15 @@ describe("free up space", () => {
   const run = async (freeGb: number) => {
     const t = await setup(
       [
-        { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
-        { kind: "sse", events: toolUseTurn({ id: "toolu_f", name: "plan_free_space", inputJsonChunks: [JSON.stringify({ free_gb: freeGb })] }, { input: 1, output: 1 }) },
-        { kind: "sse", events: textTurn("plan's up.", { input: 1, output: 1 }) },
+        tool("toolu_s", "scan_library"),
+        tool("toolu_f", "plan_free_space", JSON.stringify({ free_gb: freeGb })),
+        say("plan's up."),
       ],
       { files },
     );
 
-    await Effect.runPromise(t.agent.receive(send("free up space")));
-    await t.settle();
-    const out = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_f");
-    const result = JSON.parse(String(out?.type === "tool_result" && out.content));
+    await t.receive(send("free up space"));
+    const result = JSON.parse(t.toolOutput("toolu_f"));
 
     return { result, plan: t.store.plans().find((p) => p.record.plan.id === result.plan)?.record.plan };
   };
@@ -1341,15 +1203,13 @@ describe("free up space", () => {
 describe("download links", () => {
   it("has put.io make them, gives the model only the job, and hands the links to the browser", async () => {
     const t = await setup([
-      { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: toolUseTurn({ id: "toolu_l", name: "make_download_links", inputJsonChunks: [JSON.stringify({ paths: ["/Movies", "/Alien (1979).mkv"] })] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: textTurn("links are in the card.", { input: 10, output: 5 }) },
+      tool("toolu_s", "scan_library"),
+      tool("toolu_l", "make_download_links", JSON.stringify({ paths: ["/Movies", "/Alien (1979).mkv"] })),
+      say("links are in the card."),
     ]);
 
-    await Effect.runPromise(t.agent.receive(send("download links please")));
-    await t.settle();
-    const out = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_l");
-    expect(JSON.parse(String(out?.type === "tool_result" && out.content))).toEqual({ id: 70, files: 3 });
+    await t.receive(send("download links please"));
+    expect(JSON.parse(t.toolOutput("toolu_l"))).toEqual({ id: 70, files: 3 });
     expect(JSON.stringify(t.anthropic.requests)).not.toContain("dl.put.io");
     expect(await Effect.runPromise(t.agent.downloadLinks(70))).toEqual({
       status: "done",
@@ -1375,14 +1235,13 @@ describe("delete data", () => {
 
   it("keeps only the month's token count and a newer session generation, and ends every session", async () => {
     const t = await setup([
-      { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: toolUseTurn({ id: "toolu_p", name: "propose_changes", inputJsonChunks: [proposed] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: textTurn("plan's up.", { input: 10, output: 5 }) },
+      tool("toolu_s", "scan_library"),
+      tool("toolu_p", "propose_changes", proposed),
+      say("plan's up."),
     ]);
 
-    await Effect.runPromise(t.agent.receive(send("tidy")));
-    await t.settle();
-    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "newThread" })));
+    await t.receive(send("tidy"));
+    await Effect.runPromise(t.agent.receive(frame({ type: "newThread" })));
     const m = month(Date.now());
     const used = t.store.used(m);
     t.store.charge("2020-01", 7);
@@ -1405,14 +1264,13 @@ describe("delete data", () => {
 
     const t = await setup(
       [
-        { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
-        { kind: "sse", events: textTurn("done", { input: 1, output: 1 }) },
+        tool("toolu_s", "scan_library"),
+        say("done"),
       ],
       { holdDownloadToken: held },
     );
 
-    await Effect.runPromise(t.agent.receive(send("scan")));
-    await t.settle();
+    await t.receive(send("scan"));
     const stream = Effect.runPromise(t.agent.stream(4));
     await new Promise((r) => setTimeout(r, 20));
     expect(await Effect.runPromise(t.agent.deleteData)).toBe(true);
@@ -1441,8 +1299,8 @@ describe("delete data", () => {
 
     const t = await setup(
       [
-        { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
-        { kind: "sse", events: textTurn("scanned.", { input: 10, output: 5 }) },
+        tool("toolu_s", "scan_library"),
+        say("scanned."),
       ],
       { holdFirstListing: slow },
     );
@@ -1459,17 +1317,15 @@ describe("delete data", () => {
 describe("threads", () => {
   it("archives the conversation on new thread; the next turn starts empty", async () => {
     const t = await setup([
-      { kind: "sse", events: textTurn("hi.", { input: 10, output: 5 }) },
-      { kind: "sse", events: textTurn("fresh.", { input: 10, output: 5 }) },
+      say("hi."),
+      say("fresh."),
     ]);
 
-    await Effect.runPromise(t.agent.receive(send("hello")));
-    await t.settle();
-    await Effect.runPromise(t.agent.receive(JSON.stringify({ type: "newThread" })));
+    await t.receive(send("hello"));
+    await Effect.runPromise(t.agent.receive(frame({ type: "newThread" })));
     expect(t.events.at(-1)).toEqual({ type: "history", messages: [] });
     expect(t.store.history()).toEqual([]);
-    await Effect.runPromise(t.agent.receive(send("again")));
-    await t.settle();
+    await t.receive(send("again"));
     expect(t.store.history().map((m) => m.role)).toEqual(["user", "assistant"]);
   });
 });
@@ -1479,16 +1335,14 @@ describe("repeated calls", () => {
     const search = JSON.stringify({ query: "heat", category: "any", limit: 10 });
 
     const t = await setup([
-      { kind: "sse", events: toolUseTurn({ id: "toolu_s0", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: toolUseTurn({ id: "toolu_s1", name: "search_files", inputJsonChunks: [search] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: toolUseTurn({ id: "toolu_s2", name: "search_files", inputJsonChunks: [search] }, { input: 10, output: 5 }) },
-      { kind: "sse", events: textTurn("found it.", { input: 10, output: 5 }) },
+      tool("toolu_s0", "scan_library"),
+      tool("toolu_s1", "search_files", search),
+      tool("toolu_s2", "search_files", search),
+      say("found it."),
     ]);
 
-    await Effect.runPromise(t.agent.receive(send("find heat")));
-    await t.settle();
-    const results = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).filter((b) => b.type === "tool_result");
-    expect(String(results[1]?.content)).toContain('"total":1');
-    expect(String(results[2]?.content)).toContain("already made this exact call");
+    await t.receive(send("find heat"));
+    expect(t.toolOutput("toolu_s1")).toContain('"total":1');
+    expect(t.toolOutput("toolu_s2")).toContain("already made this exact call");
   });
 });

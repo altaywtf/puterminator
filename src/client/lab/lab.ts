@@ -27,17 +27,15 @@ const CASES: Array<{ tool: string; group: string; name: string; output: string }
   ...downloadLinks.map(([name, o]) => ({ tool: "make_download_links", group: "download links", name, output: JSON.stringify(o) })),
 ];
 
-const specimen = (h: H, model: Model, c: (typeof CASES)[number], i: number): Html =>
-  h.div(
-    [h.Class("grid gap-2")],
-    [
-      h.span([h.Class("text-[13px] text-fg-3")], [`${c.tool} · ${c.name}`]),
-      toolCard(h, model, { name: c.tool, key: `lab${i}`, output: c.output }, false) ??
-        h.p([h.Class("m-0 rounded-2xl border border-dashed border-line p-5 text-[13px] text-fg-4")], ["no card: the thread shows only the step line"]),
-    ],
-  );
-
 const labelled = (h: H, label: string, card: Html) => h.div([h.Class("grid gap-2")], [h.span([h.Class("text-[13px] text-fg-3")], [label]), card]);
+
+const specimen = (h: H, model: Model, c: (typeof CASES)[number], i: number): Html =>
+  labelled(
+    h,
+    `${c.tool} · ${c.name}`,
+    toolCard(h, model, { name: c.tool, key: `lab${i}`, output: c.output }, false) ??
+      h.p([h.Class("m-0 rounded-2xl border border-dashed border-line p-5 text-[13px] text-fg-4")], ["no card: the thread shows only the step line"]),
+  );
 
 const section = (h: H, title: string, children: Html[]) =>
   h.section([h.Class("grid gap-8")], [h.h2([h.Class("m-0 border-b border-line pb-2 text-[13px] font-normal text-fg-3")], [title]), ...children]);
@@ -60,13 +58,7 @@ const view = (model: Model, h: H): Document => ({
           h.h1([h.Class("m-0 font-display text-[28px] font-medium text-accent")], ["lab"]),
           ...actionSections(h, model),
           ...["score", "folder", "search", "download links"].map((group) =>
-            h.section(
-              [h.Class("grid gap-8")],
-              [
-                h.h2([h.Class("m-0 border-b border-line pb-2 text-[13px] font-normal text-fg-3")], [group]),
-                ...CASES.flatMap((c, i) => (c.group === group ? [specimen(h, model, c, i)] : [])),
-              ],
-            ),
+            section(h, group, CASES.flatMap((c, i) => (c.group === group ? [specimen(h, model, c, i)] : []))),
           ),
         ],
       ),

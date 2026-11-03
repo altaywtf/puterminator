@@ -77,7 +77,9 @@ describe("config", () => {
 });
 
 describe("OAuth callback", () => {
-  const putio: typeof fetch = async (input, init) => {
+  const gravatar = "https://www.gravatar.com/avatar/abc";
+
+  const putioWith = (avatar: string): typeof fetch => async (input, init) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
 
@@ -96,13 +98,12 @@ describe("OAuth callback", () => {
     return Response.json({ status: "ERROR" }, { status: 401 });
   };
 
-  let avatar = "https://www.gravatar.com/avatar/abc";
-
-  const callback = async (code: string) => {
+  const callback = async (code: string, avatar = gravatar) => {
     const config = await configFrom(valid);
 
     if (!Exit.isSuccess(config)) throw new Error("config failed");
     const calls: Array<[string, string, string, string | null]> = [];
+    let gen = 0;
 
     const agent = (uid: string): UserAgent => ({
       setAuth: (token, username, avatarUrl) =>
@@ -120,7 +121,7 @@ describe("OAuth callback", () => {
       fetch: () => Effect.die("unused"),
     });
 
-    const handle = makeHandler({ config: config.value, agentFor: agent, putioFetch: putio });
+    const handle = makeHandler({ config: config.value, agentFor: agent, putioFetch: putioWith(avatar) });
     const request = new Request(`${PUBLIC_URL}/auth/callback?code=${code}&state=st`, { headers: { cookie: "__Host-pt_oauth_state=st" } });
     const response = HttpServerResponse.toWeb(await Effect.runPromise(handle(HttpServerRequest.fromWeb(request), PUBLIC_URL)));
     const session = response.headers.getSetCookie().find((c) => c.startsWith("__Host-pt_session=")) ?? "";
@@ -132,20 +133,18 @@ describe("OAuth callback", () => {
     return { response, calls, session, get, me: await (await get("/api/me")).json() };
   };
 
-  let gen = 0;
-
-  it("exchanges the code, stores the token in the user's object and signs a session", async () => {
+  it("exchanges the code, stores the token in the user's object and sets an HttpOnly, Secure session cookie", async () => {
     const { response, calls, session, me } = await callback("good-code");
     expect([response.status, response.headers.get("location")]).toEqual([302, "/"]);
-    expect(calls).toEqual([["putio-77", "tok-1", "altay", "https://www.gravatar.com/avatar/abc"]]);
+    expect(calls).toEqual([["putio-77", "tok-1", "altay", gravatar]]);
     expect(session).toMatch(/HttpOnly/);
+    expect(session).toMatch(/Secure/);
+    expect(session).toMatch(/Path=\//);
     expect(me).toEqual({ configured: true, signedIn: true });
   });
 
   it("ends the session on logout, even for a copy of the cookie kept elsewhere", async () => {
-    const { get, session } = await callback("good-code");
-    expect(session).toMatch(/Secure/);
-    expect(session).toMatch(/Path=\//);
+    const { get } = await callback("good-code");
     expect(await (await get("/api/me")).json()).toEqual({ configured: true, signedIn: true });
     expect((await get("/auth/logout", "POST")).status).toBe(200);
     expect(await (await get("/api/me")).json()).toEqual({ configured: true, signedIn: false });
@@ -161,12 +160,9 @@ describe("OAuth callback", () => {
 
   it("keeps only an https avatar, since the browser loads it directly", async () => {
     for (const bad of ["http://www.gravatar.com/avatar/abc", "javascript:alert(1)", ""]) {
-      avatar = bad;
-      const { calls } = await callback("good-code");
+      const { calls } = await callback("good-code", bad);
       expect(calls[0]?.[3], bad).toBeNull();
     }
-
-    avatar = "https://www.gravatar.com/avatar/abc";
   });
 
   it("answers 502 and stores nothing when put.io rejects the code", async () => {

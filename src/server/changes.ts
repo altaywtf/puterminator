@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 import type { PutioSdkContext } from "@putdotio/sdk";
 import type { Change, Plan, Question, Run } from "../shared/actions";
 import { createFolder, moveFile, type PutioError, PutioFailed, renameFile, restoreFile, stepMessage, trashFile } from "./putio";
+import { stemOf } from "./audit";
 import type { WalkedFile } from "./tree";
 
 export const MAX_CHANGES = 200;
@@ -32,9 +33,11 @@ export type AskInput = typeof AskInput.Type;
     when it was proposed, so undo can put it back. */
 export type StoredPlan = { plan: Plan; ids: Record<string, number>; parents: Record<string, number> };
 
-const clean = (path: string) => `/${path.trim().replace(/^\/+|\/+$/g, "")}`;
-const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+export const cleanPath = (path: string) => `/${path.trim().replace(/^\/+|\/+$/g, "")}`;
+export const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 export const parentOf = (path: string) => path.slice(0, path.lastIndexOf("/")) || "/";
+export const joinPath = (folder: string, name: string) => `${folder.replace(/\/$/, "")}/${name}`;
+export const videoOf = (changeId: string) => changeId.replace(/s\d+$/, "");
 const badName = (name: string) => name.trim() === "" || name.includes("/") || name.length > 255 || name === "." || name === "..";
 
 /** Every change must name a file in the snapshot, once, and say something valid about it. Errors go back to the model. */
@@ -49,7 +52,7 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
   const parents: Record<string, number> = {};
   const problems: string[] = [];
   input.changes.forEach((c, i) => {
-    const path = clean(c.path);
+    const path = cleanPath(c.path);
     const f = byPath.get(path);
 
     if (!f) return void problems.push(`${path}: not in the snapshot`);
@@ -58,19 +61,18 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
     seen.add(f.id);
     let to: string | null = null;
 
-    if (c.op === "trash") to = null;
-    else if (c.op === "rename") {
+    if (c.op === "rename") {
       const name = (c.to ?? "").trim();
 
       if (badName(name)) return void problems.push(`${path}: rename needs a plain new name`);
 
       if (name === f.name) return void problems.push(`${path}: already named that`);
 
-      if (byPath.has(`${parentOf(path).replace(/\/$/, "")}/${name}`)) return void problems.push(`${path}: ${name} already exists there`);
+      if (byPath.has(joinPath(parentOf(path), name))) return void problems.push(`${path}: ${name} already exists there`);
       to = name;
-    } else {
+    } else if (c.op === "move") {
       if (!c.to) return void problems.push(`${path}: move needs the new full path`);
-      const target = clean(c.to);
+      const target = cleanPath(c.to);
 
       if (target === path) return void problems.push(`${path}: already there`);
 
@@ -100,7 +102,7 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
   return { plan: { id, title: input.title.trim().slice(0, 80) || "changes", changes: withSubtitles }, ids, parents };
 };
 
-const finalPath = (c: Change) => (c.op === "rename" ? `${parentOf(c.path).replace(/\/$/, "")}/${c.to}` : (c.to ?? c.path));
+const finalPath = (c: Change) => (c.op === "rename" ? joinPath(parentOf(c.path), c.to ?? "") : (c.to ?? c.path));
 const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
 const conflicts = (changes: ReadonlyArray<Change>): string[] => {
@@ -127,7 +129,6 @@ const conflicts = (changes: ReadonlyArray<Change>): string[] => {
 };
 
 const SUBTITLE = /^((?:[._ -][a-z]{2,8})*\.(?:srt|sub|idx|ass|ssa|vtt))$/i;
-const stemOf = (name: string) => name.replace(/\.[a-z0-9]{2,4}$/i, "");
 
 const subtitlesFor = (
   snapshot: ReadonlyArray<WalkedFile>,
@@ -141,31 +142,30 @@ const subtitlesFor = (
 
   if (!video || video.file_type !== "VIDEO" || c.op === "trash" || !c.to) return [];
   const stem = stemOf(video.name);
-  const target = c.op === "rename" ? `${parentOf(c.path).replace(/\/$/, "")}/${c.to}` : c.to;
+  const target = finalPath(c);
   const newStem = stemOf(nameOf(target));
-  const folder = parentOf(target).replace(/\/$/, "");
+  const folder = parentOf(target);
 
   return sidecarsOf(snapshot, video)
     .filter((f) => !seen.has(f.id))
     .flatMap((f, k) => {
       const name = newStem + f.name.slice(stem.length);
 
-      if (byPath.has(`${folder}/${name}`)) return [];
+      if (byPath.has(joinPath(folder, name))) return [];
       seen.add(f.id);
       const id = `${c.id}s${k + 1}`;
       ids[id] = f.id;
 
       if (f.parent_id != null) parents[id] = f.parent_id;
 
-      return [{ id, op: c.op, path: f.path, to: c.op === "rename" ? name : `${folder}/${name}`, bytes: 0 }];
+      return [{ id, op: c.op, path: f.path, to: c.op === "rename" ? name : joinPath(folder, name), bytes: 0 }];
     });
 };
 
 /** Subtitle files beside a video that are named after it, like `Heat.eng.srt` next to `Heat.mkv`, matched
     regardless of case. A sibling video with a longer name, like `Heat.Unrated.1080p.mkv`, claims subtitles
-    that share its next word, like `Heat.Unrated.en.srt`; when siblings differ from
-    the video only in case, only an exact-case match counts, and a sibling with the very same name leaves the
-    subtitles to neither. */
+    that share its next word, like `Heat.Unrated.en.srt`. When siblings differ from the video only in case,
+    only an exact-case match counts; a sibling with the very same name leaves the subtitles to neither. */
 export const sidecarsOf = (snapshot: ReadonlyArray<WalkedFile>, video: WalkedFile) => {
   const exact = stemOf(video.name);
   const stem = exact.toLowerCase();
@@ -212,12 +212,12 @@ export const staleChanges = (snapshot: ReadonlyArray<WalkedFile>, changes: Reado
 
 const MAX_TRANSLATIONS = 30;
 
-const subtitleTarget = (video: WalkedFile, language: string) => `${parentOf(video.path).replace(/\/$/, "")}/${stemOf(video.name)}.${language}.srt`;
+const subtitleTarget = (video: WalkedFile, language: string) => joinPath(parentOf(video.path), `${stemOf(video.name)}.${language}.srt`);
 
 const MAX_FOLDERS = 30;
 
 export const untranslated = (snapshot: ReadonlyArray<WalkedFile>, language: string, within: string) => {
-  const prefix = clean(within) === "/" ? "/" : `${clean(within).toLowerCase()}/`;
+  const prefix = cleanPath(within) === "/" ? "/" : `${cleanPath(within).toLowerCase()}/`;
   const paths = new Set(snapshot.map((f) => f.path.toLowerCase()));
   const folders = new Map<string, { folder: string; videos: number; missing: number }>();
 
@@ -269,7 +269,7 @@ export const validateTranslation = (
     changes.push({ id: changeId, op: "translate", path: video.path, to, bytes: 0 });
   };
 
-  for (const raw of paths.map(clean)) {
+  for (const raw of paths.map(cleanPath)) {
     const entry = byPath.get(raw.toLowerCase());
 
     if (entry?.file_type === "FOLDER" || raw === "/") {
@@ -326,18 +326,16 @@ export const uploadedKey = (changeId: string) => `${changeId}u`;
 
 /** The reverse of every step that may have reached put.io, last first. Each keeps its change id, so it acts on the same file,
     except a translation, whose reverse trashes the uploaded subtitle under `uploadedKey`. */
-
 export const undoChanges = (run: Run): Change[] => {
   const done = new Set(run.steps.filter((s) => s.state === "done" || (s.state === "failed" && s.maybeApplied)).map((s) => s.change));
   const reversed = run.changes.filter((c) => done.has(c.id)).reverse();
-  const videoOf = (c: Change) => c.id.replace(/s\d+$/, "");
-  const videosFirst = reversed.flatMap((c) => (videoOf(c) !== c.id && done.has(videoOf(c)) ? [] : [c, ...reversed.filter((s) => s.id !== c.id && videoOf(s) === c.id)]));
+  const videosFirst = reversed.flatMap((c) => (videoOf(c.id) !== c.id && done.has(videoOf(c.id)) ? [] : [c, ...reversed.filter((s) => s.id !== c.id && videoOf(s.id) === c.id)]));
 
   return videosFirst
     .map((c): Change => {
       if (c.op === "trash") return { ...c, op: "restore", to: null };
 
-      if (c.op === "rename") return { ...c, path: `${parentOf(c.path).replace(/\/$/, "")}/${c.to ?? ""}`, to: nameOf(c.path), bytes: 0 };
+      if (c.op === "rename") return { ...c, path: joinPath(parentOf(c.path), c.to ?? ""), to: nameOf(c.path), bytes: 0 };
 
       if (c.op === "move") return { ...c, path: c.to ?? c.path, to: c.path, bytes: 0 };
 
@@ -359,8 +357,6 @@ export const folderIds = (snapshot: ReadonlyArray<WalkedFile>, rootId: number, k
 
   return ids;
 };
-
-const joinPath = (folder: string, name: string) => `${folder.replace(/\/$/, "")}/${name}`;
 
 const currentPath = (folders: Map<string, number>, id: number, fallback: string) =>
   [...folders].find(([, f]) => f === id)?.[0] ?? fallback;

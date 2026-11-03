@@ -16,7 +16,7 @@ describe("ClientEvent", () => {
     expect(Exit.isSuccess(decodeClient('{"type":"stop"}'))).toBe(true);
   });
 
-  it("rejects what v1's zod schema rejected", () => {
+  it("rejects empty or over-long text, a negative or fractional folder id, an unknown type and non-JSON", () => {
     for (const raw of [
       '{"type":"send","text":"","folder":{"id":0,"name":"Your Files"}}',
       `{"type":"send","text":"${"x".repeat(4001)}","folder":{"id":0,"name":"Your Files"}}`,

@@ -1,4 +1,4 @@
-import type { Audit } from "../../shared/audit.ts";
+import type { Audit } from "../../shared/audit";
 
 export const audit: Audit = {
   at: "2026-10-27T09:12:00.000Z",

@@ -26,10 +26,10 @@ describe("blockedBy", () => {
 });
 
 describe("pool totals", () => {
-  it("keeps each user's largest reported total, so a retried or stale report changes nothing", () => {
+  it("keeps each user's largest reported total, so a retried or stale report changes nothing, and forgets past months", () => {
     const pool = makeStore(memorySql());
 
-    expect([pool.poolReport("2026-11", "a", 50), pool.poolReport("2026-11", "a", 50), pool.poolReport("2026-11", "a", 20), pool.poolReport("2026-11", "b", 5), pool.poolReport("2026-12", "a", 1)]).toEqual([50, 50, 50, 55, 1]);
+    expect([pool.poolReport("2026-11", "a", 50), pool.poolReport("2026-11", "a", 50), pool.poolReport("2026-11", "a", 20), pool.poolReport("2026-11", "b", 5), pool.poolReport("2026-12", "a", 1), pool.poolReport("2026-11", "b", 5)]).toEqual([50, 50, 50, 55, 1, 5]);
   });
 });
 

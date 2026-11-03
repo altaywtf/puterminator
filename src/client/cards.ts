@@ -8,18 +8,16 @@ import { Plan, Question } from "../shared/actions";
 import { DownloadLinksOutput, FreeSpaceOutput, LayoutOutput, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
 import { discardedLine, planCard, questionCard, runCard } from "./actions";
 import { art, type Mood, moodOf } from "./art";
-import { has, type Index, indexOf, isFolder, isRegular, type Node, putioUrl, resolve } from "./library";
+import { has, type Index, isFolder, isRegular, libraryIndex, type Node, putioUrl, resolve } from "./library";
 import { Message, type Model } from "./main";
 import { auditOf, fmt, size } from "./steps";
 
 type H = HtmlBuilder<Message>;
 
-/** All a card reads from the app: which toggles are open, the last scan's file index, the plans, and whether a turn is running. */
+/** All a card reads from the app: which toggles are open, the last scan, the plans, whether a reply is running, and fetched download links. */
 export type Ctx = Pick<Model, "expanded" | "library" | "plans"> & { agent?: Model["agent"]; links?: Model["links"] };
 
 const ROWS = 5;
-
-const indexOfCtx = (ctx: Ctx): Index | null => (ctx.library ? indexOf(ctx.library) : null);
 
 export const bytes = (n: Node) => (n.size === 0 ? "empty" : size(n.size));
 
@@ -222,7 +220,7 @@ const scoreCard = (h: H, ctx: Ctx, a: Audit, uid: string, live: boolean) => {
           art(h, mood, 40),
         ],
       ),
-      ...auditLines(h, ctx, indexOfCtx(ctx), uid, a),
+      ...auditLines(h, ctx, libraryIndex(ctx.library), uid, a),
     ],
   );
 };
@@ -245,7 +243,7 @@ const duRow = (h: H, n: Node, max: number) =>
   ]);
 
 const folderCard = (h: H, ctx: Ctx, key: string, out: ListFolderOutput, live: boolean): Html | null => {
-  const ix = indexOfCtx(ctx);
+  const ix = libraryIndex(ctx.library);
 
   if (!ix) return null;
   const base = out.path === "/" ? "" : out.path;
@@ -273,7 +271,7 @@ const folderCard = (h: H, ctx: Ctx, key: string, out: ListFolderOutput, live: bo
 };
 
 const searchCard = (h: H, ctx: Ctx, key: string, out: SearchFilesOutput, live: boolean): Html | null => {
-  const ix = indexOfCtx(ctx);
+  const ix = libraryIndex(ctx.library);
 
   if (!ix) return null;
 
@@ -381,6 +379,5 @@ const CARDS = {
 const hasCard = (name: string): name is keyof typeof CARDS => Object.hasOwn(CARDS, name);
 
 /** The card for a finished tool call, or null when the tool has none or its output doesn't decode. */
-export const toolCard = (h: H, ctx: Ctx, tool: { name: string; key: string; output: string | null }, live: boolean, settled = false): Html | null => {
-  return hasCard(tool.name) && tool.output !== null ? CARDS[tool.name](h, ctx, tool.key, tool.output, live, settled) : null;
-};
+export const toolCard = (h: H, ctx: Ctx, tool: { name: string; key: string; output: string | null }, live: boolean, settled = false): Html | null =>
+  hasCard(tool.name) && tool.output !== null ? CARDS[tool.name](h, ctx, tool.key, tool.output, live, settled) : null;

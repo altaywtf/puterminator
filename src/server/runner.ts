@@ -22,7 +22,7 @@ export class AnthropicClient extends Context.Service<AnthropicClient, Anthropic>
 
 export const anthropicLayer = (opts: {
   apiKey: Redacted.Redacted<string>;
-  fetch?: typeof fetch;
+  fetch?: typeof fetch | undefined;
   maxRetries?: number;
 }) =>
   Layer.sync(AnthropicClient, () => {
@@ -46,17 +46,33 @@ const OTHER_MODELS = 2;
 
 const priceVsSonnet = (model: string) => PRICE_VS_SONNET.find(([prefix]) => model.startsWith(prefix))?.[1] ?? OTHER_MODELS;
 
-export const weightedTokens = (u: Usage, model: string) =>
+const weightedTokens = (u: Usage, model: string) =>
   Math.ceil(
     (u.input_tokens + (u.cache_creation_input_tokens ?? 0) * 1.25 + (u.cache_read_input_tokens ?? 0) * 0.1 + u.output_tokens * 5) * priceVsSonnet(model),
   );
 
 const CHARS_PER_TOKEN = 4;
 
-export const withStreamedOutput = (u: Usage, streamedChars: number): Usage => ({
+const withStreamedOutput = (u: Usage, streamedChars: number): Usage => ({
   ...u,
   output_tokens: Math.max(u.output_tokens, Math.ceil(streamedChars / CHARS_PER_TOKEN)),
 });
+
+type Metered = { readonly usage: Usage; readonly model: string; readonly content: unknown };
+
+/** Pays for one request's weighted tokens as its usage grows. `chargeStreamed` covers a stream that failed before its final usage. */
+export const usageMeter = (pay: (tokens: number) => void) => {
+  let charged = 0;
+
+  const charge = (m: Metered) => {
+    const total = weightedTokens(m.usage, m.model);
+
+    if (total > charged) pay(total - charged);
+    charged = Math.max(charged, total);
+  };
+
+  return { charge, chargeStreamed: (m: Metered) => charge({ ...m, usage: withStreamedOutput(m.usage, JSON.stringify(m.content).length) }) };
+};
 
 const SPEND_LIMIT = /usage limit|spend limit|regain access/i;
 
@@ -98,9 +114,6 @@ const mapAnthropicError = (cause: unknown): TurnError => {
 
   return new AnthropicUnavailable({ message: cause instanceof Error ? cause.message : String(cause) });
 };
-
-/** A failure the model sees as an `is_error` tool result; the turn goes on. */
-export class ToolFailure extends Schema.TaggedError<ToolFailure>()("ToolFailure", { message: Schema.String }) {}
 
 export interface EffectTool<R> {
   /** Phantom, covariant: lets runTurn infer the union of every tool's requirements. */
@@ -151,7 +164,7 @@ export const effectTool = <S extends Schema.Codec<any, any, never, never>, R>(de
   name: string;
   description: string;
   input: S;
-  run: (input: S["Type"]) => Effect.Effect<string, ToolFailure | PutioError, R>;
+  run: (input: S["Type"]) => Effect.Effect<string, PutioError, R>;
 }): EffectTool<R> => {
   const jsonSchema = strictJsonSchema(def.input);
 
@@ -185,7 +198,6 @@ export const effectTool = <S extends Schema.Codec<any, any, never, never>, R>(de
               },
               PutioRateLimited: rateLimitMessage,
               PutioFailed: ({ message }) => message,
-              ToolFailure: ({ message }) => message,
             }),
           );
         },
@@ -258,20 +270,13 @@ export const runTurn = <T extends EffectTool<any>>(
 
           for await (const stream of runner) {
             let sent = 0;
-            let charged = 0;
             let last: BetaMessage | null = null;
-
-            const charge = (usage: Usage, model: string) => {
-              const total = weightedTokens(usage, model);
-
-              if (total > charged) input.onUsage?.(total - charged);
-              charged = Math.max(charged, total);
-            };
+            const meter = usageMeter((tokens) => input.onUsage?.(tokens));
 
             stream.on("streamEvent", (e, snapshot) => {
               last = snapshot;
 
-              if (e.type === "message_start" || e.type === "message_delta") charge(snapshot.usage, snapshot.model);
+              if (e.type === "message_start" || e.type === "message_delta") meter.charge(snapshot);
 
               if (Date.now() - sent < input.partialEveryMs) return;
               sent = Date.now();
@@ -281,12 +286,12 @@ export const runTurn = <T extends EffectTool<any>>(
             const final = stream.finalMessage();
 
             final.catch(() => {
-              if (last) charge(withStreamedOutput(last.usage, JSON.stringify(last.content).length), last.model);
+              if (last) meter.chargeStreamed(last);
             });
 
             const message = await final;
 
-            charge(message.usage, message.model);
+            meter.charge(message);
             Queue.offerUnsafe(queue, { type: "assistant", message });
 
             if (message.stop_reason === "refusal") break;

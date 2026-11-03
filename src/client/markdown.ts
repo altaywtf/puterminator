@@ -5,10 +5,11 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import type { Library } from "../shared/contract";
-import { type Index, indexOf, putioUrl, resolve } from "./library";
+import { type Index, isRegular, libraryIndex, putioUrl, resolve } from "./library";
 
 const processor = unified().use(remarkParse).use(remarkGfm);
 const SAFE_URL = /^(https?:|mailto:)/i;
+const PARAGRAPH = "m-0 max-w-[64ch] text-pretty text-fg";
 
 type Child = Html | string;
 
@@ -21,11 +22,10 @@ function render(node: Nodes): Child {
     case "text":
     case "html":
       return node.value;
-    case "inlineCode":
-    {
+    case "inlineCode": {
       const chip = "rounded-md bg-raised px-1.5 py-px font-mono text-mono text-fg-strong box-decoration-clone";
       const found = files ? resolve(files, node.value) : null;
-      const hit = found && found.id >= 0 ? found : null;
+      const hit = found && isRegular(found) ? found : null;
 
       return hit
         ? ih.a(
@@ -47,7 +47,7 @@ function render(node: Nodes): Child {
         [ih.code([], [node.value])],
       );
     case "paragraph":
-      return ih.p([ih.Class("m-0 max-w-[64ch] text-pretty text-fg")], children(node));
+      return ih.p([ih.Class(PARAGRAPH)], children(node));
     case "strong":
       return ih.strong([ih.Class("font-semibold text-fg-strong")], children(node));
     case "emphasis":
@@ -126,14 +126,14 @@ const caret = () => ih.span([ih.Class("caret ms-0.5"), ih.AriaHidden(true)], [])
 
 /** `streaming` puts a blinking caret after the last word while the text still grows. */
 export const renderMarkdown = (text: string, streaming: boolean, library: Library | null = null): Html => {
-  files = library ? indexOf(library) : null;
+  files = libraryIndex(library);
   const root: Root = processor.parse(text);
   const nodes = children(root);
   const last = root.children.at(-1);
 
   if (streaming) {
     if (last?.type === "paragraph")
-      nodes[nodes.length - 1] = ih.p([ih.Class("m-0 max-w-[64ch] text-pretty text-fg")], [...children(last), caret()]);
+      nodes[nodes.length - 1] = ih.p([ih.Class(PARAGRAPH)], [...children(last), caret()]);
     else nodes.push(caret());
   }
 

@@ -13,11 +13,7 @@ export type PutioFile = {
 
 export type WalkedFile = PutioFile & { path: string; depth: number };
 
-/**
- * Rebuild paths for everything under `rootId` (0 is Your Files) from a flat listing.
- * The scan reads `/v2/files/list?parent_id=-1` (every file, flat, unordered) because a
- * per-folder walk exhausts put.io's per-window request limit on big libraries.
- */
+/** Rebuilds paths for everything under `rootId` (0 is Your Files) from the flat, unordered `listAll`. */
 export function buildTree(all: readonly PutioFile[], rootId: number) {
   const byId = new Map(all.map((f) => [f.id, f]));
   const memo = new Map<number, { path: string; depth: number } | null>([[rootId, { path: "", depth: 0 }]]);

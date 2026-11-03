@@ -7,6 +7,7 @@ A chat agent for your put.io library, at [puterminator.com](https://puterminator
 - Scores a folder for junk, duplicates, release names and wrapper folders.
 - Finds files, plays videos in the browser and makes put.io download links.
 - Proposes renames, moves and trash as a diff. Trash goes to put.io's trash, and an applied plan can be undone.
+- Free: 300 credits a month for everyone, from a shared monthly budget.
 
 ## Run it
 

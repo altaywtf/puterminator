@@ -73,21 +73,21 @@ const SPRITES: Record<Mood, string[]> = {
   jar: compose([...shades, [15, 9, "# #"], [15, 10, "#s#"], [15, 11, "###"]]),
 };
 
-/** The score band picks the frame; the number stays the value. */
+/** The sprite for an audit's score band. */
 export const moodOf = (a: Audit): Mood =>
   a.totals.files === 0
     ? "asleep"
     : a.score >= 90 && a.junk.count === 0 && a.duplicates.groups === 0
-    ? "jar"
-    : a.score >= 90
-      ? "shades"
-      : a.score >= 75
-        ? "dust"
-        : a.score >= 50
-          ? "mop"
-          : a.score >= 25
-            ? "wading"
-            : "flood";
+      ? "jar"
+      : a.score >= 90
+        ? "shades"
+        : a.score >= 75
+          ? "dust"
+          : a.score >= 50
+            ? "mop"
+            : a.score >= 25
+              ? "wading"
+              : "flood";
 
 const pixels = <M>(h: HtmlBuilder<M>, rows: readonly string[], fills: Record<string, string>, height: number, cls: string): Html => {
   const w = Math.max(...rows.map((r) => r.length));

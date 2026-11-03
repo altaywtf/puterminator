@@ -30,20 +30,3 @@ describe("thinking clock", () => {
     expect(thoughtSeconds(emptyClock, "m1.0")).toBeNull();
   });
 });
-
-describe("toTurns with a live partial", () => {
-  it("appends the partial to the assistant turn that holds the finished tool step", () => {
-    const history: MessageParam[] = [
-      { role: "user", content: [{ type: "text", text: "Audit my library" }] },
-      { role: "assistant", content: [tool] },
-      { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "{}" }] },
-    ];
-
-    const turns = toTurns(history, [{ type: "text", text: "Your score" }], true);
-    expect(turns.map((t) => t.role)).toEqual(["user", "assistant"]);
-    expect(turns[1]!.items.map((i) => [i.kind, i.key])).toEqual([
-      ["tool", "m1.0"],
-      ["text", "live.0"],
-    ]);
-  });
-});

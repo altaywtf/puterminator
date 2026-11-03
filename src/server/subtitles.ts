@@ -1,6 +1,6 @@
-import { junkFinder } from "./audit";
-import { MAX_CHANGES, parentOf, type ProposeInput, sidecarsOf } from "./changes";
-import { isExtraVideo, resolveScope, stemOf } from "./layout";
+import { junkFinder, stemOf } from "./audit";
+import { joinPath, MAX_CHANGES, parentOf, type ProposeInput, sidecarsOf } from "./changes";
+import { isExtraVideo, resolveScope } from "./layout";
 import type { WalkedFile } from "./tree";
 
 const SUBS_DIR = /^(subs?|subtitles?)$/i;
@@ -61,7 +61,7 @@ export function planSubtitles(snapshot: ReadonlyArray<WalkedFile>, within: strin
 
     if (!video || !s) continue;
     const name = `${stemOf(video.name)}.srt`;
-    const target = `${parentOf(video.path).replace(/\/$/, "")}/${name}`;
+    const target = joinPath(parentOf(video.path), name);
 
     if (subs.length > 1) {
       for (const sub of subs) skipped.push({ path: sub.path, why: `one of ${subs.length} subtitles for ${video.name}` });

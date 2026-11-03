@@ -108,6 +108,7 @@ export const makeStore = (sql: Sql) => {
     },
 
     poolReport: (m: string, user: string, tokens: number): number => {
+      sql.exec("DELETE FROM pool_spend WHERE month < ?", m);
       sql.exec(
         "INSERT INTO pool_spend (month, user, tokens) VALUES (?, ?, ?) ON CONFLICT(month, user) DO UPDATE SET tokens = MAX(tokens, excluded.tokens)",
         m,

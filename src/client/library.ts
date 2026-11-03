@@ -102,6 +102,8 @@ export const indexOf = (lib: Library): Index => {
   return built;
 };
 
+export const libraryIndex = (lib: Library | null): Index | null => (lib ? indexOf(lib) : null);
+
 /** A path or file name as the model or a tool wrote it, matched to one snapshot entry. */
 export const resolve = (ix: Index, text: string): Node | null => {
   const t = text.trim().replace(/\/+$/, "");

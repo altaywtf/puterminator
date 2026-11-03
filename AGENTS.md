@@ -11,6 +11,7 @@ puterminator is a chat agent for one person's put.io library, live at <https://p
 | Tool loop on the Anthropic SDK | [`runner.ts`](src/server/runner.ts) |
 | put.io calls and error mapping | [`putio.ts`](src/server/putio.ts) |
 | Scoring rules (pure) | [`audit.ts`](src/server/audit.ts) |
+| Credits: pace line, caps, what blocks a turn (pure) | [`credits.ts`](src/server/credits.ts) |
 | Plan validation, apply and undo steps | [`changes.ts`](src/server/changes.ts) |
 | Durable Object SQLite | [`store.ts`](src/server/store.ts) |
 | Wire frames and tool outputs | [`src/shared`](src/shared) |
@@ -33,7 +34,7 @@ pnpm verify                      # the gate: typecheck, lint, knip, test, build
 | Change | Proof |
 | --- | --- |
 | Docs, copy, lint config | `pnpm verify` |
-| Scoring rules, plan validation, apply and undo | Vitest at the owner's boundary: [`audit.test.ts`](src/server/audit.test.ts), [`conversation.test.ts`](src/server/conversation.test.ts) against the fakes in [`src/server/testing`](src/server/testing) |
+| Scoring rules, credits, plan validation, apply and undo | Vitest at the owner's boundary: [`audit.test.ts`](src/server/audit.test.ts), [`credits.test.ts`](src/server/credits.test.ts), [`conversation.test.ts`](src/server/conversation.test.ts) against the fakes in [`src/server/testing`](src/server/testing) |
 | Tools, turns, routes | [`conversation.test.ts`](src/server/conversation.test.ts), [`routes.test.ts`](src/server/routes.test.ts) |
 | Cards and visuals | `pnpm lab`, plus `pnpm dev:fake` at 375px wide for anything a phone shows |
 | Deployed behaviour | CI's smoke step after deploy, then a read-only look at the live site |
@@ -42,7 +43,8 @@ Add a test only when it catches something existing coverage misses, and prove it
 
 ## Don't break
 
-- The Durable Object class `Puterminator`, its `putio-<user_id>` instance names and the v1 SQLite tables in [`store.ts`](src/server/store.ts) hold users' data. Renaming any of them strands it.
+- The Durable Object class `Puterminator`, its `putio-<user_id>` instance names, the `pool` instance that sums everyone's credits, and the v1 SQLite tables in [`store.ts`](src/server/store.ts) hold users' data. Renaming any of them strands it.
+- Every Anthropic request is charged, stopped ones included, before the next one starts; the shared budget only holds if no path skips the pool.
 - Tool input schemas stay valid under strict tool use: no optional keys, no numeric bounds, closed objects (`Schema.Finite`, not `Schema.Int`).
 - History is append-only; editing a stored message breaks thinking signatures and the prompt cache.
 - The model only proposes library changes: trash, rename, move and restore start from browser frames (`apply`, `retry`, `undo`) and are never retried automatically. The one write a tool makes is asking put.io for download links.

@@ -1,7 +1,7 @@
 import * as Option from "effect/Option";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { FileFlag } from "../shared/contract";
-import { has, type Index, indexOf, isFolder, isRegular, type Node, putioUrl } from "./library";
+import { has, type Index, isFolder, isRegular, libraryIndex, type Node, putioUrl } from "./library";
 import { Message, type Model, PLAYER_CLOSE_ID, PLAYER_ID, treeNodeId } from "./main";
 import { bytes, isPlayable } from "./cards";
 import { fmt, size } from "./steps";
@@ -10,22 +10,20 @@ type H = HtmlBuilder<Message>;
 
 const TREE_CAP = 300;
 
-const libraryIndex = (model: Model): Index | null => (model.library ? indexOf(model.library) : null);
-
 const putioLink = (h: H, n: Node): Html =>
-  !isRegular(n)
-    ? h.span([], [])
-    : h.a(
-    [
-      h.Href(putioUrl(n.id)),
-      h.Target("_blank"),
-      h.Rel("noopener noreferrer"),
-      h.Class("hit text-fg-4 transition-colors duration-160 hover:text-fg"),
-      h.AriaLabel(`open ${n.name} on put.io`),
-      h.Title("open on put.io"),
-    ],
-    ["↗"],
-  );
+  isRegular(n)
+    ? h.a(
+        [
+          h.Href(putioUrl(n.id)),
+          h.Target("_blank"),
+          h.Rel("noopener noreferrer"),
+          h.Class("hit text-fg-4 transition-colors duration-160 hover:text-fg"),
+          h.AriaLabel(`open ${n.name} on put.io`),
+          h.Title("open on put.io"),
+        ],
+        ["↗"],
+      )
+    : h.span([], []);
 
 const treeRow = (h: H, model: Model, ix: Index, n: Node, prefix: string, last: boolean): Html[] => {
   const folder = isFolder(n);
@@ -49,7 +47,7 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, prefix: string, last: b
         [
           h.Type("button"),
           h.Class("flex min-w-0 items-baseline text-start whitespace-pre"),
-          h.OnClick(folder ? Message.ToggledTreeNode({ id: n.id }) : Message.RevealedFile({ id: n.id, ancestors: [] })),
+          h.OnClick(folder ? Message.ToggledTreeNode({ id: n.id }) : Message.RevealedFile({ id: n.id })),
         ],
         [
           h.span([h.Class("flex-none text-fg-4/60"), h.AriaHidden(true)], [`${prefix}${last ? "└─ " : "├─ "}`]),
@@ -96,9 +94,9 @@ const treeRow = (h: H, model: Model, ix: Index, n: Node, prefix: string, last: b
   ];
 };
 
-/** The last scan as a tree, sizes against the largest sibling, in a drawer over the thread. */
+/** The last scan as a tree, biggest first, in a drawer over the thread. */
 export const treeDrawer = (h: H, model: Model) => {
-  const ix = libraryIndex(model);
+  const ix = libraryIndex(model.library);
 
   if (!ix) return [];
   const open = model.treeOpen;

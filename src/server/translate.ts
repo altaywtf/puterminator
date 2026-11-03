@@ -6,7 +6,7 @@ import * as Schema from "effect/Schema";
 import { downloadSubtitle, listSubtitles, type PutioError, PutioFailed, uploadText } from "./putio";
 import { blockedText } from "../shared/contract";
 import { outOfBudget } from "./credits";
-import { AnthropicClient, isSpendLimit, weightedTokens, withStreamedOutput } from "./runner";
+import { AnthropicClient, isSpendLimit, usageMeter } from "./runner";
 
 const TRANSLATOR = "claude-haiku-5-5";
 const BATCH = 60;
@@ -148,14 +148,7 @@ const askHaiku = (system: string, content: string, schema: JSONOutputFormat["sch
 
     if (blocked !== null) return yield* Effect.fail(new PutioFailed({ message: blocked, refused: true }));
     const client = yield* AnthropicClient;
-    let charged = 0;
-
-    const charge = (usage: Parameters<typeof weightedTokens>[0], model: string) => {
-      const total = weightedTokens(usage, model);
-
-      if (total > charged) spend.charge(total - charged);
-      charged = Math.max(charged, total);
-    };
+    const meter = usageMeter(spend.charge);
 
     const message = yield* Effect.tryPromise({
       try: (signal) => {
@@ -172,7 +165,7 @@ const askHaiku = (system: string, content: string, schema: JSONOutputFormat["sch
         );
 
         stream.on("streamEvent", (e, snapshot) => {
-          if (e.type === "message_start" || e.type === "message_delta") charge(snapshot.usage, snapshot.model);
+          if (e.type === "message_start" || e.type === "message_delta") meter.charge(snapshot);
         });
 
         const final = stream.finalMessage();
@@ -180,7 +173,7 @@ const askHaiku = (system: string, content: string, schema: JSONOutputFormat["sch
         final.catch(() => {
           const last = stream.currentMessage;
 
-          if (last) charge(withStreamedOutput(last.usage, JSON.stringify(last.content).length), last.model);
+          if (last) meter.chargeStreamed(last);
         });
 
         return final;
@@ -192,7 +185,7 @@ const askHaiku = (system: string, content: string, schema: JSONOutputFormat["sch
         }),
     });
 
-    charge(message.usage, message.model);
+    meter.charge(message);
 
     return { text: message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join(""), stop: message.stop_reason };
   });

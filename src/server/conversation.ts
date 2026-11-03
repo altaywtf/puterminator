@@ -14,7 +14,7 @@ import * as Stream from "effect/Stream";
 import { type AgentState, type Blocked, blockedText, ClientFrame, ContentBlock, CREDIT_TOKENS, type Credits, creditsLeft, type Folder, MessageParam, type ServerEvent, FileFlag, initialAgentState, type Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { PlanRecord, Run } from "../shared/actions";
-import { AskInput, applyChange, type StoredPlan, uploadedKey, validateTranslation, untranslated, folderIds, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion } from "./changes";
+import { AskInput, applyChange, cleanPath, type StoredPlan, uploadedKey, validateTranslation, untranslated, folderIds, nameOf, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion, videoOf } from "./changes";
 import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
 import { blockedBy, outOfBudget } from "./credits";
 import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
@@ -73,7 +73,7 @@ you: 351 junk files, 16 MB. mostly cover images and __MACOSX debris.
 user: is my library a mess?
 you: no. 92/100. the only real dent is junk, and it's 16 MB.`;
 
-const gb = (b: number) =>
+const formatSize = (b: number) =>
   b >= 2 ** 30 ? `${(b / 2 ** 30).toFixed(1)} GB` : b >= 2 ** 20 ? `${Math.round(b / 2 ** 20)} MB` : `${Math.max(1, Math.round(b / 2 ** 10))} KB`;
 
 const decodeFrame = Schema.decodeUnknownOption(ClientFrame);
@@ -86,7 +86,6 @@ const toAnthropic = (m: MessageParam) => m as BetaMessageParam;
 
 const POOL_DOWN = "can't check credits right now. try again in a minute.";
 const POOL_TIMEOUT = "5 seconds";
-const UNKNOWN_USER = "(signed out)";
 const BROKE = "something broke on my side. try again in a moment.";
 
 const errorMessage = (e: TurnError) =>
@@ -102,8 +101,8 @@ export interface AgentDeps {
   readonly model: string;
   readonly monthlyCredits: number;
   readonly poolBudgetCredits: number;
-  /** Records a user's month total in the shared pool and returns everyone's total; totals only grow, so a retry is harmless. */
-  readonly pool: (month: string, user: string, tokens: number) => Effect.Effect<number, unknown>;
+  /** Records this Durable Object's month total in the shared pool and returns everyone's total; totals only grow, so a retry is harmless. */
+  readonly pool: (month: string, tokens: number) => Effect.Effect<number, unknown>;
   readonly unlimitedUsers?: ReadonlyArray<string>;
   readonly anthropic: Layer.Layer<AnthropicClient>;
   /** Sends to every open socket. */
@@ -188,7 +187,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const syncPool = Effect.gen(function* () {
       const m = month(yield* Clock.currentTimeMillis);
-      const total = yield* deps.pool(m, state.username ?? UNKNOWN_USER, store.used(m)).pipe(Effect.timeout(POOL_TIMEOUT), Effect.option);
+      const total = yield* deps.pool(m, store.used(m)).pipe(Effect.timeout(POOL_TIMEOUT), Effect.option);
       poolTotal = Option.getOrNull(total);
     });
 
@@ -240,6 +239,7 @@ export const makeAgent = (deps: AgentDeps) =>
       });
     };
 
+    const signedOut = JSON.stringify({ error: "Not signed in; the user must sign in to put.io again." });
     const noSnapshot = JSON.stringify({ error: "No snapshot yet. Run scan_library first." });
     const otherFolder = JSON.stringify({ error: "The last scan is of another folder. Run scan_library first." });
     const scannedHere = () => store.secret("snapshot_root") === String(state.folder.id);
@@ -294,7 +294,7 @@ export const makeAgent = (deps: AgentDeps) =>
       return a;
     }));
 
-    const STALE_AFTER_MS = 10 * 60_000;
+    const STALE_AFTER_MS = 10 * MINUTE_MS;
     let refreshing = false;
     const scanAgeMs = (now: number) => (state.lastAudit ? now - Date.parse(state.lastAudit.at) : Number.POSITIVE_INFINITY);
 
@@ -385,6 +385,15 @@ export const makeAgent = (deps: AgentDeps) =>
           })
         : [];
 
+      const changeOf = new Map(run.changes.map((c) => [c.id, c]));
+
+      const failStep = (change: string, exit: Exit.Exit<unknown, PutioError>) => {
+        const err = Exit.findErrorOption(exit);
+
+        if (Option.isSome(err)) setStep(change, "failed", stepMessage(err.value), maybeApplied(err.value));
+        else setStep(change, "failed", "didn’t finish", true);
+      };
+
       const work = Effect.gen(function* () {
         const queued = run.steps.filter((s) => s.state === "queued");
         const checked = yield* Effect.result(scan);
@@ -395,12 +404,12 @@ export const makeAgent = (deps: AgentDeps) =>
 
         if (stale.length > 0) return update((r) => failUnfinished(r, `the library changed since this plan (${stale[0]}); ${changed}`), finished);
         const folders = folderIds(store.snapshot(), state.folder.id, original);
-        const needsTrash = queued.some((s) => run.changes.find((c) => c.id === s.change)?.op === "trash");
+        const needsTrash = queued.some((s) => changeOf.get(s.change)?.op === "trash");
         const trashOn = needsTrash ? yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)) : true;
 
         const translate = (step: (typeof queued)[number]) =>
           Effect.gen(function* () {
-            const change = run.changes.find((c) => c.id === step.change);
+            const change = changeOf.get(step.change);
             const fileId = first.ids[step.change];
 
             if (change?.op !== "translate" || fileId === undefined) return;
@@ -417,7 +426,7 @@ export const makeAgent = (deps: AgentDeps) =>
             setStep(step.change, "running");
             const parentId = first.parents?.[step.change] ?? state.folder.id;
             const spend = spendFor(m);
-            const done = yield* Effect.exit(translateSubtitle(fileId, change.path, parentId, change.to.slice(change.to.lastIndexOf("/") + 1), lang, spend).pipe(Effect.provide(deps.anthropic)));
+            const done = yield* Effect.exit(translateSubtitle(fileId, change.path, parentId, nameOf(change.to), lang, spend).pipe(Effect.provide(deps.anthropic)));
             yield* refreshCredits;
 
             if (Exit.isSuccess(done)) {
@@ -425,25 +434,20 @@ export const makeAgent = (deps: AgentDeps) =>
 
               if (p) saveRecord({ ...p, ids: { ...p.ids, [uploadedKey(step.change)]: done.value } });
               setStep(step.change, "done");
-            } else {
-              const err = Exit.findErrorOption(done);
-
-              if (Option.isSome(err)) setStep(step.change, "failed", stepMessage(err.value), maybeApplied(err.value));
-              else setStep(step.change, "failed", "didn’t finish", true);
-            }
+            } else failStep(step.change, done);
           });
 
-        if (queued.some((step) => run.changes.find((c) => c.id === step.change)?.op === "translate")) yield* syncPool;
+        if (queued.some((step) => changeOf.get(step.change)?.op === "translate")) yield* syncPool;
         yield* Effect.forEach(queued, translate, { concurrency: PARALLEL_TRANSLATIONS, discard: true });
 
         const failedVideos = new Set<string>();
 
         for (const step of queued) {
-          const change = run.changes.find((c) => c.id === step.change);
+          const change = changeOf.get(step.change);
           const fileId = first.ids[step.change];
 
           if (!change || fileId === undefined) continue;
-          const video = change.id.replace(/s\d+$/, "");
+          const video = videoOf(change.id);
 
           if (video !== change.id && failedVideos.has(video)) {
             setStep(step.change, "failed", "its video didn’t move");
@@ -462,12 +466,8 @@ export const makeAgent = (deps: AgentDeps) =>
 
           if (Exit.isSuccess(exit)) setStep(step.change, "done");
           else {
-            const err = Exit.findErrorOption(exit);
-
             failedVideos.add(step.change);
-
-            if (Option.isSome(err)) setStep(step.change, "failed", stepMessage(err.value), maybeApplied(err.value));
-            else setStep(step.change, "failed", "didn’t finish", true);
+            failStep(step.change, exit);
           }
         }
 
@@ -477,7 +477,7 @@ export const makeAgent = (deps: AgentDeps) =>
           (current(plans.get(planId)?.record ?? first.record)?.steps ?? []).flatMap((s) => {
             const id = first.ids[s.change];
 
-            return s.state === "done" && id !== undefined && run.changes.find((c) => c.id === s.change)?.op === "restore" ? [id] : [];
+            return s.state === "done" && id !== undefined && changeOf.get(s.change)?.op === "restore" ? [id] : [];
           }),
         );
 
@@ -521,7 +521,7 @@ export const makeAgent = (deps: AgentDeps) =>
       const p = plans.get(planId);
 
       if (!p || p.record.status !== "proposed" || runFibers.size > 0) return;
-      const changes = p.record.plan.changes.filter((c) => !exclude.includes(c.id) && !exclude.includes(c.id.replace(/s\d+$/, "")));
+      const changes = p.record.plan.changes.filter((c) => !exclude.includes(c.id) && !exclude.includes(videoOf(c.id)));
 
       if (changes.length === 0) return;
       const run: Run = { id: planId, title: p.record.plan.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
@@ -613,7 +613,7 @@ export const makeAgent = (deps: AgentDeps) =>
             "scan_library",
             input,
             Effect.gen(function* () {
-              if (!store.token()) return JSON.stringify({ error: "Not signed in to put.io." });
+              if (!store.token()) return signedOut;
 
               return JSON.stringify(yield* scan);
             }),
@@ -638,7 +638,7 @@ export const makeAgent = (deps: AgentDeps) =>
             return JSON.stringify({
               path: clean || "/",
               count: rows.length,
-              items: rows.slice(0, 200).map((f) => ({ name: f.name, type: f.file_type, size: gb(f.size), played: !!f.first_accessed_at })),
+              items: rows.slice(0, 200).map((f) => ({ name: f.name, type: f.file_type, size: formatSize(f.size), played: !!f.first_accessed_at })),
             } satisfies ListFolderOutput);
           })),
       }),
@@ -676,11 +676,11 @@ export const makeAgent = (deps: AgentDeps) =>
 
             return JSON.stringify({
               total: rows.length,
-              bytes: gb(rows.reduce((a, f) => a + (f.file_type === "FOLDER" ? 0 : f.size), 0)),
+              bytes: formatSize(rows.reduce((a, f) => a + (f.file_type === "FOLDER" ? 0 : f.size), 0)),
               items: rows.slice(0, Math.min(100, Math.max(1, Math.floor(limit)))).map((f) => ({
                 path: f.path,
                 type: f.file_type,
-                size: gb(f.size),
+                size: formatSize(f.size),
                 added: f.created_at.slice(0, 10),
                 firstPlayed: f.first_accessed_at?.slice(0, 10) ?? null,
                 junk: junkReason(f),
@@ -836,11 +836,11 @@ export const makeAgent = (deps: AgentDeps) =>
 
             if (Result.isFailure(here)) return here.failure;
 
-            if (!store.token()) return JSON.stringify({ error: "Not signed in to put.io." });
+            if (!store.token()) return signedOut;
 
             if (paths.length === 0 || paths.length > 50) return JSON.stringify({ error: "Give 1 to 50 paths." });
             const byPath = new Map(here.success.map((f) => [f.path, f.id]));
-            const clean = paths.map((p) => `/${p.trim().replace(/^\/+|\/+$/g, "")}`);
+            const clean = paths.map(cleanPath);
             const missing = clean.filter((p) => !byPath.has(p));
 
             if (missing.length > 0) return JSON.stringify({ error: `Not in the snapshot: ${missing.slice(0, 5).join(", ")}` });

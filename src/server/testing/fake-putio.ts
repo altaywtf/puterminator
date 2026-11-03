@@ -32,20 +32,13 @@ export const file = (
 export type FakePutioOptions = {
   files: ReadonlyArray<ReturnType<typeof file>>;
   pageSize: number;
-  /** Answer the first `times` continue requests with 429, refilling at `resetAt` (epoch seconds). */
   rateLimitContinue?: { times: number; resetAt: number };
   unauthorized?: boolean;
-  /** put.io's account setting; with it off, delete is permanent. Default on. */
   trashEnabled?: boolean;
-  /** File ids whose writes fail with a 400. */
   failWrites?: ReadonlyArray<number>;
-  /** File ids whose renames fail with a 400; their other writes go through. */
   failRenames?: ReadonlyArray<number>;
-  /** File ids whose writes go through but answer 502, as when the response is lost. */
-  dropWrites?: ReadonlyArray<number>;
-  /** A restored file stays out of this many following listings, as put.io restores in the background. */
-  restoreLag?: number;
-  /** The first listing waits for this, as when put.io answers slowly. */
+  loseWriteAnswers?: ReadonlyArray<number>;
+  restoreLagListings?: number;
   holdFirstListing?: Promise<void>;
   holdDownloadToken?: Promise<void>;
   subtitles?: Readonly<Record<number, ReadonlyArray<{ key: string; language_code: string; source: string; name: string; srt: string }>>>;
@@ -145,7 +138,7 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     const target = Number(body.get("file_ids") ?? body.get("file_id") ?? NaN);
     const fails = (opts.failWrites ?? []).includes(target);
 
-    if (url.pathname === "/v2/trash/restore" && !fails && opts.restoreLag) lagging.set(target, opts.restoreLag);
+    if (url.pathname === "/v2/trash/restore" && !fails && opts.restoreLagListings) lagging.set(target, opts.restoreLagListings);
 
     if (["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/trash/restore"].includes(url.pathname)) {
       if (fails || (url.pathname === "/v2/files/rename" && (opts.failRenames ?? []).includes(target)))
@@ -161,7 +154,7 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
         tree = [...tree, ...trash.filter((f) => f.id === target)];
       } else tree = tree.map(edit);
 
-      return (opts.dropWrites ?? []).includes(target) ? json(502, { status: "ERROR" }) : json(200, { status: "OK", errors: [] });
+      return (opts.loseWriteAnswers ?? []).includes(target) ? json(502, { status: "ERROR" }) : json(200, { status: "OK", errors: [] });
     }
 
     const subs = url.pathname.match(/^\/v2\/files\/(\d+)\/subtitles(?:\/(.+))?$/);
@@ -196,7 +189,7 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     }
 
     const one = url.pathname.match(/^\/v2\/files\/(\d+)$/);
-    const found = one && opts.files.find((f) => f.id === Number(one[1]));
+    const found = one && tree.find((f) => f.id === Number(one[1]));
 
     if (found) return json(200, { file: { ...found, screenshot: `https://img.put.io/s/${found.id}.jpg` }, status: "OK" });
 

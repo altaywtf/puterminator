@@ -48,6 +48,8 @@ const plan = (files: WalkedFile[], movies = "/Movies", shows = "/TV Shows", with
 const moves = (r: LayoutResult) => r.changes.map((c) => [c.path, c.to]);
 
 describe("parseMedia", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("takes the last year before the release tags, so a year in the title stays in the title", () => {
     expect(parseMedia("Heat.1995.1080p.BluRay.x264-RARBG.mkv")).toMatchObject({ title: "Heat", year: "1995" });
     expect(parseMedia("Blade.Runner.2049.2017.2160p.UHD.BluRay.x265.mkv")).toMatchObject({ title: "Blade Runner 2049", year: "2017" });
@@ -65,14 +67,16 @@ describe("parseMedia", () => {
     expect(parseMedia("Chernobyl.2019.Part.1.1080p.mkv")).toBeNull();
   });
 
-  it("cleans tracker prefixes and keeps dotted acronyms readable", () => {
+  it("cleans tracker prefixes and keeps acronyms, hyphens, small words and editions readable", () => {
     expect(parseMedia("www.Torrenting.com - Oppenheimer.2023.1080p.mkv")).toMatchObject({ title: "Oppenheimer" });
+    expect(parseMedia("www.Torrenting.com-Spider-Man.2002.1080p.mkv")).toMatchObject({ title: "Spider-Man", year: "2002" });
+    expect(parseMedia("www.Torrenting.com-The.Amazing.Spider-Man.2012.1080p.mkv")).toMatchObject({ title: "The Amazing Spider-Man", year: "2012" });
+    expect(parseMedia("Back.to.the.Future.1985.1080p.mkv")).toMatchObject({ title: "Back to the Future", year: "1985" });
+    expect(parseMedia("Kingdom.of.Heaven.2005.1080p.BluRay.Directors.Cut.x264-GRP.mkv")).toMatchObject({ title: "Kingdom of Heaven", edition: "Director's Cut" });
     expect(parseMedia("Escape.from.L.A.1996.1080p.mkv")).toMatchObject({ title: "Escape from L.A." });
     expect(parseMedia("S.W.A.T.2017.S05E10.1080p.WEB.mkv")).toMatchObject({ show: "S.W.A.T.", year: "2017" });
     expect(parseMedia("Mr. Nobody (2009).mkv")).toMatchObject({ title: "Mr. Nobody" });
   });
-
-  afterEach(() => vi.useRealTimers());
 
   it("reads the year bound from the clock when it parses, since a Worker's clock reads 1970 at startup", () => {
     vi.useFakeTimers({ now: new Date("2040-06-01T00:00:00Z") });
@@ -147,10 +151,6 @@ describe("parseMedia", () => {
     expect(parseMedia("Severance (2022) - S01E01 - Good News About Hell.mkv")).toMatchObject({ show: "Severance", year: "2022", first: 1 });
     expect(parseMedia("1923.S01E01.mkv")).toMatchObject({ show: "1923", year: null });
     expect(parseMedia("Ghost.in.the.Shell.SAC_2045.S01E01.mkv")).toMatchObject({ show: "Ghost in the Shell SAC 2045", year: null });
-    expect(parseMedia("www.Torrenting.com-Spider-Man.2002.1080p.mkv")).toMatchObject({ title: "Spider-Man", year: "2002" });
-    expect(parseMedia("www.Torrenting.com-The.Amazing.Spider-Man.2012.1080p.mkv")).toMatchObject({ title: "The Amazing Spider-Man", year: "2012" });
-    expect(parseMedia("Back.to.the.Future.1985.1080p.mkv")).toMatchObject({ title: "Back to the Future", year: "1985" });
-    expect(parseMedia("Kingdom.of.Heaven.2005.1080p.BluRay.Directors.Cut.x264-GRP.mkv")).toMatchObject({ title: "Kingdom of Heaven", edition: "Director's Cut" });
     expect(parseMedia("Severance — S01E02 — Half Loop.mkv")).toMatchObject({ show: "Severance", season: 1, first: 2 });
     expect(parseMedia("Doctor.Who.1963.S02E01.mkv", { show: "Doctor Who", year: "2005", season: 2 })).toBeNull();
     expect(parseMedia("S03E04.1080p.mkv", { show: "Severance", year: null, season: 3 })).toMatchObject({ show: "Severance", season: 3, first: 4 });

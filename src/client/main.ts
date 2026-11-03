@@ -113,7 +113,7 @@ export const Message = defineMessageUnion({
   ToggledTree: {},
   ClosedTree: {},
   ToggledTreeNode: { id: Schema.Finite },
-  RevealedFile: { id: Schema.Finite, ancestors: Schema.Array(Schema.Finite) },
+  RevealedFile: { id: Schema.Finite },
   OpenedPlayer: { id: Schema.Finite, name: Schema.String },
   GotStream: { id: Schema.Finite, src: Schema.String },
   FailedStream: { id: Schema.Finite },
@@ -164,13 +164,11 @@ export const managedResources = ManagedResource.make<Model, Message>()((entry) =
         socket.addEventListener("open", onOpen, { once: true });
         socket.addEventListener("error", onError, { once: true });
 
-        const abandonAttempt = Effect.sync(() => {
+        return Effect.sync(() => {
           socket.removeEventListener("open", onOpen);
           socket.removeEventListener("error", onError);
           socket.close();
         });
-
-        return abandonAttempt;
       }).pipe(
         Effect.timeoutOrElse({ duration: CONNECT_TIMEOUT, orElse: () => Effect.fail(new Error("Agent connection timed out")) }),
       ),
@@ -261,35 +259,31 @@ const ArmStop = Command.define("ArmStop", {
 const finePointer = () => matchMedia("(pointer: fine)").matches;
 const nothingFocused = () => document.activeElement === null || document.activeElement === document.body;
 
-const focusAfterCommit = (selector: string, allowed: () => boolean) =>
-  Effect.sync(allowed).pipe(
-    Effect.flatMap((ok) =>
-      Render.afterCommit.pipe(
-        Effect.flatMap(() =>
-          Effect.sync(() => {
-            const el = document.querySelector(selector);
-
-            if (ok && el instanceof HTMLElement) el.focus({ preventScroll: true });
-          }),
-        ),
-      ),
-    ),
-    Effect.as(Message.CompletedEffect()),
-  );
-
 const FocusComposer = Command.define("FocusComposer", {
   args: { when: Schema.Literals(["always", "idle", "keep"]) },
   messages: [Message.CompletedEffect],
   execute: ({ when }) => {
     const composerFocusedBeforeCommit = document.activeElement?.id === COMPOSER_ID;
 
-    return focusAfterCommit(`#${COMPOSER_ID}`, () =>
+    const allowed = () =>
       Match.value(when).pipe(
         Match.when("always", () => true),
         Match.when("idle", () => finePointer() && nothingFocused()),
         Match.when("keep", () => finePointer() || composerFocusedBeforeCommit),
         Match.exhaustive,
+      );
+
+    return Effect.sync(allowed).pipe(
+      Effect.flatMap((ok) =>
+        Render.afterCommit.pipe(
+          Effect.flatMap(() =>
+            Effect.sync(() => {
+              if (ok) document.getElementById(COMPOSER_ID)?.focus({ preventScroll: true });
+            }),
+          ),
+        ),
       ),
+      Effect.as(Message.CompletedEffect()),
     );
   },
 });
@@ -340,7 +334,7 @@ const FetchLinks = Command.define("FetchLinks", {
   args: { id: Schema.Finite },
   messages: [Message.GotLinks, Message.FailedLinks],
   execute: ({ id }) =>
-    Effect.tryPromise(() => fetch(`/api/download-links/${id}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))).pipe(
+    getJson(`/api/download-links/${id}`).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(DownloadLinksResponse)),
       Effect.map((r) =>
         r.status === "done"
@@ -365,7 +359,7 @@ const FetchStream = Command.define("FetchStream", {
   args: { id: Schema.Finite },
   messages: [Message.GotStream, Message.FailedStream],
   execute: ({ id }) =>
-    Effect.tryPromise(() => fetch(`/api/files/${id}/stream`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))).pipe(
+    getJson(`/api/files/${id}/stream`).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(StreamResponse)),
       Effect.map(({ hls }) => Message.GotStream({ id, src: hls })),
       Effect.orElseSucceed(() => Message.FailedStream({ id })),
@@ -584,12 +578,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         treeFocus: () => id,
       }),
     }),
-    RevealedFile: ({ id, ancestors }) => ({
-      model: modifyFields(model, {
-        treeOpen: () => true,
-        treeExpanded: (ids) => [...new Set([...ids, ...ancestors])],
-        treeFocus: () => id,
-      }),
+    RevealedFile: ({ id }) => ({
+      model: modifyFields(model, { treeOpen: () => true, treeFocus: () => id }),
       commands: [ScrollTreeNode({ id })],
     }),
     OpenedPlayer: ({ id, name }) => ({

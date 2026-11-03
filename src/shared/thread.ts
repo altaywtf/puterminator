@@ -39,6 +39,9 @@ const str = (b: ContentBlock, field: string) => {
   return Predicate.isString(v) ? v : "";
 };
 
+const toolInput = (b: ContentBlock) =>
+  Option.getOrElse(Option.orElse(toJson(b.input), () => toJson(JSON.parse(JSON.stringify(b.input ?? {})))), () => ({}));
+
 const isTextBlock = Schema.is(Schema.Struct({ type: Schema.Literal("text"), text: Schema.String }));
 
 const resultText = (b: ContentBlock) => {
@@ -94,7 +97,7 @@ export function toTurns(
       if (b.type === "tool_use") {
         const r = results.get(str(b, "id"));
         const state: ToolState = r ? (r.error ? "error" : "done") : busy ? "running" : "error";
-        turn.items.push({ kind: "tool", key: k, name: str(b, "name"), input: Option.getOrElse(Option.orElse(toJson(b.input), () => toJson(JSON.parse(JSON.stringify(b.input ?? {})))), () => ({})), state, output: r?.text ?? null });
+        turn.items.push({ kind: "tool", key: k, name: str(b, "name"), input: toolInput(b), state, output: r?.text ?? null });
       }
     });
   };

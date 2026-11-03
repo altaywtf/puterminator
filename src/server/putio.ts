@@ -57,6 +57,14 @@ export const rateLimitMessage = (e: PutioRateLimited) => `put.io rate limit: try
 const MAX_WAIT_MS = 10_000;
 const MAX_ATTEMPTS = 4;
 
+const failedMessage = (label: string, err: PutioSdkError) => `put.io ${label}${"status" in err ? ` → ${err.status}` : ""}`;
+
+const resetWaitMs = (reset: string | undefined, now: number) => {
+  const resetAtSec = Number(reset);
+
+  return Number.isFinite(resetAtSec) && resetAtSec > 0 ? resetAtSec * 1000 - now : null;
+};
+
 const read = <A, R>(
   label: string,
   effect: Effect.Effect<A, PutioSdkError, R>,
@@ -66,16 +74,10 @@ const read = <A, R>(
       Effect.catch((err) => {
         if (isPutioAuthError(err)) return Effect.fail(new PutioUnauthorized({ status: err.status }));
 
-        if (!isPutioRateLimitError(err)) {
-          const status = "status" in err ? ` → ${err.status}` : "";
-
-          return Effect.fail(new PutioFailed({ message: `put.io ${label}${status}` }));
-        }
+        if (!isPutioRateLimitError(err)) return Effect.fail(new PutioFailed({ message: failedMessage(label, err) }));
 
         return Effect.gen(function* () {
-          const now = yield* Clock.currentTimeMillis;
-          const resetAtSec = Number(err.reset);
-          const waitMs = Number.isFinite(resetAtSec) && resetAtSec > 0 ? resetAtSec * 1000 - now : 1000 * 2 ** attempt;
+          const waitMs = resetWaitMs(err.reset, yield* Clock.currentTimeMillis) ?? 1000 * 2 ** attempt;
 
           if (attempt >= MAX_ATTEMPTS || waitMs > MAX_WAIT_MS) {
             return yield* new PutioRateLimited({ retryAfterMs: Math.max(waitMs, 0) });
@@ -202,14 +204,10 @@ const write = <A, R>(label: string, effect: Effect.Effect<A, PutioSdkError, R>):
 
       if (isPutioRateLimitError(err))
         return Clock.currentTimeMillis.pipe(
-          Effect.flatMap((now) => {
-            const resetAtSec = Number(err.reset);
-
-            return Effect.fail(new PutioRateLimited({ retryAfterMs: Number.isFinite(resetAtSec) && resetAtSec > 0 ? Math.max(resetAtSec * 1000 - now, 0) : 60_000 }));
-          }),
+          Effect.flatMap((now) => Effect.fail(new PutioRateLimited({ retryAfterMs: Math.max(resetWaitMs(err.reset, now) ?? 60_000, 0) }))),
         );
 
-      const message = `put.io ${label}${"status" in err ? ` → ${err.status}` : ""}`;
+      const message = failedMessage(label, err);
       const refused = "status" in err && err.status >= 400 && err.status < 500;
 
       return Effect.fail(refused ? new PutioFailed({ message, refused }) : new PutioFailed({ message }));
@@ -300,8 +298,6 @@ export const listSubtitles = (videoId: number) =>
 export const downloadSubtitle = (videoId: number, key: string) =>
   read("/files/:id/subtitles/:key", requestText({ method: "GET", path: `/v2/files/${videoId}/subtitles/${encodeURIComponent(key)}`, query: { format: "srt" } }));
 
-const Uploaded = Schema.Struct({ file: Schema.Struct({ id: Schema.Finite }) });
-
 export const uploadText = (name: string, parentId: number, text: string) =>
   Effect.suspend(() => {
     const form = new FormData();
@@ -311,6 +307,6 @@ export const uploadText = (name: string, parentId: number, text: string) =>
 
     return write(
       "/files/upload",
-      requestJson(Uploaded, { method: "POST", baseUrl: UPLOAD_API, path: "/v2/files/upload", body: { type: "form-data", value: form } }),
+      requestJson(Created, { method: "POST", baseUrl: UPLOAD_API, path: "/v2/files/upload", body: { type: "form-data", value: form } }),
     );
   }).pipe(Effect.map(({ file }) => file.id));

@@ -252,8 +252,6 @@ const runChange = (h: H, c: Change, state: State, error: string | null) => {
   );
 };
 
-const diffBlock = (h: H, children: Html[]) => term(h, children);
-
 const statLine = (changes: readonly Change[]) => {
   const n = (op: Change["op"]) => changes.filter((c) => c.op === op).length;
   const freed = changes.filter((c) => c.op === "trash").reduce((a, c) => a + c.bytes, 0);
@@ -294,7 +292,7 @@ export const runCard = (h: H, ctx: Ctx, run: Run, live = false, opts: { undoable
     return panel(h, opts.undo ? "undoing changes" : "applying changes", live, [
       cardHead(h, opts.undo ? `undo ${run.title}` : run.title, `${fmt(settled)}/${fmt(run.steps.length)}`),
       shareBar(h, settled / Math.max(1, run.steps.length)),
-      diffBlock(h, hunkLines(() => true)),
+      term(h, hunkLines(() => true)),
       h.div([h.Class("flex items-center justify-between gap-4")], [
         h.span([h.Class("font-mono text-mono text-fg-3")], [`${opts.undo ? "undoing" : "applying"}… ${fmt(done.length)} done${failed.length > 0 ? `, ${fmt(failed.length)} failed` : ""}`]),
         h.button([h.Type("button"), h.Class("btn btn-sm"), h.OnClick(Message.ClickedStopRun({ plan: run.id }))], ["stop"]),
@@ -309,8 +307,8 @@ export const runCard = (h: H, ctx: Ctx, run: Run, live = false, opts: { undoable
       h.span([h.Class("text-accent")], [opts.undo ? `[undo ${run.title}] ` : `[${run.title}] `]),
       statLine(done),
     ]),
-    ...(failed.length > 0 ? [diffBlock(h, hunkLines((c) => stateOf(c) === "failed"))] : []),
-    ...(open ? [diffBlock(h, hunkLines((c) => stateOf(c) === "done"))] : []),
+    ...(failed.length > 0 ? [term(h, hunkLines((c) => stateOf(c) === "failed"))] : []),
+    ...(open ? [term(h, hunkLines((c) => stateOf(c) === "done"))] : []),
     h.div([h.Class("flex items-center justify-between gap-4")], [
       h.button(
         [h.Type("button"), h.AriaExpanded(open), h.Class("hit font-mono text-mono text-fg-3 transition-colors duration-160 hover:text-fg"), h.OnClick(toggle(openKey))],

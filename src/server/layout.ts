@@ -1,8 +1,7 @@
-import { junkFinder } from "./audit";
-import { type ProposeInput, sidecarsOf } from "./changes";
+import { junkFinder, stemOf } from "./audit";
+import { MAX_CHANGES, nameOf, type ProposeInput, sidecarsOf } from "./changes";
 import type { WalkedFile } from "./tree";
 
-const MAX_LAYOUT_CHANGES = 200;
 const MAX_NAME_BYTES = 255;
 const YEAR_CANDIDATE = /([([])?((?:19|20)\d{2})([)\]])?/g;
 const BARE_YEAR = /(?<![0-9])(?:19|20)\d{2}(?![0-9])/g;
@@ -53,9 +52,7 @@ export type LayoutResult = {
   remaining: number;
 };
 
-export const stemOf = (name: string) => name.replace(/\.[a-z0-9]{2,4}$/i, "");
 const extOf = (name: string) => name.match(/\.([a-z0-9]{2,4})$/i)?.[1]?.toLowerCase() ?? "";
-const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf("/"));
 const pad = (n: number) => String(n).padStart(2, "0");
 const pathKey = (path: string) => path.normalize("NFC").toLowerCase();
@@ -261,7 +258,7 @@ const normalRoot = (path: string) => {
 
 /**
  * A move or rename for every video under `within` that isn't where Plex, Infuse, Jellyfin and Kodi expect it,
- * at most MAX_LAYOUT_CHANGES including the subtitles that follow. It never touches a show's own folders or a
+ * at most MAX_CHANGES including the subtitles that follow. It never touches a show's own folders or a
  * folder of the user's under the movies root, and skips anything it can't name with certainty.
  */
 export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: string, showsRoot: string, within: string): LayoutResult | { error: string } {
@@ -364,8 +361,9 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
     const release = folderIdentity(nameOf(parentOf(g.path)));
     const media = own?.kind === "movie" ? own : release && "kind" in release && release.kind === "movie" ? release : null;
     const key = strict ? movieKey(strict[1] ?? "", strict[2] ?? "") : media ? movieKey(media.title, media.year) : null;
+    const pt = / - pt(\d+)\./i.exec(g.name)?.[1];
 
-    return key ? [{ f: g, key, part: media?.part ?? (/ - pt(\d+)\./i.exec(g.name) ? Number(/ - pt(\d+)\./i.exec(g.name)?.[1]) : null), edition: media?.edition ?? null, ext: extOf(g.name), folder: parentOf(g.path) }] : [];
+    return key ? [{ f: g, key, part: media?.part ?? (pt ? Number(pt) : null), edition: media?.edition ?? null, ext: extOf(g.name), folder: parentOf(g.path) }] : [];
   });
 
   const titlesSeen = new Map([
@@ -383,7 +381,7 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
   const createdMovies = new Map<string, string>();
   const changes: LayoutChange[] = [];
   const skipped: LayoutResult["skipped"] = [];
-  let budget = MAX_LAYOUT_CHANGES;
+  let budget = MAX_CHANGES;
   let remaining = 0;
 
   const showFolderFor = (show: string, year: string | null, ids: string): { name: string } | { why: string } => {

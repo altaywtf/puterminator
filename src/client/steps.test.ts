@@ -47,7 +47,9 @@ describe("auditOf", () => {
   });
 });
 
-it("callLine omits empty input", () => {
-  expect(callLine("scan_library", {})).toBe("scan_library()");
-  expect(callLine("list_folder", { path: "movies" })).toBe('list_folder({"path":"movies"})');
+describe("callLine", () => {
+  it("omits empty input", () => {
+    expect(callLine("scan_library", {})).toBe("scan_library()");
+    expect(callLine("list_folder", { path: "movies" })).toBe('list_folder({"path":"movies"})');
+  });
 });

@@ -14,11 +14,12 @@ export const ROOT_FOLDER: Folder = { id: 0, name: "Your Files" };
 
 export const CREDIT_TOKENS = 5000;
 
+/** `until` is a UTC day, `YYYY-MM-DD`. */
 export const Blocked = Schema.Struct({ reason: Schema.Literals(["paused", "out"]), until: Schema.String });
 
 export type Blocked = typeof Blocked.Type;
 
-/** `used` and `cap` are weighted tokens (Sonnet input-token equivalents) for `month` (YYYY-MM); `until` is a UTC date. */
+/** `used` and `cap` are weighted tokens (Sonnet input-token equivalents) for `month` (YYYY-MM). */
 export const Credits = Schema.Struct({ month: Schema.String, used: Schema.Finite, cap: Schema.Finite, blocked: Schema.optionalKey(Schema.NullOr(Blocked)) });
 
 export type Credits = typeof Credits.Type;

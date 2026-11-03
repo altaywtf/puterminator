@@ -28,7 +28,6 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
     return Effect.gen(function* () {
       const config = yield* readConfig.pipe(Effect.orDie);
       const dev = config.devUpstream ? { fetch: upstreamFetch(config.devUpstream), base: config.devUpstream } : null;
-      const anthropicKey = { apiKey: config.anthropicApiKey };
       const raw = state.raw;
 
       const sql: Sql = {
@@ -37,16 +36,15 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
       };
 
       const store = makeStore(sql);
-      const poolReport = (m: string, user: string, tokens: number) => Math.max(store.poolReport(m, user, tokens), consoleFloor(config.consoleSpend, m));
 
       const deps: AgentDeps = {
         store,
         model: config.model,
         monthlyCredits: config.monthlyCredits,
         poolBudgetCredits: config.poolBudgetCredits,
-        pool: (m, user, tokens) => agents.getByName(POOL_NAME).poolReport(m, user, tokens),
+        pool: (m, tokens) => agents.getByName(POOL_NAME).poolReport(m, raw.id.toString(), tokens),
         unlimitedUsers: config.unlimitedUsers,
-        anthropic: anthropicLayer(dev ? { ...anthropicKey, maxRetries: 0, fetch: dev.fetch } : { ...anthropicKey, maxRetries: 0 }),
+        anthropic: anthropicLayer({ apiKey: config.anthropicApiKey, maxRetries: 0, fetch: dev?.fetch }),
         broadcast: (event: ServerEvent) => {
           const frame = encodeEvent(event);
 
@@ -92,7 +90,7 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         thumbnail: (id: number) => agent.thumbnail(id),
         stream: (id: number) => agent.stream(id),
         downloadLinks: (id: number) => agent.downloadLinks(id),
-        poolReport: (m: string, user: string, tokens: number) => Effect.sync(() => poolReport(m, user, tokens)),
+        poolReport: (m: string, user: string, tokens: number) => Effect.sync(() => Math.max(store.poolReport(m, user, tokens), consoleFloor(config.consoleSpend, m))),
       };
     });
   }),

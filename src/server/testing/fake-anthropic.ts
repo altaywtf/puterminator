@@ -24,7 +24,6 @@ const start = (id: string, inputTokens: number) => ({
   },
 });
 
-/** Thinking with a signature, then one tool_use whose input arrives in chunks. */
 export const toolUseTurn = (tool: { id: string; name: string; inputJsonChunks: Array<string> }, usage: { input: number; output: number }): Array<Ev> => [
   start("msg_1", usage.input),
   { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "", signature: "" } },
@@ -47,7 +46,6 @@ export const textTurn = (text: string, usage: { input: number; output: number })
   { type: "message_stop" },
 ];
 
-/** `hang`: message_start, then nothing until the request signal aborts. */
 export type Reply = { kind: "sse"; events: Array<Ev> } | { kind: "hang"; text?: string } | { kind: "error"; status: number; message: string };
 
 type AnthropicRequest = { body: any; headers: Headers };

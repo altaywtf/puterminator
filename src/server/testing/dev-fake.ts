@@ -295,8 +295,9 @@ const putio = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
   }
 
   log(`UNEXPECTED put.io call: ${route}`);
+  const status = method === "GET" ? 404 : 405;
 
-  return json(res, method === "GET" ? 404 : 405, { status: "ERROR", error_type: "NOT_FAKED", status_code: 404 });
+  return json(res, status, { status: "ERROR", error_type: "NOT_FAKED", status_code: status });
 };
 
 type Block = { readonly type: string; readonly [field: string]: Json };

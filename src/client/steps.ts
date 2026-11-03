@@ -63,11 +63,9 @@ export function describeStep(name: string, input: Schema.Json, output: string | 
   }
 
   if (name === "plan_layout") {
-    const layout = Option.flatMap(out, decodeLayoutSummary);
-
     return {
       title: "plan the media server layout",
-      detail: Option.match(layout, {
+      detail: Option.match(Option.flatMap(out, decodeLayoutSummary), {
         onNone: () => null,
         onSome: ({ changes, skipped }) => `${fmt(changes)} ${changes === 1 ? "change" : "changes"}${skipped > 0 ? `, ${fmt(skipped)} left alone` : ""}`,
       }),

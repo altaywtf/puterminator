@@ -13,12 +13,21 @@ flowchart LR
   W -- OAuth code exchange --> P[put.io API]
   D -- "@putdotio/sdk" --> P
   D -- "Tool Runner (runner.ts)" --> C[Anthropic API]
+  D -- "poolReport(month, total)" --> L[Durable Object Puterminator named pool]
   D --- S[(SQLite in the Durable Object: store.ts)]
 ```
 
 - Assets answer first. Only `WORKER_ROUTES` in [`contract.ts`](../src/shared/contract.ts) reach the Worker, and unknown paths fall back to the SPA.
 - Every authenticated route checks the signed session cookie and its `session_gen` against the user's Durable Object, so sign-out ends every session at once.
 - The browser and the Durable Object exchange `ClientEvent` and `ServerEvent` JSON frames ([`contract.ts`](../src/shared/contract.ts)). Both sides decode with Effect Schema and drop frames that fail.
+
+## Credits
+
+Each user gets `MONTHLY_CREDITS` a month, and everyone shares `POOL_BUDGET_CREDITS` ([`config.ts`](../src/server/config.ts)); 1 credit is 1 cent of model cost.
+
+- Before each Anthropic request, a user's Durable Object sends its month total to the `pool` instance and gets everyone's total back. The pool keeps the largest total each instance reports, so retries never double count, and it never reads lower than the month's console spend CI passes in at deploy.
+- [`credits.ts`](../src/server/credits.ts) decides: under the pace line, run; past it, paused until the line catches up; past the budget or the user's own cap, out until the 1st.
+- If the pool doesn't answer, new work is refused. The Anthropic workspace spend limit is the hard stop.
 
 ## A turn
 
@@ -30,7 +39,7 @@ sequenceDiagram
   participant P as put.io
   B->>D: send {text, folder}
   D->>D: append user message + <context>
-  loop until end_turn, ask_user, or credits run out
+  loop until end_turn, ask_user, or credits stop it
     D->>C: messages (append-only history)
     C-->>D: streamed thinking, text, tool_use
     D-->>B: partial frames
@@ -72,9 +81,10 @@ flowchart TB
   D --- st[cf_agents_state: AgentState JSON]
   D --- se[secrets: put.io token, download token, session_gen, snapshot_root]
   D --- us[usage: weighted tokens per month]
+  D -. "instance named pool" .- ps[pool_spend: each instance's month total]
   D --- me[messages and archived_messages: chat history]
   D --- fi[files: library snapshot]
   D --- pl[plans: proposals, runs, undo runs]
 ```
 
-- The class name, the `putio-<user_id>` instance names and the v1 tables carry users' data across deploys.
+- The class name, the `putio-<user_id>` instance names, the `pool` instance and the v1 tables carry users' data across deploys.
