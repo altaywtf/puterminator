@@ -210,48 +210,78 @@ export const staleChanges = (snapshot: ReadonlyArray<WalkedFile>, changes: Reado
   });
 };
 
-const MAX_TRANSLATIONS = 20;
+const MAX_TRANSLATIONS = 30;
 
-export const validateTranslation = (snapshot: ReadonlyArray<WalkedFile>, paths: ReadonlyArray<string>, language: string, title: string, id: string): StoredPlan | { error: string } => {
-  if (paths.length === 0 || paths.length > MAX_TRANSLATIONS) return { error: `Give 1 to ${MAX_TRANSLATIONS} videos.` };
+export const validateTranslation = (
+  snapshot: ReadonlyArray<WalkedFile>,
+  paths: ReadonlyArray<string>,
+  language: string,
+  title: string,
+  id: string,
+): (StoredPlan & { skipped: number }) | { error: string } => {
+  if (paths.length === 0) return { error: "Give at least one video or folder." };
   const byPath = new Map(snapshot.map((f) => [f.path.toLowerCase(), f]));
   const changes: Change[] = [];
   const ids: Record<string, number> = {};
   const parents: Record<string, number> = {};
   const problems: string[] = [];
-
   const seenVideos = new Set<number>();
   const targets = new Set<string>();
+  let skipped = 0;
 
-  for (const raw of paths.map(clean)) {
-    const video = byPath.get(raw.toLowerCase());
+  const targetOf = (video: WalkedFile) => `${parentOf(video.path).replace(/\/$/, "")}/${stemOf(video.name)}.${language}.srt`;
+  const taken = (to: string) => byPath.has(to.toLowerCase()) || targets.has(to.toLowerCase());
 
-    if (!video || video.file_type !== "VIDEO") {
-      problems.push(`${raw}: not a video in the snapshot`);
-      continue;
-    }
-
-    if (seenVideos.has(video.id)) continue;
-    seenVideos.add(video.id);
-    const to = `${parentOf(video.path).replace(/\/$/, "")}/${stemOf(video.name)}.${language}.srt`;
-
-    if (byPath.has(to.toLowerCase()) || targets.has(to.toLowerCase())) {
-      problems.push(`${video.path}: ${nameOf(to)} already exists or another video in this plan gets it`);
-      continue;
-    }
-
-    targets.add(to.toLowerCase());
-
+  const add = (video: WalkedFile) => {
+    const to = targetOf(video);
     const changeId = `c${changes.length + 1}`;
+
+    seenVideos.add(video.id);
+    targets.add(to.toLowerCase());
     ids[changeId] = video.id;
 
     if (video.parent_id != null) parents[changeId] = video.parent_id;
     changes.push({ id: changeId, op: "translate", path: video.path, to, bytes: 0 });
+  };
+
+  for (const raw of paths.map(clean)) {
+    const entry = byPath.get(raw.toLowerCase());
+
+    if (entry?.file_type === "FOLDER" || raw === "/") {
+      const prefix = raw === "/" ? "/" : `${raw.toLowerCase()}/`;
+      const videos = snapshot.filter((f) => f.file_type === "VIDEO" && f.path.toLowerCase().startsWith(prefix) && !seenVideos.has(f.id)).toSorted((x, y) => x.path.localeCompare(y.path));
+      const fresh = videos.filter((v) => !taken(targetOf(v)));
+
+      skipped += videos.length - fresh.length;
+
+      if (videos.length === 0) problems.push(`${raw}: no videos in this folder`);
+
+      for (const video of fresh) add(video);
+      continue;
+    }
+
+    if (!entry || entry.file_type !== "VIDEO") {
+      problems.push(`${raw}: not a video or folder in the snapshot`);
+      continue;
+    }
+
+    if (seenVideos.has(entry.id)) continue;
+
+    if (taken(targetOf(entry))) {
+      problems.push(`${entry.path}: ${nameOf(targetOf(entry))} already exists or another video in this plan gets it`);
+      continue;
+    }
+
+    add(entry);
   }
 
   if (problems.length > 0) return { error: `Fix these and propose again: ${problems.slice(0, 10).join("; ")}` };
 
-  return { plan: { id, title, changes }, ids, parents };
+  if (changes.length === 0) return { error: `Every video there already has a ${title.replace(/ subtitles$/, "")} subtitle.` };
+
+  if (changes.length > MAX_TRANSLATIONS) return { error: `That's ${changes.length} videos; propose at most ${MAX_TRANSLATIONS} at a time, e.g. one season.` };
+
+  return { plan: { id, title, changes }, ids, parents, skipped };
 };
 
 export const validateQuestion = (input: AskInput, id: string): Question | { error: string } => {

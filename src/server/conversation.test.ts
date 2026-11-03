@@ -1077,6 +1077,47 @@ describe("translate subtitles", () => {
     ]);
   });
 
+  it("translates every episode under a season folder in one plan, leaving out ones that already have the language", async () => {
+    const season = [
+      file(30, 0, "Medici", "FOLDER"),
+      file(31, 30, "Season 2", "FOLDER"),
+      file(32, 31, "Medici S02E01.mkv", "VIDEO", 2 ** 30),
+      file(33, 31, "Medici S02E02.mkv", "VIDEO", 2 ** 30),
+      file(34, 31, "Medici S02E02.tur.srt", "TEXT", 100),
+      file(35, 31, "Medici S02E03.mkv", "VIDEO", 2 ** 30),
+    ];
+
+    const sub = [{ key: "k1", language_code: "eng", source: "mkv", name: "English", srt: english }];
+    const translated = { kind: "sse" as const, events: textTurn(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba." }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }), { input: 1, output: 1 }) };
+
+    const t = await setup(
+      [
+        { kind: "sse", events: toolUseTurn({ id: "toolu_s", name: "scan_library", inputJsonChunks: ["{}"] }, { input: 1, output: 1 }) },
+        { kind: "sse", events: toolUseTurn({ id: "toolu_t", name: "propose_translation", inputJsonChunks: [JSON.stringify({ paths: ["/Medici/Season 2"], language: "tur" })] }, { input: 1, output: 1 }) },
+        { kind: "sse", events: textTurn("plan's up.", { input: 1, output: 1 }) },
+        translated,
+        translated,
+      ],
+      { files: season, subtitles: { 32: sub, 35: sub } },
+    );
+
+    await proposeAndApply(t);
+    const result = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_t");
+
+    expect([
+      JSON.parse(String(result?.type === "tool_result" ? result.content : "")).already_translated,
+      t.putio.uploads.map((u) => [u.name, u.parentId]).toSorted(),
+      t.store.plans()[0]?.record.status,
+    ]).toEqual([
+      1,
+      [
+        ["Medici S02E01.tur.srt", 31],
+        ["Medici S02E03.tur.srt", 31],
+      ],
+      "done",
+    ]);
+  });
+
   it("skips an OpenSubtitles match Haiku says is for another video and translates the next one", async () => {
     const drama = "1\n00:00:01,000 --> 00:00:02,000\nPut it down now!\n";
 

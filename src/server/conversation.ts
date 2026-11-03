@@ -36,7 +36,7 @@ Who you are:
 You can scan, score, list folders, search files and make download links; every file you name links to put.io and videos play in the app. You can also change the library, but only through a plan the user approves:
 - To make the library work with Plex, Infuse, Jellyfin or Kodi, call plan_layout: it builds the whole plan itself. If the snapshot doesn't show which folders hold movies and shows, ask with ask_user, offering existing top-level folders or new 'Movies' and 'TV Shows'. Afterwards, one line on what it did and how many files it left alone.
 - To fix subtitles put.io or a media server doesn't show, call plan_subtitles: it renames each stray .srt to its video's name and moves it next to the video. One line afterwards; say how many it left alone and why.
-- To translate subtitles, call propose_translation with the videos and the language. It needs put.io to have an English subtitle for each video; offer it for films the user names, at most 20 at a time.
+- To translate subtitles, call propose_translation with the videos or folders and the language; a folder covers every video under it, so pass a show or season folder as is. It needs put.io to have an English subtitle for each video; at most 30 videos at a time.
 - To free up space, call plan_free_space with the amount the user wants back (0 if they gave none). It trashes exact copies and junk itself. For each choice it returns (one title in two versions), ask with ask_user which copy to keep, then propose_changes for the rest. Hints (big never-played files) are only suggestions; name them, never trash them unasked.
 - To trash, rename or move anything else, call propose_changes with every change. The app shows it as a diff; the user applies, edits or discards it. You never apply anything yourself, and nothing changes until they click apply.
 - Trash goes to put.io's trash, never a permanent delete. Prefer trash for junk, rename for messy release names, move for wrapper folders.
@@ -115,6 +115,7 @@ export interface AgentDeps {
 }
 
 const MINUTE_MS = 60_000;
+const PARALLEL_TRANSLATIONS = 3;
 
 const describeAge = (ms: number) => {
   const minutes = Math.floor(ms / MINUTE_MS);
@@ -346,27 +347,20 @@ export const makeAgent = (deps: AgentDeps) =>
         const needsTrash = queued.some((s) => run.changes.find((c) => c.id === s.change)?.op === "trash");
         const trashOn = needsTrash ? yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)) : true;
 
-        const failedVideos = new Set<string>();
+        const translate = (step: (typeof queued)[number]) =>
+          Effect.gen(function* () {
+            const change = run.changes.find((c) => c.id === step.change);
+            const fileId = first.ids[step.change];
 
-        for (const step of queued) {
-          const change = run.changes.find((c) => c.id === step.change);
-          const fileId = first.ids[step.change];
+            if (change?.op !== "translate" || fileId === undefined) return;
 
-          if (!change || fileId === undefined) continue;
-          const video = change.id.replace(/s\d+$/, "");
-
-          if (video !== change.id && failedVideos.has(video)) {
-            setStep(step.change, "failed", "its video didn’t move");
-            continue;
-          }
-
-          if (change.op === "translate") {
             const lang = change.to?.match(/\.([a-z]{3})\.srt$/)?.[1];
             const m = month(yield* Clock.currentTimeMillis);
 
             if (!lang || !Schema.is(LanguageCode)(lang) || !change.to) {
               setStep(step.change, "failed", "no language in the subtitle name");
-              continue;
+
+              return;
             }
 
             setStep(step.change, "running");
@@ -386,9 +380,25 @@ export const makeAgent = (deps: AgentDeps) =>
               if (Option.isSome(err)) setStep(step.change, "failed", stepMessage(err.value), maybeApplied(err.value));
               else setStep(step.change, "failed", "didn’t finish", true);
             }
+          });
 
+        yield* Effect.forEach(queued, translate, { concurrency: PARALLEL_TRANSLATIONS, discard: true });
+
+        const failedVideos = new Set<string>();
+
+        for (const step of queued) {
+          const change = run.changes.find((c) => c.id === step.change);
+          const fileId = first.ids[step.change];
+
+          if (!change || fileId === undefined) continue;
+          const video = change.id.replace(/s\d+$/, "");
+
+          if (video !== change.id && failedVideos.has(video)) {
+            setStep(step.change, "failed", "its video didn’t move");
             continue;
           }
+
+          if (change.op === "translate") continue;
 
           if (change.op === "trash" && !trashOn) {
             setStep(step.change, "failed", "trash is off in your put.io settings, so this would delete for good");
@@ -668,9 +678,9 @@ export const makeAgent = (deps: AgentDeps) =>
       effectTool({
         name: "propose_translation",
         description:
-          "Propose translating the English subtitles of 1 to 20 videos from the snapshot into one language. Each lands beside its video as '<video name>.<language>.srt', which put.io and media servers pick up. The user sees the plan and applies it; nothing is translated until they do. Each film uses a little of their monthly credits.",
+          "Propose translating the English subtitles of videos from the snapshot into one language: give videos, or folders to cover every video under them, skipping ones that already have that language; at most 30 videos in all. Each lands beside its video as '<video name>.<language>.srt', which put.io and media servers pick up. The user sees the plan and applies it; nothing is translated until they do. Each film uses a little of their monthly credits.",
         input: Schema.Struct({
-          paths: Schema.Array(Schema.String).annotate({ description: "video paths from the snapshot" }),
+          paths: Schema.Array(Schema.String).annotate({ description: "video or folder paths from the snapshot" }),
           language: LanguageCode.annotate({ description: "ISO 639-2 code of the language to translate into, e.g. 'tur'" }),
         }),
         run: ({ paths, language }) =>
@@ -683,7 +693,7 @@ export const makeAgent = (deps: AgentDeps) =>
             if ("error" in out) return JSON.stringify(out);
             storePlan(out);
 
-            return JSON.stringify(out.plan);
+            return JSON.stringify({ ...out.plan, already_translated: out.skipped });
           }),
       }),
       effectTool({
