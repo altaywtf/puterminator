@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   verify:
+    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -33,7 +34,6 @@ jobs:
       - run: pnpm verify
 
   deploy:
-    needs: [verify]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -55,6 +55,7 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
       - name: Read this month's console spend
         env:
           ANTHROPIC_ADMIN_KEY: ${{ secrets.ANTHROPIC_ADMIN_KEY }}
@@ -70,7 +71,7 @@ jobs:
           PUTIO_CLIENT_SECRET: ${{ secrets.PUTIO_CLIENT_SECRET }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           UNLIMITED_USERS: ${{ vars.UNLIMITED_USERS }}
-        run: pnpm build && pnpm exec alchemy deploy --stage prod --yes
+        run: pnpm exec alchemy deploy --stage prod --yes
       - name: Smoke the live site
         run: |
           want="$(grep -o '/assets/index-[^"]*\.js' dist/index.html)"
