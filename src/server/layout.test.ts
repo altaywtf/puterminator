@@ -1,6 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { type LayoutResult, parseMedia, planLayout, targetPath } from "./layout";
 import type { WalkedFile } from "./tree";
+
+const NOW = Date.UTC(2026, 10, 3);
 
 let id = 1;
 
@@ -38,7 +40,7 @@ const library = (...paths: Array<string | [string, Partial<WalkedFile>]>) => {
 };
 
 const plan = (files: WalkedFile[], movies = "/Movies", shows = "/TV Shows", within = ""): LayoutResult => {
-  const out = planLayout(files, movies, shows, within);
+  const out = planLayout(files, movies, shows, within, NOW);
 
   if ("error" in out) throw new Error(out.error);
 
@@ -48,56 +50,53 @@ const plan = (files: WalkedFile[], movies = "/Movies", shows = "/TV Shows", with
 const moves = (r: LayoutResult) => r.changes.map((c) => [c.path, c.to]);
 
 describe("parseMedia", () => {
-  afterEach(() => vi.useRealTimers());
 
   it("takes the last year before the release tags, so a year in the title stays in the title", () => {
-    expect(parseMedia("Heat.1995.1080p.BluRay.x264-RARBG.mkv")).toMatchObject({ title: "Heat", year: "1995" });
-    expect(parseMedia("Blade.Runner.2049.2017.2160p.UHD.BluRay.x265.mkv")).toMatchObject({ title: "Blade Runner 2049", year: "2017" });
-    expect(parseMedia("Wonder.Woman.1984.2020.1080p.WEB-DL.mkv")).toMatchObject({ title: "Wonder Woman 1984", year: "2020" });
-    expect(parseMedia("2001.A.Space.Odyssey.1968.1080p.mkv")).toMatchObject({ title: "2001 A Space Odyssey", year: "1968" });
-    expect(parseMedia("1917 (2019).mkv")).toMatchObject({ title: "1917", year: "2019" });
+    expect(parseMedia("Heat.1995.1080p.BluRay.x264-RARBG.mkv", NOW)).toMatchObject({ title: "Heat", year: "1995" });
+    expect(parseMedia("Blade.Runner.2049.2017.2160p.UHD.BluRay.x265.mkv", NOW)).toMatchObject({ title: "Blade Runner 2049", year: "2017" });
+    expect(parseMedia("Wonder.Woman.1984.2020.1080p.WEB-DL.mkv", NOW)).toMatchObject({ title: "Wonder Woman 1984", year: "2020" });
+    expect(parseMedia("2001.A.Space.Odyssey.1968.1080p.mkv", NOW)).toMatchObject({ title: "2001 A Space Odyssey", year: "1968" });
+    expect(parseMedia("1917 (2019).mkv", NOW)).toMatchObject({ title: "1917", year: "2019" });
   });
 
   it("finds editions and disc parts only after the year, and skips 'Part N' it can't tell from a miniseries", () => {
-    expect(parseMedia("Uncut.Gems.2019.1080p.mkv")).toMatchObject({ title: "Uncut Gems", edition: null });
-    expect(parseMedia("The.Final.Cut.2004.mkv")).toMatchObject({ title: "The Final Cut", edition: null });
-    expect(parseMedia("Blade Runner (1982) [Final Cut].mkv")).toMatchObject({ title: "Blade Runner", edition: "Final Cut" });
-    expect(parseMedia("The.Matrix.1999.CD2.avi")).toMatchObject({ title: "The Matrix", part: 2 });
-    expect(parseMedia("The.Matrix.CD1.1999.DivX.avi")).toBeNull();
-    expect(parseMedia("Chernobyl.2019.Part.1.1080p.mkv")).toBeNull();
+    expect(parseMedia("Uncut.Gems.2019.1080p.mkv", NOW)).toMatchObject({ title: "Uncut Gems", edition: null });
+    expect(parseMedia("The.Final.Cut.2004.mkv", NOW)).toMatchObject({ title: "The Final Cut", edition: null });
+    expect(parseMedia("Blade Runner (1982) [Final Cut].mkv", NOW)).toMatchObject({ title: "Blade Runner", edition: "Final Cut" });
+    expect(parseMedia("The.Matrix.1999.CD2.avi", NOW)).toMatchObject({ title: "The Matrix", part: 2 });
+    expect(parseMedia("The.Matrix.CD1.1999.DivX.avi", NOW)).toBeNull();
+    expect(parseMedia("Chernobyl.2019.Part.1.1080p.mkv", NOW)).toBeNull();
   });
 
   it("cleans tracker prefixes and keeps acronyms, hyphens, small words and editions readable", () => {
-    expect(parseMedia("www.Torrenting.com - Oppenheimer.2023.1080p.mkv")).toMatchObject({ title: "Oppenheimer" });
-    expect(parseMedia("www.Torrenting.com-Spider-Man.2002.1080p.mkv")).toMatchObject({ title: "Spider-Man", year: "2002" });
-    expect(parseMedia("www.Torrenting.com-The.Amazing.Spider-Man.2012.1080p.mkv")).toMatchObject({ title: "The Amazing Spider-Man", year: "2012" });
-    expect(parseMedia("Back.to.the.Future.1985.1080p.mkv")).toMatchObject({ title: "Back to the Future", year: "1985" });
-    expect(parseMedia("Kingdom.of.Heaven.2005.1080p.BluRay.Directors.Cut.x264-GRP.mkv")).toMatchObject({ title: "Kingdom of Heaven", edition: "Director's Cut" });
-    expect(parseMedia("Escape.from.L.A.1996.1080p.mkv")).toMatchObject({ title: "Escape from L.A." });
-    expect(parseMedia("S.W.A.T.2017.S05E10.1080p.WEB.mkv")).toMatchObject({ show: "S.W.A.T.", year: "2017" });
-    expect(parseMedia("Mr. Nobody (2009).mkv")).toMatchObject({ title: "Mr. Nobody" });
+    expect(parseMedia("www.Torrenting.com - Oppenheimer.2023.1080p.mkv", NOW)).toMatchObject({ title: "Oppenheimer" });
+    expect(parseMedia("www.Torrenting.com-Spider-Man.2002.1080p.mkv", NOW)).toMatchObject({ title: "Spider-Man", year: "2002" });
+    expect(parseMedia("www.Torrenting.com-The.Amazing.Spider-Man.2012.1080p.mkv", NOW)).toMatchObject({ title: "The Amazing Spider-Man", year: "2012" });
+    expect(parseMedia("Back.to.the.Future.1985.1080p.mkv", NOW)).toMatchObject({ title: "Back to the Future", year: "1985" });
+    expect(parseMedia("Kingdom.of.Heaven.2005.1080p.BluRay.Directors.Cut.x264-GRP.mkv", NOW)).toMatchObject({ title: "Kingdom of Heaven", edition: "Director's Cut" });
+    expect(parseMedia("Escape.from.L.A.1996.1080p.mkv", NOW)).toMatchObject({ title: "Escape from L.A." });
+    expect(parseMedia("S.W.A.T.2017.S05E10.1080p.WEB.mkv", NOW)).toMatchObject({ show: "S.W.A.T.", year: "2017" });
+    expect(parseMedia("Mr. Nobody (2009).mkv", NOW)).toMatchObject({ title: "Mr. Nobody" });
   });
 
-  it("reads the year bound from the clock when it parses, since a Worker's clock reads 1970 at startup", () => {
-    vi.useFakeTimers({ now: new Date("2040-06-01T00:00:00Z") });
-    expect(parseMedia("Film.2041.1080p.WEB-DL.mkv")).toMatchObject({ title: "Film", year: "2041" });
-    vi.setSystemTime(new Date("1970-01-01T00:00:00Z"));
-    expect(parseMedia("Heat.1995.2160p.WEB-DL.mkv")).toBeNull();
+  it("takes a year up to next year as a release year, and a later number as part of the title", () => {
+    expect(parseMedia("Film.2041.1080p.WEB-DL.mkv", Date.UTC(2040, 5, 1))).toMatchObject({ title: "Film", year: "2041" });
+    expect(parseMedia("Heat.1995.2160p.WEB-DL.mkv", Date.UTC(1970, 0, 1))).toBeNull();
   });
 
   it("doesn't mistake codecs, numbered episodes, brackets or day-first dates for something else", () => {
-    expect(parseMedia("Inception.2010.1080p.BluRay.DTS5.1x264-GRP.mkv")).toMatchObject({ kind: "movie", title: "Inception", year: "2010" });
-    expect(parseMedia("[Judas] Hunter x Hunter (2011) - 001.mkv")).toBeNull();
-    expect(parseMedia("Planet Earth II (2016) - 01 - Islands.mkv")).toBeNull();
-    expect(parseMedia("Chernobyl.2019.E01.1080p.mkv")).toBeNull();
-    expect(parseMedia("Heat [1995] [1080p].mkv")).toMatchObject({ title: "Heat", year: "1995" });
-    expect(parseMedia("Heat (1995 Remastered) 1080p.mkv")).toMatchObject({ title: "Heat", edition: "Remastered" });
-    expect(parseMedia("Tagesschau.15.01.2024.mkv")).toBeNull();
-    expect(parseMedia("Show.S01E01E03.1080p.mkv")).toBeNull();
-    expect(parseMedia("Show.S01E01-720p.mkv")).toMatchObject({ first: 1, last: 1 });
-    expect(parseMedia("Heat (1995)-clip.mkv")).toBeNull();
-    expect(parseMedia("Alien.1979.1080p.mkv ")).toBeNull();
-    expect(parseMedia("Heat.1995.1080p.[2020].mkv")).toMatchObject({ title: "Heat", year: "1995" });
+    expect(parseMedia("Inception.2010.1080p.BluRay.DTS5.1x264-GRP.mkv", NOW)).toMatchObject({ kind: "movie", title: "Inception", year: "2010" });
+    expect(parseMedia("[Judas] Hunter x Hunter (2011) - 001.mkv", NOW)).toBeNull();
+    expect(parseMedia("Planet Earth II (2016) - 01 - Islands.mkv", NOW)).toBeNull();
+    expect(parseMedia("Chernobyl.2019.E01.1080p.mkv", NOW)).toBeNull();
+    expect(parseMedia("Heat [1995] [1080p].mkv", NOW)).toMatchObject({ title: "Heat", year: "1995" });
+    expect(parseMedia("Heat (1995 Remastered) 1080p.mkv", NOW)).toMatchObject({ title: "Heat", edition: "Remastered" });
+    expect(parseMedia("Tagesschau.15.01.2024.mkv", NOW)).toBeNull();
+    expect(parseMedia("Show.S01E01E03.1080p.mkv", NOW)).toBeNull();
+    expect(parseMedia("Show.S01E01-720p.mkv", NOW)).toMatchObject({ first: 1, last: 1 });
+    expect(parseMedia("Heat (1995)-clip.mkv", NOW)).toBeNull();
+    expect(parseMedia("Alien.1979.1080p.mkv ", NOW)).toBeNull();
+    expect(parseMedia("Heat.1995.1080p.[2020].mkv", NOW)).toMatchObject({ title: "Heat", year: "1995" });
   });
 
   it("skips every name outside the shapes it knows instead of reading part of it", () => {
@@ -141,25 +140,25 @@ describe("parseMedia", () => {
       "Lost - S01E01 & 02 - Pilot.mkv",
       "Cowboy_Bebop_-_05_(1998).mkv",
     ])
-      expect(parseMedia(name), name).toBeNull();
+      expect(parseMedia(name, NOW), name).toBeNull();
   });
 
   it("reads single and multi-episode files, and skips what the episode number doesn't settle", () => {
-    expect(parseMedia("The.Office.US.S02E01.720p.HDTV.x264.mkv")).toEqual({ kind: "episode", show: "The Office US", year: null, season: 2, first: 1, last: 1, ids: "" });
-    expect(parseMedia("Doctor.Who.2005.S01E01E02.mkv")).toMatchObject({ show: "Doctor Who", year: "2005", first: 1, last: 2 });
-    expect(parseMedia("Lost.S01E01-02.720p.mkv")).toMatchObject({ first: 1, last: 2 });
-    expect(parseMedia("Severance (2022) - S01E01 - Good News About Hell.mkv")).toMatchObject({ show: "Severance", year: "2022", first: 1 });
-    expect(parseMedia("1923.S01E01.mkv")).toMatchObject({ show: "1923", year: null });
-    expect(parseMedia("Ghost.in.the.Shell.SAC_2045.S01E01.mkv")).toMatchObject({ show: "Ghost in the Shell SAC 2045", year: null });
-    expect(parseMedia("Severance — S01E02 — Half Loop.mkv")).toMatchObject({ show: "Severance", season: 1, first: 2 });
-    expect(parseMedia("Doctor.Who.1963.S02E01.mkv", { show: "Doctor Who", year: "2005", season: 2 })).toBeNull();
-    expect(parseMedia("S03E04.1080p.mkv", { show: "Severance", year: null, season: 3 })).toMatchObject({ show: "Severance", season: 3, first: 4 });
-    expect(parseMedia("S03E04.1080p.mkv", { show: "Severance", year: null, season: 2 })).toBeNull();
-    expect(parseMedia("S03E04.1080p.mkv")).toBeNull();
-    expect(parseMedia("Gap.S01E01E02E04.mkv")).toBeNull();
-    expect(parseMedia("Show.Name.S01E01.Part.1.mkv")).toBeNull();
-    expect(parseMedia("The.Daily.Show.2024.01.15.720p.WEB.mkv")).toBeNull();
-    expect(parseMedia("Heat (1995)-trailer.mkv")).toBeNull();
+    expect(parseMedia("The.Office.US.S02E01.720p.HDTV.x264.mkv", NOW)).toEqual({ kind: "episode", show: "The Office US", year: null, season: 2, first: 1, last: 1, ids: "" });
+    expect(parseMedia("Doctor.Who.2005.S01E01E02.mkv", NOW)).toMatchObject({ show: "Doctor Who", year: "2005", first: 1, last: 2 });
+    expect(parseMedia("Lost.S01E01-02.720p.mkv", NOW)).toMatchObject({ first: 1, last: 2 });
+    expect(parseMedia("Severance (2022) - S01E01 - Good News About Hell.mkv", NOW)).toMatchObject({ show: "Severance", year: "2022", first: 1 });
+    expect(parseMedia("1923.S01E01.mkv", NOW)).toMatchObject({ show: "1923", year: null });
+    expect(parseMedia("Ghost.in.the.Shell.SAC_2045.S01E01.mkv", NOW)).toMatchObject({ show: "Ghost in the Shell SAC 2045", year: null });
+    expect(parseMedia("Severance — S01E02 — Half Loop.mkv", NOW)).toMatchObject({ show: "Severance", season: 1, first: 2 });
+    expect(parseMedia("Doctor.Who.1963.S02E01.mkv", NOW, { show: "Doctor Who", year: "2005", season: 2 })).toBeNull();
+    expect(parseMedia("S03E04.1080p.mkv", NOW, { show: "Severance", year: null, season: 3 })).toMatchObject({ show: "Severance", season: 3, first: 4 });
+    expect(parseMedia("S03E04.1080p.mkv", NOW, { show: "Severance", year: null, season: 2 })).toBeNull();
+    expect(parseMedia("S03E04.1080p.mkv", NOW)).toBeNull();
+    expect(parseMedia("Gap.S01E01E02E04.mkv", NOW)).toBeNull();
+    expect(parseMedia("Show.Name.S01E01.Part.1.mkv", NOW)).toBeNull();
+    expect(parseMedia("The.Daily.Show.2024.01.15.720p.WEB.mkv", NOW)).toBeNull();
+    expect(parseMedia("Heat (1995)-trailer.mkv", NOW)).toBeNull();
   });
 });
 
@@ -285,9 +284,9 @@ describe("planLayout", () => {
 
     expect(plan(files, "/movies", "/tv shows").changes.map((c) => c.to)).toEqual(["/Movies/Alien (1979)/Alien (1979).mkv", "/Movies/Memento (2000)/Memento (2000).mkv"]);
     expect(plan(files, "/Movies", "/TV Shows", "/downloads").changes.map((c) => c.path)).toEqual(["/Downloads/Alien.1979.mkv"]);
-    expect(planLayout(files, "/", "/TV Shows", "")).toHaveProperty("error");
-    expect(planLayout(files, "/Movies", "/TV Shows", "/Nope")).toHaveProperty("error");
-    expect(planLayout(files, "/Media", "/media/", "")).toHaveProperty("error");
+    expect(planLayout(files, "/", "/TV Shows", "", NOW)).toHaveProperty("error");
+    expect(planLayout(files, "/Movies", "/TV Shows", "/Nope", NOW)).toHaveProperty("error");
+    expect(planLayout(files, "/Media", "/media/", "", NOW)).toHaveProperty("error");
     expect(plan(library("/movies/notes.txt", "/Movies/Heat (1995)/Heat (1995).mkv", "/Downloads/Alien.1979.mkv")).changes.map((c) => c.to)).toEqual(["/Movies/Alien (1979)/Alien (1979).mkv"]);
     expect(plan(library("/Media/TV Shows/Lost/Season 01/Lost - S01E01.mkv", "/Downloads/Lost.S01E02.mkv", "/Downloads/Heat.1995.mkv"), " /media/movies ", "/media/ TV Shows /").changes.map((c) => c.to)).toEqual([
       "/Media/movies/Heat (1995)/Heat (1995).mkv",
@@ -430,7 +429,14 @@ describe("planLayout", () => {
     );
 
     expect(r.changes).toEqual([]);
-    expect(r.skipped).toHaveLength(6);
+    expect(r.skipped.map((s) => s.path).toSorted()).toEqual([
+      "/Downloads/Breaking.Bad.S01.720p.BluRay.x264-ROVERS/rovers-s01e01.mkv",
+      "/Downloads/Heat.1995.1080p.BluRay.x264-GRP/Collateral.mkv",
+      "/Movies/4K/Heat.1995.2160p.UHD.BluRay.x265-GRP.mkv",
+      "/Movies/Alien (1979) & Aliens (1986)/Alien.1979.1080p.BluRay.mkv",
+      "/Movies/Kids/Bluey.S01E01.1080p.WEB.mkv",
+      "/Movies/Sci-Fi/Alien.1979.1080p.BluRay.x264-GRP/Alien.1979.1080p.BluRay.x264-GRP.mkv",
+    ]);
   });
 
   it("doesn't add to a show it can't read whole: a title year, two folders for a season, a pack inside, a nested copy, an accented twin", () => {
@@ -520,7 +526,13 @@ describe("planLayout", () => {
     );
 
     expect(r.changes).toEqual([]);
-    expect(r.skipped).toHaveLength(5);
+    expect(r.skipped.map((s) => s.path).toSorted()).toEqual([
+      "/Downloads/Bluey.2018.S01E02.mkv",
+      "/Downloads/Breaking.Bad.S01E03.1080p.WEB.mkv",
+      "/Downloads/Doctor.Who.S26E01.mkv",
+      "/Downloads/Lost.2004.S01E03.mkv",
+      "/Downloads/The Office {tvdb-78107} - S01E02.mkv",
+    ]);
   });
 
   it("keeps out of movie folders that are tagged as another film, doubled, or already hold a copy elsewhere, and reads title years across the plan", () => {

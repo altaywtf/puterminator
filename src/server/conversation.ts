@@ -726,11 +726,11 @@ export const makeAgent = (deps: AgentDeps) =>
           within: Schema.String.annotate({ description: "only videos under this folder, e.g. '/Downloads'; '' for the whole snapshot" }),
         }),
         run: ({ movies, shows, within }) =>
-          Effect.sync(() => {
+          Effect.gen(function* () {
             const all = snapshotHere();
 
             if (Result.isFailure(all)) return all.failure;
-            const layout = planLayout(all.success, movies, shows, within);
+            const layout = planLayout(all.success, movies, shows, within, yield* Clock.currentTimeMillis);
 
             if ("error" in layout) return JSON.stringify(layout);
 

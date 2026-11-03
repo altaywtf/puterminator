@@ -2,7 +2,7 @@ import type { ProposeInput } from "./changes";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { type ClientEvent, CREDIT_TOKENS, FileFlag, type MessageParam, type ServerEvent } from "../shared/contract";
 import { type AgentDeps, makeAgent } from "./conversation";
 import { anthropicLayer } from "./runner";
@@ -203,7 +203,7 @@ describe("a turn", () => {
     const t = await setup([{ kind: "hang" }]);
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
     await t.anthropic.hanging;
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(t.store.used(month(Date.now()))).toBeGreaterThan(0));
     await t.receive({ type: "stop" });
     expect(t.store.used(month(Date.now()))).toBe(1 + 1 * 5);
     expect(t.agent.state().credits.used).toBe(6);
@@ -254,7 +254,7 @@ describe("a turn", () => {
     const t = await setup([{ kind: "hang", text: "x".repeat(400) }]);
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
     await t.anthropic.hanging;
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(t.events.some((e) => e.type === "partial" && JSON.stringify(e.content).includes("x".repeat(400)))).toBe(true));
     await t.receive({ type: "stop" });
     expect(t.store.used(month(Date.now()))).toBeGreaterThanOrEqual(1 + (400 / 4) * 5);
   });
@@ -914,7 +914,7 @@ describe("library freshness", () => {
     t.agent.connected();
     await Effect.runPromise(t.agent.receive(frame({ type: "send", text: "scan movies", folder: { id: 1, name: "Movies" } })));
 
-    await new Promise((r) => setTimeout(r, 50));
+    await vi.waitFor(() => expect(t.anthropic.requests).toHaveLength(1));
     release();
     await t.settle();
     expect(t.store.secret("snapshot_root")).toBe("1");
@@ -936,7 +936,7 @@ describe("library freshness", () => {
     t.agent.connected();
     await t.putio.fetch("https://api.put.io/v2/files/rename", { method: "POST", body: new URLSearchParams({ file_id: "4", name: "Aliens (1986).mkv" }) });
     await Effect.runPromise(t.agent.receive(send("rescan")));
-    await new Promise((r) => setTimeout(r, 50));
+    await vi.waitFor(() => expect(t.anthropic.requests).toHaveLength(1));
     release();
     await t.settle();
     expect(t.store.snapshot().map((f) => f.name)).toContain("Aliens (1986).mkv");
@@ -1281,7 +1281,7 @@ describe("delete data", () => {
     const t = await setup([], { seed: scanned("2026-01-01T00:00:00.000Z"), holdFirstListing: slow });
 
     t.agent.connected();
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(t.putio.log.some((r) => r.url.pathname === "/v2/files/list")).toBe(true));
     expect(await Effect.runPromise(t.agent.deleteData)).toBe(true);
     release();
     await t.settle();
@@ -1301,7 +1301,7 @@ describe("delete data", () => {
     );
 
     await Effect.runPromise(t.agent.receive(send("scan")));
-    await new Promise((r) => setTimeout(r, 50));
+    await vi.waitFor(() => expect(t.putio.log.some((r) => r.url.pathname === "/v2/files/list")).toBe(true));
     expect(await Effect.runPromise(t.agent.deleteData)).toBe(false);
     release();
     await t.settle();

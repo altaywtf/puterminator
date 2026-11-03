@@ -56,7 +56,7 @@ const extOf = (name: string) => name.match(/\.([a-z0-9]{2,4})$/i)?.[1]?.toLowerC
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf("/"));
 const pad = (n: number) => String(n).padStart(2, "0");
 const pathKey = (path: string) => path.normalize("NFC").toLowerCase();
-const latestYear = () => new Date().getUTCFullYear() + 1;
+const latestYearAt = (now: number) => new Date(now).getUTCFullYear() + 1;
 
 const showKey = (name: string) =>
   name
@@ -116,13 +116,13 @@ const beforeRelease = (text: string) => {
 
 const blank = (text: string) => text.replace(/[\s._\-–()[\]]+/g, "") === "";
 
-const trailingYear = (lead: string) => {
+const trailingYear = (lead: string, latest: number) => {
   const year = lead.match(/^(.+?)(?:[\s._\-–]+[([]?|[([])((?:19|20)\d{2})[)\]]?[\s._\-–]*$/);
 
-  return year && Number(year[2]) <= latestYear() && pretty(year[1] ?? "") ? { before: year[1] ?? "", value: year[2] ?? "" } : null;
+  return year && Number(year[2]) <= latest && pretty(year[1] ?? "") ? { before: year[1] ?? "", value: year[2] ?? "" } : null;
 };
 
-const movieOf = (stem: string): Movie | null => {
+const movieOf = (stem: string, latest: number): Movie | null => {
   if (EPISODIC.test(stem) || DATED.test(stem) || RANGE.test(stem)) return null;
 
   const readings = [...stem.matchAll(YEAR_CANDIDATE)].flatMap((m): Movie[] => {
@@ -132,7 +132,7 @@ const movieOf = (stem: string): Movie | null => {
     const title = stem.slice(0, at);
     const tail = stem.slice(end);
 
-    if (/[0-9]$/.test(title) || /^[0-9]/.test(tail) || Number(value) > latestYear()) return [];
+    if (/[0-9]$/.test(title) || /^[0-9]/.test(tail) || Number(value) > latest) return [];
 
     if (!pretty(title) || BRACKETS.test(title) || DOMAIN.test(title) || COLLECTION.test(title) || /\s[-–—]\s/.test(title) || beforeRelease(title) !== title || SPLIT.test(title)) return [];
 
@@ -172,7 +172,7 @@ const episodeParts = (stem: string) => {
   return { lead, season: Number(season), first: Number(first), last };
 };
 
-const episodeOf = (stem: string, pack: Pack | null): Episode | null => {
+const episodeOf = (stem: string, pack: Pack | null, latest: number): Episode | null => {
   const parts = episodeParts(stem);
 
   if (!parts) return null;
@@ -180,7 +180,7 @@ const episodeOf = (stem: string, pack: Pack | null): Episode | null => {
   const lead = raw.replace(ID_TAG, " ");
 
   if (beforeRelease(lead) !== lead || EPISODIC.test(lead) || RANGE.test(lead) || DOMAIN.test(lead) || COLLECTION.test(lead)) return null;
-  const year = trailingYear(lead);
+  const year = trailingYear(lead, latest);
   const text = year ? year.before : lead;
 
   if (BRACKETS.test(text)) return null;
@@ -197,21 +197,23 @@ const episodeOf = (stem: string, pack: Pack | null): Episode | null => {
 /** A video's identity from its own name, or null unless the whole name fits one of the shapes it knows:
     `Title.Year.<release tags>`, `Title (Year)` and `Show[.Year].S01E02[-E03]`. A bare `S01E02` takes its
     show from the season pack it sits in. */
-export function parseMedia(name: string, pack: Pack | null = null): Media | null {
+export function parseMedia(name: string, now: number, pack: Pack | null = null): Media | null {
   if (name !== name.trim()) return null;
   const stem = stemOf(name).replace(TRACKER_PREFIX, "");
 
   if (EXTRA.test(stem)) return null;
 
-  return EPISODE_NAME.test(stem) ? episodeOf(stem, pack) : movieOf(stem);
+  const latest = latestYearAt(now);
+
+  return EPISODE_NAME.test(stem) ? episodeOf(stem, pack, latest) : movieOf(stem, latest);
 }
 
-const packOf = (folder: string): Pack | null => {
+const packOf = (folder: string, latest: number): Pack | null => {
   const m = folder.match(SEASON_PACK);
   const lead = m?.[1] ?? "";
 
   if (!m || EPISODIC.test(lead) || BRACKETS.test(lead) || RANGE.test(lead) || COLLECTION.test(lead) || beforeRelease(lead) !== lead || !blank(beforeRelease(m[3] ?? ""))) return null;
-  const year = trailingYear(lead);
+  const year = trailingYear(lead, latest);
   const show = pretty(year ? year.before : lead);
 
   return show ? { show, year: year?.value ?? null, season: Number(m[2]) } : null;
@@ -261,7 +263,8 @@ const normalRoot = (path: string) => {
  * at most MAX_CHANGES including the subtitles that follow. It never touches a show's own folders or a
  * folder of the user's under the movies root, and skips anything it can't name with certainty.
  */
-export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: string, showsRoot: string, within: string): LayoutResult | { error: string } {
+export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: string, showsRoot: string, within: string, now: number): LayoutResult | { error: string } {
+  const latest = latestYearAt(now);
   const realFolders = new Set(snapshot.flatMap((f) => (f.file_type === "FOLDER" ? [f.path] : [])));
   const folderPaths = new Map(snapshot.flatMap((f) => (f.file_type === "FOLDER" ? [[pathKey(f.path), f.path]] : [])));
   const wantedMovies = normalRoot(moviesRoot);
@@ -322,7 +325,7 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
       .toSorted()
       .join(" ");
 
-  const folderIdentity = (name: string): Media | Pack | null => (RELEASE.test(name) ? (parseMedia(`${name}.mkv`) ?? packOf(name)) : null);
+  const folderIdentity = (name: string): Media | Pack | null => (RELEASE.test(name) ? (parseMedia(`${name}.mkv`, now) ?? packOf(name, latest)) : null);
 
   const inExtras = (path: string) => {
     const dirs = foldersOf(path);
@@ -356,7 +359,7 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
   const looseMovieFolders = new Map(childrenOf(movies).flatMap((f) => (f.file_type === "FOLDER" && !MOVIE_FOLDER.test(f.name) && !folderIdentity(f.name) ? [[showKey(f.name), f.name]] : [])));
 
   const copiesInMovies = videosUnder(movies).flatMap((g) => {
-    const own = parseMedia(g.name);
+    const own = parseMedia(g.name, now);
     const strict = nameOf(parentOf(g.path)).match(MOVIE_FOLDER);
     const release = folderIdentity(nameOf(parentOf(g.path)));
     const media = own?.kind === "movie" ? own : release && "kind" in release && release.kind === "movie" ? release : null;
@@ -368,7 +371,7 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
 
   const titlesSeen = new Map([
     ...allVideos.flatMap((v): Array<[string, string]> => {
-      const m = parseMedia(v.f.name);
+      const m = parseMedia(v.f.name, now);
 
       return m?.kind === "movie" ? [[showKey(m.title), v.f.name]] : [];
     }),
@@ -500,10 +503,10 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
       continue;
     }
 
-    const pack = packOf(parentName);
-    const own = parseMedia(f.name, pack);
+    const pack = packOf(parentName, latest);
+    const own = parseMedia(f.name, now, pack);
 
-    if (own?.kind === "episode" && [parentName, nameOf(parentOf(parent))].some((dir) => dir && !packOf(dir) && showKey(dir) === showKey(own.show))) continue;
+    if (own?.kind === "episode" && [parentName, nameOf(parentOf(parent))].some((dir) => dir && !packOf(dir, latest) && showKey(dir) === showKey(own.show))) continue;
     const movieFolder = parentName.match(MOVIE_FOLDER);
 
     if (movieFolder && !EPISODIC.test(f.name) && f.name.toLowerCase().startsWith(`${movieFolder[1]} (${movieFolder[2]})`.toLowerCase())) continue;
