@@ -121,6 +121,7 @@ describe("a turn", () => {
       ["propose_changes", true],
       ["plan_layout", true],
       ["propose_translation", true],
+      ["find_untranslated", true],
       ["plan_subtitles", true],
       ["plan_free_space", true],
       ["make_download_links", true],
@@ -1024,6 +1025,9 @@ describe("translate subtitles", () => {
     { kind: "sse" as const, events: textTurn("plan's up.", { input: 1, output: 1 }) },
   ];
 
+  const matches = (yes: boolean) => ({ kind: "sse" as const, events: textTurn(JSON.stringify({ matches: yes }), { input: 1, output: 1 }) });
+  const proposeChecking = (...checks: ReadonlyArray<ReturnType<typeof matches>>) => [...proposeTurns.slice(0, 2), ...checks, ...proposeTurns.slice(2)];
+
   const proposeAndApply = async (t: Awaited<ReturnType<typeof setup>>) => {
     await Effect.runPromise(t.agent.receive(send("turkish subtitles for heat")));
     await t.settle();
@@ -1037,7 +1041,7 @@ describe("translate subtitles", () => {
   };
 
   it("translates the English subtitle with Haiku, keeps every timing, uploads it beside the video, and undo trashes only that file", async () => {
-    const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ matches: true }), { input: 1, output: 1 }) }, { kind: "sse", events: textTurn(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba.\n\nNasılsın?" }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }), { input: 1000, output: 1000 }) }], {
+    const t = await setup([...proposeChecking(matches(true)), matches(true), { kind: "sse", events: textTurn(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba.\n\nNasılsın?" }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }), { input: 1000, output: 1000 }) }], {
       files,
       subtitles: { 2: [{ key: "k1", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: english }] },
     });
@@ -1123,9 +1127,9 @@ describe("translate subtitles", () => {
 
     const t = await setup(
       [
-        ...proposeTurns,
-        { kind: "sse", events: textTurn(JSON.stringify({ matches: false }), { input: 1, output: 1 }) },
-        { kind: "sse", events: textTurn(JSON.stringify({ matches: true }), { input: 1, output: 1 }) },
+        ...proposeChecking(matches(false), matches(true)),
+        matches(false),
+        matches(true),
         { kind: "sse", events: textTurn(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba." }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }), { input: 1, output: 1 }) },
       ],
       {
@@ -1147,26 +1151,31 @@ describe("translate subtitles", () => {
     ]);
   });
 
-  it("writes nothing when every English subtitle is for another video", async () => {
-    const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ matches: false }), { input: 1, output: 1 }) }], {
-      files,
-      subtitles: { 2: [{ key: "k1", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: english }] },
+  it("leaves out, when proposing, videos whose English subtitle is missing or for another video, and says why", async () => {
+    const three = [...files, file(3, 1, "Alien (1979).mkv", "VIDEO", 2 ** 30), file(4, 1, "Ronin (1998).mkv", "VIDEO", 2 ** 30)];
+    const propose = { kind: "sse" as const, events: toolUseTurn({ id: "toolu_t", name: "propose_translation", inputJsonChunks: [JSON.stringify({ paths: ["/Movies"], language: "tur" })] }, { input: 1, output: 1 }) };
+
+    const t = await setup([proposeTurns[0] ?? propose, propose, matches(false), proposeTurns[2] ?? propose], {
+      files: three,
+      subtitles: {
+        2: [{ key: "k1", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: english }],
+        3: [{ key: "k2", language_code: "spa", source: "opensubtitles_rest", name: "Spanish", srt: english }],
+        4: [{ key: "k3", language_code: "eng", source: "mkv", name: "English", srt: english }],
+      },
     });
 
-    await proposeAndApply(t);
+    await Effect.runPromise(t.agent.receive(send("turkish subtitles for my movies")));
+    await t.settle();
+    const result = t.store.history().flatMap((m) => (Predicate.isString(m.content) ? [] : m.content)).find((b) => b.type === "tool_result" && b.tool_use_id === "toolu_t");
+    const out = JSON.parse(String(result?.type === "tool_result" ? result.content : ""));
 
-    expect([t.putio.uploads, t.store.plans()[0]?.record.run?.steps[0]?.error]).toEqual([[], "put.io’s English subtitles are for a different video"]);
-  });
-
-  it("fails the step without spending credits when put.io has no English subtitle", async () => {
-    const t = await setup(proposeTurns, { files, subtitles: { 2: [{ key: "k2", language_code: "spa", source: "opensubtitles_rest", name: "Spanish", srt: english }] } });
-    const { charged } = await proposeAndApply(t);
-
-    expect([t.putio.uploads, t.anthropic.requests.length, charged, t.store.plans()[0]?.record.run?.steps[0]?.error]).toEqual([
+    expect([out.cant_translate, t.store.plans()[0]?.record.plan.changes.map((c) => c.path), t.putio.uploads]).toEqual([
+      [
+        { path: "/Movies/Alien (1979).mkv", why: "put.io has no English subtitle for this video" },
+        { path: "/Movies/Heat (1995).mkv", why: "put.io’s English subtitles are for a different video" },
+      ],
+      ["/Movies/Ronin (1998).mkv"],
       [],
-      3,
-      0,
-      "put.io has no English subtitle for this video",
     ]);
   });
 });

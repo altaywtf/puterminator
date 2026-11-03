@@ -14,7 +14,7 @@ import * as Stream from "effect/Stream";
 import { type AgentState, ClientFrame, ContentBlock, type Credits, type Folder, MessageParam, type ServerEvent, FileFlag, initialAgentState, type Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { PlanRecord, Run } from "../shared/actions";
-import { AskInput, applyChange, type StoredPlan, uploadedKey, validateTranslation, folderIds, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion } from "./changes";
+import { AskInput, applyChange, type StoredPlan, uploadedKey, validateTranslation, untranslated, folderIds, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion } from "./changes";
 import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
 import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
 import { month, type Store, type StoredRecord } from "./store";
@@ -23,7 +23,7 @@ import type { DownloadLinksOutput, DownloadLinksResponse, FreeSpaceOutput, Layou
 import { planLayout } from "./layout";
 import { planFreeSpace } from "./space";
 import { planSubtitles } from "./subtitles";
-import { LanguageCode, LANGUAGES, translateSubtitle } from "./translate";
+import { checkSource, LanguageCode, LANGUAGES, translateSubtitle } from "./translate";
 
 const SYSTEM = `You are puterminator, an agent that helps one person understand and tidy their put.io library.
 
@@ -36,7 +36,8 @@ Who you are:
 You can scan, score, list folders, search files and make download links; every file you name links to put.io and videos play in the app. You can also change the library, but only through a plan the user approves:
 - To make the library work with Plex, Infuse, Jellyfin or Kodi, call plan_layout: it builds the whole plan itself. If the snapshot doesn't show which folders hold movies and shows, ask with ask_user, offering existing top-level folders or new 'Movies' and 'TV Shows'. Afterwards, one line on what it did and how many files it left alone.
 - To fix subtitles put.io or a media server doesn't show, call plan_subtitles: it renames each stray .srt to its video's name and moves it next to the video. One line afterwards; say how many it left alone and why.
-- To translate subtitles, call propose_translation with the videos or folders and the language; a folder covers every video under it, so pass a show or season folder as is. It needs put.io to have an English subtitle for each video; at most 30 videos at a time.
+- To translate subtitles, call propose_translation with the videos or folders and the language; a folder covers every video under it, so pass a show or season folder as is. It needs put.io to have an English subtitle for each video; at most 30 videos at a time. It leaves out videos it can't translate; name them and say why in one line.
+- To find what lacks subtitles in a language, call find_untranslated, then offer to translate the folders with the most missing.
 - To free up space, call plan_free_space with the amount the user wants back (0 if they gave none). It trashes exact copies and junk itself. For each choice it returns (one title in two versions), ask with ask_user which copy to keep, then propose_changes for the rest. Hints (big never-played files) are only suggestions; name them, never trash them unasked.
 - To trash, rename or move anything else, call propose_changes with every change. The app shows it as a diff; the user applies, edits or discards it. You never apply anything yourself, and nothing changes until they click apply.
 - Trash goes to put.io's trash, never a permanent delete. Prefer trash for junk, rename for messy release names, move for wrapper folders.
@@ -116,6 +117,7 @@ export interface AgentDeps {
 
 const MINUTE_MS = 60_000;
 const PARALLEL_TRANSLATIONS = 3;
+const SOURCE_CHECKS = 6;
 
 const describeAge = (ms: number) => {
   const minutes = Math.floor(ms / MINUTE_MS);
@@ -684,16 +686,48 @@ export const makeAgent = (deps: AgentDeps) =>
           language: LanguageCode.annotate({ description: "ISO 639-2 code of the language to translate into, e.g. 'tur'" }),
         }),
         run: ({ paths, language }) =>
-          Effect.sync(() => {
+          Effect.gen(function* () {
             const all = snapshotHere();
 
             if (Result.isFailure(all)) return all.failure;
             const out = validateTranslation(all.success, paths, language, `${LANGUAGES[language].toLowerCase()} subtitles`, newId());
 
             if ("error" in out) return JSON.stringify(out);
-            storePlan(out);
+            const m = month(yield* Clock.currentTimeMillis);
+            const spend = { allowed: () => store.used(m) < capFor(), charge: (tokens: number) => store.charge(m, tokens) };
 
-            return JSON.stringify({ ...out.plan, already_translated: out.skipped });
+            const checks = yield* Effect.forEach(
+              out.plan.changes,
+              (c) => checkSource(out.ids[c.id] ?? 0, c.path, spend).pipe(Effect.as(null), Effect.catch((e) => Effect.succeed({ path: c.path, why: stepMessage(e) }))),
+              { concurrency: SOURCE_CHECKS },
+            ).pipe(Effect.provide(Layer.merge(deps.anthropic, putioLayer(store.token() ?? undefined, deps.putioFetch))));
+
+            yield* refreshCredits;
+            const cant = checks.filter(Predicate.isNotNull);
+            const left = new Set(cant.map((c) => c.path));
+            const changes = out.plan.changes.filter((c) => !left.has(c.path));
+
+            if (changes.length === 0) return JSON.stringify({ error: "None of these videos can be translated.", cant_translate: cant });
+            storePlan({ ...out, plan: { ...out.plan, changes } });
+
+            return JSON.stringify({ ...out.plan, changes, already_translated: out.skipped, cant_translate: cant });
+          }),
+      }),
+      effectTool({
+        name: "find_untranslated",
+        description:
+          "List folders whose videos have no subtitle file in a language beside them ('<video name>.<language>.srt'), most missing first. Reads the last snapshot; subtitles put.io finds inside the video or online don't count.",
+        input: Schema.Struct({
+          language: LanguageCode.annotate({ description: "ISO 639-2 code, e.g. 'tur'" }),
+          within: Schema.String.annotate({ description: "only under this folder, e.g. '/TV Shows'; '' for the whole snapshot" }),
+        }),
+        run: ({ language, within }) =>
+          Effect.sync(() => {
+            const all = snapshotHere();
+
+            if (Result.isFailure(all)) return all.failure;
+
+            return JSON.stringify(untranslated(all.success, language, within));
           }),
       }),
       effectTool({

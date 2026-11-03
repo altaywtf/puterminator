@@ -212,6 +212,31 @@ export const staleChanges = (snapshot: ReadonlyArray<WalkedFile>, changes: Reado
 
 const MAX_TRANSLATIONS = 30;
 
+const subtitleTarget = (video: WalkedFile, language: string) => `${parentOf(video.path).replace(/\/$/, "")}/${stemOf(video.name)}.${language}.srt`;
+
+const MAX_FOLDERS = 30;
+
+export const untranslated = (snapshot: ReadonlyArray<WalkedFile>, language: string, within: string) => {
+  const prefix = clean(within) === "/" ? "/" : `${clean(within).toLowerCase()}/`;
+  const paths = new Set(snapshot.map((f) => f.path.toLowerCase()));
+  const folders = new Map<string, { folder: string; videos: number; missing: number }>();
+
+  for (const video of snapshot) {
+    if (video.file_type !== "VIDEO" || !video.path.toLowerCase().startsWith(prefix)) continue;
+    const folder = parentOf(video.path);
+    const row = folders.get(folder) ?? { folder, videos: 0, missing: 0 };
+
+    row.videos += 1;
+
+    if (!paths.has(subtitleTarget(video, language).toLowerCase())) row.missing += 1;
+    folders.set(folder, row);
+  }
+
+  const missing = [...folders.values()].filter((r) => r.missing > 0).toSorted((a, b) => b.missing - a.missing || a.folder.localeCompare(b.folder));
+
+  return { videos: missing.reduce((n, r) => n + r.missing, 0), folders: missing.length, top: missing.slice(0, MAX_FOLDERS) };
+};
+
 export const validateTranslation = (
   snapshot: ReadonlyArray<WalkedFile>,
   paths: ReadonlyArray<string>,
@@ -229,7 +254,7 @@ export const validateTranslation = (
   const targets = new Set<string>();
   let skipped = 0;
 
-  const targetOf = (video: WalkedFile) => `${parentOf(video.path).replace(/\/$/, "")}/${stemOf(video.name)}.${language}.srt`;
+  const targetOf = (video: WalkedFile) => subtitleTarget(video, language);
   const taken = (to: string) => byPath.has(to.toLowerCase()) || targets.has(to.toLowerCase());
 
   const add = (video: WalkedFile) => {

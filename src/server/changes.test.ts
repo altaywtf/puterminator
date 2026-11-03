@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Run } from "../shared/actions";
-import { sidecarsOf, staleChanges, undoChanges } from "./changes";
+import { sidecarsOf, staleChanges, undoChanges, untranslated } from "./changes";
 import type { WalkedFile } from "./tree";
 
 const run = (changes: Run["changes"]): Run => ({ id: "p", title: "t", changes, steps: changes.map((c) => ({ change: c.id, state: "done", error: null })) });
@@ -59,5 +59,35 @@ describe("sidecarsOf", () => {
     expect(sidecarsOf([mkv, mp4, srt], mp4)).toEqual([srt]);
     expect(sidecarsOf([mkv, at(4, "Heat.1995.mp4"), at(5, "Heat.1995.en.srt", "TEXT")], mkv)).toEqual([]);
     expect(sidecarsOf([mkv, srt], mkv)).toEqual([srt]);
+  });
+});
+
+describe("untranslated", () => {
+  const at = (id: number, path: string, file_type = "VIDEO"): WalkedFile => ({ id, parent_id: 0, name: path.slice(path.lastIndexOf("/") + 1), path, depth: path.split("/").length - 1, size: 1, file_type, extension: "", crc32: null, created_at: "", first_accessed_at: null });
+
+  it("counts videos with no subtitle file in that language beside them, by folder, most missing first, within the given folder", () => {
+    const snapshot = [
+      at(1, "/TV/Medici/S1/E1.mkv"),
+      at(2, "/TV/Medici/S1/E1.tur.srt", "TEXT"),
+      at(3, "/TV/Medici/S1/E2.mkv"),
+      at(4, "/TV/Medici/S2/E1.mkv"),
+      at(5, "/TV/Medici/S2/E2.mkv"),
+      at(6, "/TV/Medici/S2/E2.TUR.srt", "TEXT"),
+      at(7, "/TV/Curb/S10/E5.mkv"),
+      at(8, "/TV/Curb/S10/E6.mkv"),
+      at(9, "/TV/Done/E1.mkv"),
+      at(10, "/TV/Done/E1.tur.srt", "TEXT"),
+      at(11, "/Movies/Heat.mkv"),
+    ];
+
+    expect(untranslated(snapshot, "tur", "/TV")).toEqual({
+      videos: 4,
+      folders: 3,
+      top: [
+        { folder: "/TV/Curb/S10", videos: 2, missing: 2 },
+        { folder: "/TV/Medici/S1", videos: 2, missing: 1 },
+        { folder: "/TV/Medici/S2", videos: 2, missing: 1 },
+      ],
+    });
   });
 });

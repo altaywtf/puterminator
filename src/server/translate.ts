@@ -270,6 +270,8 @@ const translateBatch = (sentences: ReadonlyArray<Sentence>, language: string, sp
     });
   });
 
+export const checkSource = (videoId: number, videoPath: string, spend: Spend) => Effect.asVoid(pickSource(videoId, videoPath, spend));
+
 export const translateSubtitle = (videoId: number, videoPath: string, parentId: number, name: string, language: LanguageCode, spend: Spend) =>
   Effect.gen(function* () {
     const cues = yield* pickSource(videoId, videoPath, spend);
