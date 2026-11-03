@@ -74,8 +74,8 @@ const parseSrt = (srt: string): Cue[] =>
 
 const toSrt = (cues: ReadonlyArray<Cue>) => `${cues.map((c) => `${c.head}\n${c.text}`).join("\n\n")}\n`;
 
-const Group = Schema.Struct({ id: Schema.Finite, lines: Schema.Array(Schema.String) });
-const decodeGroups = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ groups: Schema.Array(Group) })));
+const Translated = Schema.Struct({ id: Schema.Finite, text: Schema.String });
+const decodeSentences = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ sentences: Schema.Array(Translated) })));
 
 type Sentence = { readonly id: number; readonly lines: ReadonlyArray<string> };
 
@@ -93,6 +93,37 @@ const toSentences = (cues: ReadonlyArray<Cue>) => {
   }
 
   return groups;
+};
+
+const sentenceText = (s: Sentence) => (s.lines.length === 1 ? (s.lines[0] ?? "") : s.lines.map((l) => l.replace(/\s*\n\s*/g, " ")).join(" "));
+
+const balanceItalics = (piece: string) => {
+  const opens = piece.match(/<i>/g)?.length ?? 0;
+  const closes = piece.match(/<\/i>/g)?.length ?? 0;
+
+  return `${"<i>".repeat(Math.max(0, closes - opens))}${piece}${"</i>".repeat(Math.max(0, opens - closes))}`;
+};
+
+const splitAcross = (text: string, english: ReadonlyArray<string>): string[] => {
+  if (english.length === 1) return [text];
+  const words = text.split(/\s+/).filter(Boolean);
+  const weights = english.map((l) => Math.max(1, l.replace(/<[^>]*>/g, "").length));
+  const total = weights.reduce((a, b) => a + b, 0);
+  const pieces: string[] = [];
+  let start = 0;
+  let seen = 0;
+
+  for (const [i, weight] of weights.entries()) {
+    seen += weight;
+    const left = english.length - 1 - i;
+    const end = i === english.length - 1 ? words.length : Math.min(words.length - left, Math.max(start + 1, Math.round((words.length * seen) / total)));
+    const piece = words.slice(start, Math.max(start, end)).join(" ");
+
+    pieces.push(piece || (pieces.at(-1) ?? text));
+    start = Math.max(start, end);
+  }
+
+  return pieces.map(balanceItalics);
 };
 
 const toBatches = (sentences: ReadonlyArray<Sentence>) => {
@@ -177,80 +208,54 @@ const pickSource = (videoId: number, videoPath: string, spend: Spend) =>
     return yield* Effect.fail(new PutioFailed({ message: "put.io’s English subtitles are for a different video", refused: true }));
   });
 
-const GROUPS_SCHEMA: JSONOutputFormat["schema"] = {
+const SENTENCES_SCHEMA: JSONOutputFormat["schema"] = {
   type: "object",
   properties: {
-    groups: {
+    sentences: {
       type: "array",
-      items: { type: "object", properties: { id: { type: "integer" }, lines: { type: "array", items: { type: "string" } } }, required: ["id", "lines"], additionalProperties: false },
+      items: { type: "object", properties: { id: { type: "integer" }, text: { type: "string" } }, required: ["id", "text"], additionalProperties: false },
     },
   },
-  required: ["groups"],
+  required: ["sentences"],
   additionalProperties: false,
 };
 
-const translateGroups = (groups: ReadonlyArray<Sentence>, language: string, spend: Spend, strict: boolean) =>
+const translateSentences = (sentences: ReadonlyArray<Sentence>, language: string, spend: Spend) =>
   Effect.gen(function* () {
     const reply = yield* askHaiku(
-      `Translate English film and TV subtitles into ${language}. Each group is one sentence split across consecutive on-screen cues. Return every group with its id and exactly as many lines as it has, in the same order, each line non-empty and shown while the matching English line is on screen. Keep line breaks inside a line, italics tags and speaker dashes. Write natural spoken ${language}, as a professional subtitler would.`,
-      JSON.stringify({ groups }),
-      GROUPS_SCHEMA,
+      `Translate English film and TV subtitles into ${language}. Return every sentence with its id. Keep line breaks, italics tags and speaker dashes. Write natural spoken ${language}, as a professional subtitler would.`,
+      JSON.stringify({ sentences: sentences.map((s) => ({ id: s.id, text: sentenceText(s) })) }),
+      SENTENCES_SCHEMA,
       spend,
       false,
     );
 
-    const out = decodeGroups(reply.text);
-    const english = new Map(groups.map((g) => [g.id, g.lines]));
+    const out = decodeSentences(reply.text);
+    const ids = new Set(sentences.map((s) => s.id));
 
-    const whole = (g: typeof Group.Type) => {
-      const source = english.get(g.id);
-
-      if (source === undefined || g.lines.length !== source.length) return false;
-
-      return !strict || (g.lines.every((l) => l.trim()) && g.lines.join("\n").trim() !== source.join("\n").trim());
-    };
-
-    const got = new Map(Option.isSome(out) ? out.value.groups.filter(whole).map((g) => [g.id, g.lines] as const) : []);
-
-    return { got, why: Option.isNone(out) ? `unreadable reply, ${reply.stop}` : `${got.size} of ${groups.length} sentences back whole` };
+    return new Map(Option.isSome(out) ? out.value.sentences.filter((t) => ids.has(t.id) && t.text.trim()).map((t) => [t.id, t.text] as const) : []);
   });
 
-const translateLine = (line: string, language: string, spend: Spend) =>
+const ROUNDS = 2;
+const MAX_MISSING = 0.05;
+
+const translateBatch = (sentences: ReadonlyArray<Sentence>, language: string, spend: Spend) =>
   Effect.gen(function* () {
-    const reply = yield* translateGroups([{ id: 0, lines: [line] }], language, spend, false);
-    const text = reply.got.get(0)?.[0];
-
-    if (text === undefined) return yield* Effect.fail(new PutioFailed({ message: `the translation skipped some lines (${reply.why})`, refused: true }));
-
-    return text;
-  });
-
-const ROUNDS = 3;
-const MAX_SINGLES = 20;
-
-const translateAll = (groups: ReadonlyArray<Sentence>, language: string, spend: Spend) =>
-  Effect.gen(function* () {
-    const got = new Map<number, ReadonlyArray<string>>();
-    let missing = groups;
-    let why = "";
+    const got = new Map<number, string>();
+    let missing = sentences;
 
     for (let round = 0; round < ROUNDS && missing.length > 0; round++) {
-      const reply = yield* translateGroups(missing, language, spend, true);
-
-      for (const [id, lines] of reply.got) got.set(id, lines);
-      missing = missing.filter((g) => !got.has(g.id));
-      why = reply.why;
+      for (const [id, text] of yield* translateSentences(missing, language, spend)) got.set(id, text);
+      missing = missing.filter((s) => !got.has(s.id));
     }
 
-    if (missing.length > MAX_SINGLES) return yield* Effect.fail(new PutioFailed({ message: `the translation skipped some lines (${why})`, refused: true }));
+    if (missing.length > sentences.length * MAX_MISSING) return yield* Effect.fail(new PutioFailed({ message: `the translation skipped ${missing.length} of ${sentences.length} sentences`, refused: true }));
 
-    for (const group of missing) {
-      const whole = (yield* translateGroups([group], language, spend, false)).got.get(group.id);
+    return sentences.flatMap((s) => {
+      const text = got.get(s.id);
 
-      got.set(group.id, whole ?? (yield* Effect.forEach(group.lines, (line) => translateLine(line, language, spend))));
-    }
-
-    return got;
+      return text === undefined ? s.lines : splitAcross(text, s.lines);
+    });
   });
 
 export const translateSubtitle = (videoId: number, videoPath: string, parentId: number, name: string, language: LanguageCode, spend: Spend) =>
@@ -259,7 +264,7 @@ export const translateSubtitle = (videoId: number, videoPath: string, parentId: 
 
     const translated = yield* Effect.forEach(
       toBatches(toSentences(cues)),
-      (batch) => Effect.map(translateAll(batch, LANGUAGES[language], spend), (got) => batch.flatMap((g) => got.get(g.id) ?? g.lines)),
+      (batch) => translateBatch(batch, LANGUAGES[language], spend),
       { concurrency: PARALLEL },
     ).pipe(Effect.map((batches) => batches.flat()));
 
