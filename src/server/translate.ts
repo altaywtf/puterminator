@@ -8,8 +8,8 @@ import { AnthropicClient, weightedTokens } from "./runner";
 
 const TRANSLATOR = "claude-haiku-5-5";
 const PRICE_SHARE = 0.05;
-const BATCH = 100;
-const PARALLEL = 6;
+const BATCH = 60;
+const PARALLEL = 8;
 
 export const LanguageCode = Schema.Literals(["ara", "chi", "cze", "dan", "dut", "fin", "fre", "ger", "gre", "heb", "hin", "hun", "ind", "ita", "jpn", "kor", "nor", "pol", "por", "rum", "rus", "spa", "swe", "tha", "tur", "ukr", "vie"]);
 
@@ -74,7 +74,7 @@ const parseSrt = (srt: string): Cue[] =>
 
 const toSrt = (cues: ReadonlyArray<Cue>) => `${cues.map((c) => `${c.head}\n${c.text}`).join("\n\n")}\n`;
 
-const Translated = Schema.Struct({ id: Schema.Finite, text: Schema.String });
+const Translated = Schema.Struct({ id: Schema.Finite, english: Schema.String, text: Schema.String });
 const decodeSentences = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ sentences: Schema.Array(Translated) })));
 
 type Sentence = { readonly id: number; readonly lines: ReadonlyArray<string> };
@@ -208,12 +208,23 @@ const pickSource = (videoId: number, videoPath: string, spend: Spend) =>
     return yield* Effect.fail(new PutioFailed({ message: "put.io’s English subtitles are for a different video", refused: true }));
   });
 
+const letters = (text: string) => text.replace(/<[^>]*>/g, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+const ANCHOR = 16;
+
+const sameSentence = (echo: string, source: string | undefined) => {
+  if (source === undefined) return false;
+  const a = letters(echo);
+  const b = letters(source);
+
+  return a.slice(0, ANCHOR) === b.slice(0, ANCHOR) && a.slice(-ANCHOR) === b.slice(-ANCHOR);
+};
+
 const SENTENCES_SCHEMA: JSONOutputFormat["schema"] = {
   type: "object",
   properties: {
     sentences: {
       type: "array",
-      items: { type: "object", properties: { id: { type: "integer" }, text: { type: "string" } }, required: ["id", "text"], additionalProperties: false },
+      items: { type: "object", properties: { id: { type: "integer" }, english: { type: "string" }, text: { type: "string" } }, required: ["id", "english", "text"], additionalProperties: false },
     },
   },
   required: ["sentences"],
@@ -223,7 +234,7 @@ const SENTENCES_SCHEMA: JSONOutputFormat["schema"] = {
 const translateSentences = (sentences: ReadonlyArray<Sentence>, language: string, spend: Spend) =>
   Effect.gen(function* () {
     const reply = yield* askHaiku(
-      `Translate English film and TV subtitles into ${language}. Return every sentence with its id. Keep line breaks, italics tags and speaker dashes. Write natural spoken ${language}, as a professional subtitler would.`,
+      `Translate English film and TV subtitles into ${language}. Return every sentence with its id, its English text copied exactly, and its translation. Keep line breaks, italics tags and speaker dashes. Write natural spoken ${language}, as a professional subtitler would.`,
       JSON.stringify({ sentences: sentences.map((s) => ({ id: s.id, text: sentenceText(s) })) }),
       SENTENCES_SCHEMA,
       spend,
@@ -231,9 +242,10 @@ const translateSentences = (sentences: ReadonlyArray<Sentence>, language: string
     );
 
     const out = decodeSentences(reply.text);
-    const ids = new Set(sentences.map((s) => s.id));
+    const source = new Map(sentences.map((s) => [s.id, sentenceText(s)]));
+    const aligned = (t: typeof Translated.Type) => t.text.trim() !== "" && sameSentence(t.english, source.get(t.id));
 
-    return new Map(Option.isSome(out) ? out.value.sentences.filter((t) => ids.has(t.id) && t.text.trim()).map((t) => [t.id, t.text] as const) : []);
+    return new Map(Option.isSome(out) ? out.value.sentences.filter(aligned).map((t) => [t.id, t.text] as const) : []);
   });
 
 const ROUNDS = 2;

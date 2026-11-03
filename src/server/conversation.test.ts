@@ -1037,7 +1037,7 @@ describe("translate subtitles", () => {
   };
 
   it("translates the English subtitle with Haiku, keeps every timing, uploads it beside the video, and undo trashes only that file", async () => {
-    const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ matches: true }), { input: 1, output: 1 }) }, { kind: "sse", events: textTurn(JSON.stringify({ sentences: [{ id: 0, text: "Merhaba.\n\nNasılsın?" }, { id: 1, text: "<i>Koş!</i>" }] }), { input: 1000, output: 1000 }) }], {
+    const t = await setup([...proposeTurns, { kind: "sse", events: textTurn(JSON.stringify({ matches: true }), { input: 1, output: 1 }) }, { kind: "sse", events: textTurn(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba.\n\nNasılsın?" }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }), { input: 1000, output: 1000 }) }], {
       files,
       subtitles: { 2: [{ key: "k1", language_code: "eng", source: "opensubtitles_rest", name: "English", srt: english }] },
     });
@@ -1060,11 +1060,11 @@ describe("translate subtitles", () => {
     expect([uploadedId, charged]).toEqual([undefined, Math.ceil((1 + 1 * 5) / 20) + Math.ceil((1000 + 1000 * 5) / 20)]);
   });
 
-  it("translates a sentence split across cues as one and spreads it back over those cues by length, re-asking for any sentence left out", async () => {
+  it("translates a sentence split across cues as one and spreads it back over those cues by length, re-asking for any sentence whose echoed English isn't its own", async () => {
     const split = "1\n00:00:01,000 --> 00:00:02,000\nThe\n\n2\n00:00:02,000 --> 00:00:04,000\ntools we use are good.\n\n3\n00:00:05,000 --> 00:00:06,000\n<i>Run!</i>\n";
-    const reply = (sentences: ReadonlyArray<{ id: number; text: string }>) => ({ kind: "sse" as const, events: textTurn(JSON.stringify({ sentences }), { input: 1, output: 1 }) });
+    const reply = (sentences: ReadonlyArray<{ id: number; english: string; text: string }>) => ({ kind: "sse" as const, events: textTurn(JSON.stringify({ sentences }), { input: 1, output: 1 }) });
 
-    const t = await setup([...proposeTurns, reply([{ id: 1, text: "<i>Koş!</i>" }]), reply([{ id: 0, text: "Kullandığımız araçlar çok iyi." }])], {
+    const t = await setup([...proposeTurns, reply([{ id: 0, english: "Run!", text: "Koş!" }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }]), reply([{ id: 0, english: "The tools we use are good.", text: "Kullandığımız araçlar çok iyi." }])], {
       files,
       subtitles: { 2: [{ key: "k1", language_code: "eng", source: "mkv", name: "English", srt: split }] },
     });
@@ -1085,7 +1085,7 @@ describe("translate subtitles", () => {
         ...proposeTurns,
         { kind: "sse", events: textTurn(JSON.stringify({ matches: false }), { input: 1, output: 1 }) },
         { kind: "sse", events: textTurn(JSON.stringify({ matches: true }), { input: 1, output: 1 }) },
-        { kind: "sse", events: textTurn(JSON.stringify({ sentences: [{ id: 0, text: "Merhaba." }, { id: 1, text: "<i>Koş!</i>" }] }), { input: 1, output: 1 }) },
+        { kind: "sse", events: textTurn(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba." }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }), { input: 1, output: 1 }) },
       ],
       {
         files,
