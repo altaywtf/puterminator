@@ -93,6 +93,7 @@ export const Message = defineMessageUnion({
   GotMe: { me: Me },
   FailedMe: {},
   ClickedRetryMe: {},
+  KeptSession: {},
   ConnectedSocket: {},
   ReleasedSocket: {},
   FailedSocket: {},
@@ -200,6 +201,15 @@ const FetchMe = Command.define("FetchMe", {
     Effect.flatMap(decodeMe),
     Effect.map((me) => Message.GotMe({ me })),
     Effect.orElseSucceed(() => Message.FailedMe()),
+  ),
+});
+
+const CheckMe = Command.define("CheckMe", {
+  messages: [Message.GotMe, Message.KeptSession],
+  execute: getJson("/api/me").pipe(
+    Effect.flatMap(decodeMe),
+    Effect.map((me) => (me.signedIn ? Message.KeptSession() : Message.GotMe({ me }))),
+    Effect.orElseSucceed(() => Message.KeptSession()),
   ),
 });
 
@@ -490,7 +500,7 @@ const lost = (model: Model): UpdateReturn => {
       sending: () => false,
       stopping: () => false,
     }),
-    commands: [RetryConnect({ attempts })],
+    commands: [RetryConnect({ attempts }), CheckMe()],
   };
 };
 
@@ -501,9 +511,17 @@ export const update = (model: Model, message: Message): UpdateReturn =>
         ? {
             model: modifyFields(model, { session: () => Session.SignedIn(), connection: () => Connection.Connecting() }),
           }
-        : { model: modifyFields(model, { session: () => Session.SignedOut({ configured: me.configured }) }) },
+        : {
+            model: modifyFields(model, {
+              session: () => Session.SignedOut({ configured: me.configured }),
+              connection: () => Connection.Idle(),
+              agent: () => null,
+              partial: () => null,
+            }),
+          },
     FailedMe: () => ({ model: modifyFields(model, { session: () => Session.Failed() }) }),
     ClickedRetryMe: () => ({ model: modifyFields(model, { session: () => Session.Loading() }), commands: [FetchMe()] }),
+    KeptSession: () => ({ model }),
     ConnectedSocket: () => ({
       model: modifyFields(model, { connection: () => Connection.Connected(), attempts: () => 0, error: () => null }),
       commands: [FocusComposer({ when: "idle" })],

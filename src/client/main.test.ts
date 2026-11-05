@@ -10,3 +10,12 @@ describe("sending", () => {
     expect(typing.model.draft).toBe("something new");
   });
 });
+
+describe("session", () => {
+  it("drops a lost connection to the signed-out page and stops reconnecting once the session is gone", () => {
+    const model = init().model;
+    const lost = update(update(model, Message.GotMe({ me: { signedIn: true, configured: true } })).model, Message.FailedSocket()).model;
+    const out = update(lost, Message.GotMe({ me: { signedIn: false, configured: true } })).model;
+    expect([out.session._tag, out.connection._tag, out.agent]).toEqual(["SignedOut", "Idle", null]);
+  });
+});

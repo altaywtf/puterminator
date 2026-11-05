@@ -259,6 +259,15 @@ describe("a turn", () => {
     expect(t.store.used(month(Date.now()))).toBeGreaterThanOrEqual(1 + (400 / 4) * 5);
   });
 
+  it("keeps the text a stopped reply streamed, as the assistant's answer", async () => {
+    const t = await setup([{ kind: "hang", text: "half an answer" }]);
+    await Effect.runPromise(t.agent.receive(send("Audit my library")));
+    await t.anthropic.hanging;
+    await vi.waitFor(() => expect(t.events.some((e) => e.type === "partial" && JSON.stringify(e.content).includes("half an answer"))).toBe(true));
+    await t.receive({ type: "stop" });
+    expect(t.store.history().at(-1)).toEqual({ role: "assistant", content: [{ type: "text", text: "half an answer" }] });
+  });
+
   it("keeps answering with Claude for a user on the unlimited list after the cap", async () => {
     const t = await setup([say("Hi.", { input: 5, output: 1 })], { cap: 0, unlimited: ["altay"] });
     await t.receive(send("hi"));

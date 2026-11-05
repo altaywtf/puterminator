@@ -164,6 +164,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
     let running = false;
     let asked = false;
+    let streamed: ReadonlyArray<{ readonly type: string; readonly text?: string }> = [];
     const calls = new Set<string>();
 
     const once = <R>(name: string, input: Schema.Json, run: Effect.Effect<string, PutioError, R>): Effect.Effect<string, PutioError, R> =>
@@ -247,6 +248,13 @@ export const makeAgent = (deps: AgentDeps) =>
         role: "user",
         content: ids.map((id) => ({ type: "tool_result", tool_use_id: id, content: "Stopped before this tool finished.", is_error: true })),
       });
+    };
+
+    const keepStreamedText = () => {
+      const text = streamed.flatMap((b) => (b.type === "text" && b.text?.trim() ? [{ type: "text" as const, text: b.text }] : []));
+      streamed = [];
+
+      if (text.length > 0 && last?.role !== "assistant") append({ role: "assistant", content: text });
     };
 
     const signedOut = JSON.stringify({ error: "Not signed in; the user must sign in to put.io again." });
@@ -950,10 +958,12 @@ export const makeAgent = (deps: AgentDeps) =>
           Effect.gen(function* () {
             switch (event.type) {
               case "partial":
+                streamed = event.content;
                 broadcast({ type: "partial", content: toBlocks(event.content) });
 
                 return;
               case "assistant": {
+                streamed = [];
                 yield* refreshCredits;
                 append(toMessage({ role: "assistant", content: event.message.content }));
                 broadcast({ type: "partial", content: null });
@@ -988,6 +998,7 @@ export const makeAgent = (deps: AgentDeps) =>
         Effect.ensuring(
           Effect.sync(() => {
             closeDanglingTools();
+            keepStreamedText();
             turnFiber = null;
             running = false;
             broadcast({ type: "partial", content: null });
