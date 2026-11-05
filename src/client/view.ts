@@ -2,11 +2,11 @@ import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import { createKeyedLazy, type Document, type Html, type HtmlBuilder } from "foldkit/html";
-import { blockedText, type Credits, creditsLeft, creditsTotal, shortDate, unlimitedCredits } from "../shared/contract";
+import { blockedText, type Credits, creditsLeft, creditsTotal, feedbackText, shortDate, unlimitedCredits } from "../shared/contract";
 import { type Item, type Turn, toTurns } from "../shared/thread";
 import { art, type IconName, icon } from "./art";
 import logoUrl from "./logo.svg?inline";
-import { COMPOSER_ID, DELETE_CANCEL_ID, isBusy, isLocked, LENGTH_ERROR, Message, type Model, Session, THREAD_ID } from "./main";
+import { COMPOSER_ID, DELETE_CANCEL_ID, FEEDBACK_CLOSE_ID, FEEDBACK_TEXT_ID, isBusy, isLocked, LENGTH_ERROR, Message, type Model, Session, THREAD_ID } from "./main";
 import { toolCard } from "./cards";
 import { playerView, treeDrawer } from "./files";
 import { landingView } from "./landing";
@@ -182,6 +182,7 @@ const accountMenu = (h: H, model: Model, username: string, url: string | null) =
       menuRule(h),
       ...(model.history.length > 0 && !isBusy(model) ? [menuItem(h, "plus", "new thread", Message.ClickedNewThread())] : []),
       ...(model.library ? [menuItem(h, "folder", "browse library", Message.ToggledTree())] : []),
+      menuItem(h, "mail", "send feedback", Message.ClickedFeedback({ kind: "bug", text: "" })),
       h.a([h.Href("/privacy"), h.Class(MENU_ACTION)], [icon(h, "lock"), "privacy"]),
       menuItem(h, "trash", "forget me", Message.ClickedDeleteData()),
       menuRule(h),
@@ -222,6 +223,84 @@ const deleteDialog = (h: H, model: Model) =>
       ]
     : [];
 
+const FEEDBACK_KINDS = [
+  ["bug", "something broke"],
+  ["idea", "an idea"],
+] as const;
+
+const feedbackDialog = (h: H, model: Model) => {
+  const f = model.feedback;
+
+  if (!f) return [];
+  const sending = f.status === "sending";
+
+  const body =
+    f.status === "sent"
+      ? [
+          h.h2([h.Id("feedback-title"), h.Class("m-0 text-[15px] font-medium text-fg-strong")], ["thanks. it’s on its way."]),
+          h.p([h.Class("m-0 text-[13px] leading-[1.6] text-fg-2")], ["it went to the maintainer’s inbox with your put.io username."]),
+          h.div([h.Class("mt-2 flex justify-end")], [
+            h.button([h.Type("button"), h.Id(FEEDBACK_CLOSE_ID), h.Class("btn btn-sm"), h.OnClick(Message.ClosedFeedback())], ["close"]),
+          ]),
+        ]
+      : [
+          h.h2([h.Id("feedback-title"), h.Class("m-0 text-[15px] font-medium text-fg-strong")], ["send feedback"]),
+          h.div(
+            [h.Role("radiogroup"), h.AriaLabel("kind"), h.Class("flex gap-2")],
+            FEEDBACK_KINDS.map(([kind, label]) =>
+              h.button(
+                [
+                  h.Type("button"),
+                  h.Role("radio"),
+                  h.AriaChecked(f.kind === kind),
+                  h.Disabled(sending),
+                  h.Class(f.kind === kind ? "btn btn-sm border-accent/50 bg-accent/10 text-accent" : "btn btn-sm border-line-strong text-fg-2"),
+                  h.OnClick(Message.ChoseFeedbackKind({ kind })),
+                ],
+                [label],
+              ),
+            ),
+          ),
+          h.label([h.For(FEEDBACK_TEXT_ID), h.Class("sr-only")], ["your feedback"]),
+          h.textarea([
+            h.Id(FEEDBACK_TEXT_ID),
+            h.Value(f.text),
+            h.Rows(5),
+            h.Disabled(sending),
+            h.Placeholder(f.kind === "bug" ? "what happened, and what did you expect?" : "what should puterminator do?"),
+            h.Class(
+              "block min-h-[120px] w-full resize-y rounded-lg border border-line-strong bg-bg p-3 text-[16px] leading-normal text-fg-strong caret-accent outline-none placeholder:text-fg-3 focus-visible:border-accent/60 pointer-fine:text-[14px]",
+            ),
+            h.OnInput((text) => Message.UpdatedFeedback({ text })),
+          ]),
+          h.p([h.Class("m-0 text-meta leading-[1.6] text-fg-3")], ["it goes to the maintainer with your put.io username. add an email if you want a reply."]),
+          ...(f.error ? [h.p([h.Role("alert"), h.Class("m-0 text-[13px] text-danger")], [f.error])] : []),
+          h.div([h.Class("mt-1 flex justify-end gap-2")], [
+            h.button([h.Type("button"), h.Class("btn btn-sm border-transparent text-fg-2"), h.OnClick(Message.ClosedFeedback())], ["cancel"]),
+            h.button(
+              [h.Type("button"), h.Disabled(sending || feedbackText(f.text) === null), h.Class("btn btn-sm btn-primary"), h.OnClick(Message.SubmittedFeedback())],
+              [sending ? "sending…" : "send"],
+            ),
+          ]),
+        ];
+
+  return [
+    h.div(
+      [
+        h.Class("fixed inset-0 z-40 grid place-items-center bg-black/70 p-4"),
+        h.Role("dialog"),
+        h.AriaModal(true),
+        h.AriaLabelledBy("feedback-title"),
+        h.OnKeyDownPreventDefault((key) => (key === "Escape" ? Option.some(Message.ClosedFeedback()) : Option.none())),
+      ],
+      [
+        h.button([h.Type("button"), h.Tabindex(-1), h.AriaLabel("close"), h.Class("absolute inset-0 cursor-default"), h.OnClick(Message.ClosedFeedback())], []),
+        h.div([h.Class("pop relative grid w-full max-w-[440px] gap-3 rounded-xl border border-line-strong bg-raised p-5 shadow-[0_12px_32px_rgb(0_0_0/0.45)]")], body),
+      ],
+    ),
+  ];
+};
+
 const shell = (h: H, model: Model, children: Html[]) =>
   h.div([h.Class("contents")], [
     frame(
@@ -232,10 +311,11 @@ const shell = (h: H, model: Model, children: Html[]) =>
         ...(model.agent?.username ? accountMenu(h, model, model.agent.username, model.avatarFailed ? null : (model.agent.avatarUrl ?? null)) : []),
       ],
       [liveStatus(h, model), ...children, ...treeDrawer(h, model)],
-      model.player !== null || model.confirmingDelete,
+      model.player !== null || model.confirmingDelete || model.feedback !== null,
     ),
     ...playerView(h, model),
     ...deleteDialog(h, model),
+    ...feedbackDialog(h, model),
   ]);
 
 const loadingView = (h: H) => h.div([h.Class("h-dvh bg-bg"), h.AriaBusy(true)], [h.span([h.Class("sr-only"), h.Role("status")], ["loading"])]);

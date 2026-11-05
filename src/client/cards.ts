@@ -3,7 +3,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Audit } from "../shared/audit";
-import { FileFlag } from "../shared/contract";
+import { Feedback, FileFlag } from "../shared/contract";
 import { Plan, Question } from "../shared/actions";
 import { DownloadLinksOutput, FreeSpaceOutput, LayoutOutput, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
 import { discardedLine, planCard, questionCard, runCard } from "./actions";
@@ -338,6 +338,14 @@ const decodeQuestion = Schema.decodeUnknownOption(Schema.fromJsonString(Question
 const decodeLinks = Schema.decodeUnknownOption(Schema.fromJsonString(DownloadLinksOutput));
 const decodeLayout = Schema.decodeUnknownOption(Schema.fromJsonString(LayoutOutput));
 const decodeFreeSpace = Schema.decodeUnknownOption(Schema.fromJsonString(FreeSpaceOutput));
+const decodeFeedback = Schema.decodeUnknownOption(Schema.fromJsonString(Feedback));
+
+const feedbackCard = (h: H, f: Feedback, live: boolean): Html =>
+  panel(h, "feedback draft", live, [
+    cardHead(h, f.kind === "bug" ? "bug report" : "feature request", "draft"),
+    h.p([h.Class("m-0 line-clamp-6 whitespace-pre-wrap text-[13px] leading-[1.6] text-fg-2")], [f.text]),
+    h.button([h.Type("button"), h.Class("btn btn-sm justify-self-start"), h.OnClick(Message.ClickedFeedback({ kind: f.kind, text: f.text }))], ["review and send"]),
+  ]);
 
 type Card = (h: H, ctx: Ctx, key: string, output: string, live: boolean, settled: boolean) => Html | null;
 
@@ -373,6 +381,7 @@ const CARDS = {
       onSome: (r) => planOrRun(h, ctx, r.plan, live),
     }),
   make_download_links: (h, ctx, _key, output, live) => Option.match(decodeLinks(output), { onNone: () => null, onSome: (o) => linksCard(h, ctx, o, live) }),
+  draft_feedback: (h, _ctx, _key, output, live) => Option.match(decodeFeedback(output), { onNone: () => null, onSome: (f) => feedbackCard(h, f, live) }),
   ask_user: (h, ctx, _key, output, live, settled) => Option.match(decodeQuestion(output), { onNone: () => null, onSome: (q) => questionCard(h, ctx, q, live, settled) }),
 } satisfies Record<string, Card>;
 

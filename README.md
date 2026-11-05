@@ -22,7 +22,7 @@ Sign in with put.io and ask in plain words. It's free: everyone gets 300 credits
 - Translates subtitles into another language.
 - Shows every rename, move and trash as a plan. Nothing changes until you apply it, and undo reverses it.
 
-Your messages, the file names they need and any subtitles you translate go to Anthropic's API. Trashed files go to your put.io trash. The [privacy page](https://puterminator.com/privacy) has the rest.
+Your messages, the file names they need and any subtitles you translate go to Anthropic's API. Feedback you send is emailed to the maintainer with your put.io username. Trashed files go to your put.io trash. The [privacy page](https://puterminator.com/privacy) has the rest.
 
 ## Run it locally
 

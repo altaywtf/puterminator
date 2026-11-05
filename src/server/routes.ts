@@ -5,8 +5,8 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Result from "effect/Result";
-import type * as Schema from "effect/Schema";
-import type { Me } from "../shared/contract";
+import * as Schema from "effect/Schema";
+import { Feedback, FEEDBACK_MAX_CHARS, feedbackText, type Me } from "../shared/contract";
 import type { DownloadLinksResponse } from "../shared/tools";
 import type { AppConfig } from "./config";
 import { accountInfo, authorizeUrl, exchangeCode, putioLayer } from "./putio";
@@ -31,21 +31,27 @@ export interface UserAgent {
   readonly thumbnail: (id: number) => Effect.Effect<string | null>;
   readonly stream: (id: number) => Effect.Effect<string | null>;
   readonly downloadLinks: (id: number) => Effect.Effect<DownloadLinksResponse | null>;
+  readonly takeFeedbackSlot: () => Effect.Effect<string | null>;
+  readonly returnFeedbackSlot: () => Effect.Effect<void>;
   readonly fetch: (request: HttpServerRequest) => Effect.Effect<HttpServerResponse.HttpServerResponse, HttpServerError>;
 }
 
-export interface RouteDeps {
+export interface RouteDeps<R = never> {
   readonly config: AppConfig;
   readonly agentFor: (uid: string) => UserAgent;
   readonly putioFetch?: typeof fetch;
+  readonly sendFeedback?: (feedback: Feedback, from: { readonly uid: string; readonly username: string }) => Effect.Effect<unknown, unknown, R>;
 }
+
+const decodeFeedback = Schema.decodeUnknownOption(Feedback);
+const FEEDBACK_MAX_BODY = FEEDBACK_MAX_CHARS * 4 + 1024;
 
 const text = (body: string, status: number) => HttpServerResponse.text(body, { status });
 const expireCookie = (name: string) => HttpServerResponse.expireCookieUnsafe(name, { path: "/", httpOnly: true, secure: true, sameSite: "lax" });
 const json = (body: Schema.Json, status = 200) => HttpServerResponse.jsonUnsafe(body, { status });
 
 /** Every Worker route. `publicUrl` is the Worker's own URL: the custom domain, or localhost under dev. */
-export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, publicUrl: string) =>
+export const makeHandler = <R = never>(deps: RouteDeps<R>) => (request: HttpServerRequest, publicUrl: string) =>
   Effect.gen(function* () {
     const origin = URL.canParse(publicUrl) ? new URL(publicUrl).origin : null;
     const url = new URL(request.url, origin ?? "http://localhost");
@@ -138,6 +144,34 @@ export const makeHandler = (deps: RouteDeps) => (request: HttpServerRequest, pub
     }
 
     const agent = deps.agentFor(session.value.uid);
+
+    if (path === "/api/feedback" && request.method === "POST") {
+      if (request.headers.origin !== origin) return text("bad origin", 403);
+
+      if (Number(request.headers["content-length"] ?? Number.NaN) > FEEDBACK_MAX_BODY) return json({ error: "too long" }, 413);
+      const body = yield* request.json.pipe(Effect.option);
+
+      const feedback = Option.flatMap(body, decodeFeedback).pipe(
+        Option.flatMap((f) => Option.map(Option.fromNullishOr(feedbackText(f.text)), (text) => ({ ...f, text }))),
+      );
+
+      if (Option.isNone(feedback)) return json({ error: "bad feedback" }, 400);
+
+      if (!deps.sendFeedback) return json({ error: "feedback is off" }, 503);
+      const username = yield* agent.takeFeedbackSlot();
+
+      if (username === null) return json({ error: "too many today" }, 429);
+      const sent = yield* deps.sendFeedback(feedback.value, { uid: session.value.uid, username }).pipe(Effect.result);
+
+      if (Result.isFailure(sent)) {
+        yield* agent.returnFeedbackSlot();
+        yield* Effect.logError("feedback failed", sent.failure);
+
+        return json({ error: "couldn't send" }, 502);
+      }
+
+      return json({ ok: true });
+    }
 
     const media = path.match(/^\/api\/files\/(\d{1,15})\/(thumb|stream)$/);
 

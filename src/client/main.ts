@@ -8,6 +8,8 @@ import {
   ClientEvent,
   ClientFrame,
   ContentBlock,
+  Feedback,
+  feedbackText,
   Folder,
   Library,
   Me,
@@ -68,6 +70,14 @@ export const Model = Schema.Struct({
   treeFocus: Schema.NullOr(Schema.Finite),
   avatarFailed: Schema.Boolean,
   confirmingDelete: Schema.Boolean,
+  feedback: Schema.NullOr(
+    Schema.Struct({
+      kind: Feedback.fields.kind,
+      text: Schema.String,
+      status: Schema.Literals(["editing", "sending", "sent"]),
+      error: Schema.NullOr(Schema.String),
+    }),
+  ),
   player: Schema.NullOr(
     Schema.Struct({ id: Schema.Finite, name: Schema.String, src: Schema.NullOr(Schema.String), failed: Schema.Boolean }),
   ),
@@ -138,6 +148,13 @@ export const Message = defineMessageUnion({
   ClickedDeleteData: {},
   CancelledDelete: {},
   ConfirmedDelete: {},
+  ClickedFeedback: { kind: Feedback.fields.kind, text: Schema.String },
+  ChoseFeedbackKind: { kind: Feedback.fields.kind },
+  UpdatedFeedback: { text: Schema.String },
+  SubmittedFeedback: {},
+  SentFeedback: {},
+  FailedFeedback: { error: Schema.String },
+  ClosedFeedback: {},
   CompletedEffect: {},
 });
 
@@ -263,6 +280,24 @@ const DeleteData = Command.define("DeleteData", {
   }),
 });
 
+const SendFeedback = Command.define("SendFeedback", {
+  args: { feedback: Feedback },
+  messages: [Message.SentFeedback, Message.FailedFeedback],
+  execute: ({ feedback }) =>
+    Effect.tryPromise(() =>
+      fetch("/api/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(feedback) }),
+    ).pipe(
+      Effect.option,
+      Effect.map((res) =>
+        Option.isSome(res) && res.value.ok
+          ? Message.SentFeedback()
+          : Message.FailedFeedback({
+              error: Option.isSome(res) && res.value.status === 429 ? "that’s enough for today. try again tomorrow." : "couldn’t send it. try again.",
+            }),
+      ),
+    ),
+});
+
 const ArmStop = Command.define("ArmStop", {
   messages: [Message.ArmedStop],
   execute: Effect.sleep(Duration.millis(300)).pipe(Effect.as(Message.ArmedStop())),
@@ -304,6 +339,8 @@ export const treeNodeId = (id: number) => `tree-${id}`;
 export const PLAYER_ID = "player";
 export const PLAYER_CLOSE_ID = "player-close";
 export const DELETE_CANCEL_ID = "delete-cancel";
+export const FEEDBACK_TEXT_ID = "feedback-text";
+export const FEEDBACK_CLOSE_ID = "feedback-close";
 
 let lastFocus: Element | null = null;
 
@@ -642,6 +679,29 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     ClickedDeleteData: () => ({ model: modifyFields(model, { confirmingDelete: () => true }), commands: [FocusDialog({ focus: DELETE_CANCEL_ID })] }),
     CancelledDelete: () => ({ model: modifyFields(model, { confirmingDelete: () => false }), commands: [FocusDialog({ focus: null })] }),
     ConfirmedDelete: () => ({ model: modifyFields(model, { confirmingDelete: () => false }), commands: [FocusDialog({ focus: null }), DeleteData()] }),
+    ClickedFeedback: ({ kind, text }) => ({
+      model: modifyFields(model, { feedback: () => ({ kind, text, status: "editing" as const, error: null }) }),
+      commands: [FocusDialog({ focus: FEEDBACK_TEXT_ID })],
+    }),
+    ChoseFeedbackKind: ({ kind }) => ({ model: modifyFields(model, { feedback: (f) => (f && f.status === "editing" ? { ...f, kind } : f) }) }),
+    UpdatedFeedback: ({ text }) => ({ model: modifyFields(model, { feedback: (f) => (f && f.status === "editing" ? { ...f, text, error: null } : f) }) }),
+    SubmittedFeedback: () => {
+      const f = model.feedback;
+      const text = f ? feedbackText(f.text) : null;
+
+      if (!f || f.status !== "editing" || text === null) return { model };
+
+      return {
+        model: modifyFields(model, { feedback: () => ({ ...f, status: "sending" as const, error: null }) }),
+        commands: [SendFeedback({ feedback: { kind: f.kind, text } })],
+      };
+    },
+    SentFeedback: () =>
+      model.feedback
+        ? { model: modifyFields(model, { feedback: (f) => (f ? { ...f, status: "sent" as const } : f) }), commands: [FocusDialog({ focus: FEEDBACK_CLOSE_ID })] }
+        : { model },
+    FailedFeedback: ({ error }) => ({ model: modifyFields(model, { feedback: (f) => (f ? { ...f, status: "editing" as const, error } : f) }) }),
+    ClosedFeedback: () => ({ model: modifyFields(model, { feedback: () => null }), commands: [FocusDialog({ focus: null })] }),
     CompletedEffect: () => ({ model }),
   });
 
@@ -669,6 +729,7 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     treeFocus: null,
     avatarFailed: false,
     confirmingDelete: false,
+    feedback: null,
     player: null,
     links: {},
   },

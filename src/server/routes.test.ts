@@ -4,8 +4,11 @@ import * as Exit from "effect/Exit";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import { describe, expect, it } from "vitest";
+import type { Feedback } from "../shared/contract";
 import { readConfig } from "./config";
 import { makeHandler, type UserAgent } from "./routes";
+import { makeStore } from "./store";
+import { memorySql } from "./testing/sqlite";
 
 const PUBLIC_URL = "https://puterminator.test";
 
@@ -98,7 +101,7 @@ describe("OAuth callback", () => {
     return Response.json({ status: "ERROR" }, { status: 401 });
   };
 
-  const callback = async (code: string, avatar = gravatar) => {
+  const callback = async (code: string, avatar = gravatar, sendFeedback: (f: Feedback, from: { uid: string; username: string }) => Effect.Effect<void, unknown> = () => Effect.void) => {
     const config = await configFrom(valid);
 
     if (!Exit.isSuccess(config)) throw new Error("config failed");
@@ -118,10 +121,13 @@ describe("OAuth callback", () => {
       thumbnail: () => Effect.succeed(null),
       stream: () => Effect.succeed(null),
       downloadLinks: () => Effect.succeed(null),
+      takeFeedbackSlot: () => Effect.sync(() => (store.takeFeedbackSlot("2026-11-05", 2) ? "altay" : null)),
+      returnFeedbackSlot: () => Effect.sync(() => store.returnFeedbackSlot("2026-11-05")),
       fetch: () => Effect.die("unused"),
     });
 
-    const handle = makeHandler({ config: config.value, agentFor: agent, putioFetch: putioWith(avatar) });
+    const store = makeStore(memorySql());
+    const handle = makeHandler({ config: config.value, agentFor: agent, putioFetch: putioWith(avatar), sendFeedback });
     const request = new Request(`${PUBLIC_URL}/auth/callback?code=${code}&state=st`, { headers: { cookie: "__Host-pt_oauth_state=st" } });
     const response = HttpServerResponse.toWeb(await Effect.runPromise(handle(HttpServerRequest.fromWeb(request), PUBLIC_URL)));
     const session = response.headers.getSetCookie().find((c) => c.startsWith("__Host-pt_session=")) ?? "";
@@ -130,7 +136,19 @@ describe("OAuth callback", () => {
     const get = async (path: string, method = "GET") =>
       HttpServerResponse.toWeb(await Effect.runPromise(handle(HttpServerRequest.fromWeb(new Request(`${PUBLIC_URL}${path}`, { method, headers: { cookie } })), PUBLIC_URL)));
 
-    return { response, calls, session, get, me: await (await get("/api/me")).json() };
+    const post = async (path: string, body: Readonly<Record<string, string>>, origin: string | null = PUBLIC_URL) => {
+      const headers = new Headers({ cookie, "content-type": "application/json" });
+
+      const raw = JSON.stringify(body);
+      headers.set("content-length", String(new TextEncoder().encode(raw).length));
+
+      if (origin) headers.set("origin", origin);
+      const request = new Request(`${PUBLIC_URL}${path}`, { method: "POST", body: raw, headers });
+
+      return HttpServerResponse.toWeb(await Effect.runPromise(handle(HttpServerRequest.fromWeb(request), PUBLIC_URL)));
+    };
+
+    return { response, calls, session, get, post, me: await (await get("/api/me")).json() };
   };
 
   it("exchanges the code, stores the token in the user's object and sets an HttpOnly, Secure session cookie", async () => {
@@ -156,6 +174,32 @@ describe("OAuth callback", () => {
     expect((await get("/auth/delete", "POST")).headers.getSetCookie().some((c) => c.startsWith("__Host-pt_session=;"))).toBe(true);
     expect(await (await get("/api/me")).json()).toEqual({ configured: true, signedIn: false });
     expect((await get("/auth/delete", "POST")).status).toBe(401);
+  });
+
+  it("emails feedback with the sender's put.io username, refuses other origins and empty text, and stops at the daily limit", async () => {
+    const sent: Array<[Feedback, string]> = [];
+    const { post } = await callback("good-code", gravatar, (f, from) => Effect.sync(() => void sent.push([f, from.username])));
+    expect((await post("/api/feedback", { kind: "bug", text: "  undo broke  " })).status).toBe(200);
+    expect((await post("/api/feedback", { kind: "bug", text: "x" }, "https://evil.test")).status).toBe(403);
+    expect((await post("/api/feedback", { kind: "bug", text: "x" }, null)).status).toBe(403);
+    expect((await post("/api/feedback", { kind: "idea", text: "   " })).status).toBe(400);
+    expect((await post("/api/feedback", { kind: "rant", text: "x" })).status).toBe(400);
+    expect((await post("/api/feedback", { kind: "idea", text: "dark mode" })).status).toBe(200);
+    expect((await post("/api/feedback", { kind: "idea", text: "one more" })).status).toBe(429);
+    expect(sent).toEqual([
+      [{ kind: "bug", text: "undo broke" }, "altay"],
+      [{ kind: "idea", text: "dark mode" }, "altay"],
+    ]);
+  });
+
+  it("answers 502 when the feedback email fails without using up the daily limit, and 401 without a session", async () => {
+    let attempts = 0;
+    const { post } = await callback("good-code", gravatar, () => (++attempts === 1 ? Effect.fail("send_email refused") : Effect.void));
+    expect((await post("/api/feedback", { kind: "bug", text: "x" })).status).toBe(502);
+    expect((await post("/api/feedback", { kind: "bug", text: "x" })).status).toBe(200);
+    expect((await post("/api/feedback", { kind: "bug", text: "x" })).status).toBe(200);
+    expect((await post("/api/feedback", { kind: "bug", text: "x".repeat(20_000) })).status).toBe(413);
+    expect((await call(valid, "/api/feedback", { method: "POST", body: "{}" })).status).toBe(401);
   });
 
   it("keeps only an https avatar, since the browser loads it directly", async () => {

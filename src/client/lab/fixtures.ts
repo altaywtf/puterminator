@@ -1,7 +1,7 @@
 import { Match } from "effect";
 import type { Change, Plan, Question, Run } from "../../shared/actions";
 import type { Audit } from "../../shared/audit";
-import { FileFlag, type Library } from "../../shared/contract";
+import { type Feedback, FileFlag, type Library } from "../../shared/contract";
 import type { DownloadLinksOutput, ListFolderOutput, SearchFilesOutput } from "../../shared/tools";
 
 const GB = 2 ** 30;
@@ -121,6 +121,17 @@ const found = (paths: string[], total: number, bytes: string): SearchFilesOutput
 export const downloadLinks: Array<[string, DownloadLinksOutput]> = [
   ["ready", { id: 7, files: 3 }],
   ["put.io still working", { id: 8, files: null }],
+];
+
+export const feedbackDrafts: Array<[string, Feedback]> = [
+  ["bug report", { kind: "bug", text: "undo after a cleanup said the library changed since the plan, and nothing was undone. expected the renames and trash to be reversed." }],
+  [
+    "long idea",
+    {
+      kind: "idea",
+      text: "let me pick which media server i use once, so every plan names folders its way.\n\nright now i say plex every time. it would also help if the score card said which server it judged against, and if the layout plan could leave anime alone, since my anime folder already follows its own scheme and every plan wants to move it.",
+    },
+  ],
 ];
 
 export const searches: Array<[string, SearchFilesOutput]> = [

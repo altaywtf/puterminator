@@ -386,6 +386,8 @@ const plan = (messages: Array<Message>): Array<Step> => {
 
     if (call?.name === "ask_user") return [{ kind: "text", delayMs: 40, text: "your call." }];
 
+    if (call?.name === "draft_feedback") return [{ kind: "text", delayMs: 40, text: "drafted. review it and send." }];
+
     if (call?.name === "make_download_links") return [{ kind: "text", delayMs: 40, text: "the links are in the card above." }];
 
     if (call?.name === "propose_translation") {
@@ -428,6 +430,16 @@ const plan = (messages: Array<Message>): Array<Step> => {
   }
 
   const ask = textOf(last).toLowerCase();
+
+  if (/feedback|report a bug/.test(ask)) {
+    return [
+      {
+        kind: "tool",
+        name: "draft_feedback",
+        input: { kind: "bug", text: "undo after a cleanup said the library changed since the plan, and nothing was undone. expected the renames and trash to be reversed." },
+      },
+    ];
+  }
 
   if (/audit|scan/.test(ask)) {
     return [

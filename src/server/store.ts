@@ -58,12 +58,25 @@ export const makeStore = (sql: Sql) => {
     id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT NOT NULL, path TEXT NOT NULL, depth INTEGER NOT NULL,
     size INTEGER NOT NULL, file_type TEXT NOT NULL, extension TEXT, crc32 TEXT, created_at TEXT NOT NULL, first_accessed_at TEXT)`);
   sql.exec("CREATE TABLE IF NOT EXISTS plans (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, json TEXT NOT NULL)");
+  sql.exec("CREATE TABLE IF NOT EXISTS feedback_sent (day TEXT PRIMARY KEY, count INTEGER NOT NULL)");
 
   return {
     loadState: (now: number): AgentState => {
       const raw = sql.exec("SELECT state FROM cf_agents_state WHERE id = ?", AGENTS_SDK_STATE_ROW_ID)[0]?.state;
 
       return Option.getOrElse(decodeState(raw), () => initialAgentState(month(now)));
+    },
+    takeFeedbackSlot: (day: string, perDay: number): boolean => {
+      const sent = Number(sql.exec("SELECT count FROM feedback_sent WHERE day = ?", day)[0]?.count ?? 0);
+
+      if (sent >= perDay) return false;
+      sql.exec("DELETE FROM feedback_sent WHERE day <> ?", day);
+      sql.exec("INSERT OR REPLACE INTO feedback_sent (day, count) VALUES (?, ?)", day, sent + 1);
+
+      return true;
+    },
+    returnFeedbackSlot: (day: string) => {
+      sql.exec("UPDATE feedback_sent SET count = max(count - 1, 0) WHERE day = ?", day);
     },
     saveState: (state: AgentState) => {
       sql.exec("INSERT OR REPLACE INTO cf_agents_state (id, state) VALUES (?, ?)", AGENTS_SDK_STATE_ROW_ID, encodeState(state));
@@ -78,7 +91,7 @@ export const makeStore = (sql: Sql) => {
     },
     deleteUserData: (keepMonth: string) =>
       sql.transaction(() => {
-        for (const table of ["messages", "archived_messages", "files", "plans", "cf_agents_state"]) sql.exec(`DELETE FROM ${table}`);
+        for (const table of ["messages", "archived_messages", "files", "plans", "cf_agents_state", "feedback_sent"]) sql.exec(`DELETE FROM ${table}`);
         sql.exec("DELETE FROM secrets WHERE key != 'session_gen'");
         sql.exec("DELETE FROM usage WHERE month != ?", keepMonth);
       }),

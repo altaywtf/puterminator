@@ -148,5 +148,20 @@ export const Me = Schema.Struct({ configured: Schema.Boolean, signedIn: Schema.B
 
 export type Me = typeof Me.Type;
 
+export const FEEDBACK_MAX_CHARS = 4000;
+
+export const Feedback = Schema.Struct({
+  kind: Schema.Literals(["bug", "idea"]),
+  text: Schema.String,
+});
+
+export type Feedback = typeof Feedback.Type;
+
+export const feedbackText = (text: string): string | null => {
+  const trimmed = text.trim();
+
+  return trimmed.length > 0 && trimmed.length <= FEEDBACK_MAX_CHARS ? trimmed : null;
+};
+
 /** HTTP and WebSocket paths the Worker handles before static assets. */
 export const WORKER_ROUTES = ["/agent", "/agent/*", "/auth/*", "/api/*"];

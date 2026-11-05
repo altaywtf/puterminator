@@ -11,7 +11,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import { type AgentState, type Blocked, blockedText, ClientFrame, ContentBlock, CREDIT_TOKENS, type Credits, creditsLeft, type Folder, MessageParam, type ServerEvent, FileFlag, initialAgentState, type Library } from "../shared/contract";
+import { type AgentState, type Blocked, blockedText, ClientFrame, ContentBlock, CREDIT_TOKENS, type Credits, creditsLeft, Feedback, FEEDBACK_MAX_CHARS, feedbackText, type Folder, MessageParam, type ServerEvent, FileFlag, initialAgentState, type Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { PlanRecord, Run } from "../shared/actions";
 import { AskInput, applyChange, cleanPath, type StoredPlan, uploadedKey, validateTranslation, untranslated, folderIds, nameOf, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion, videoOf } from "./changes";
@@ -44,6 +44,7 @@ You can scan, score, list folders, search files and make download links; every f
 - Trash goes to put.io's trash, never a permanent delete. Prefer trash for junk, rename for messy release names, move for wrapper folders.
 - After propose_changes, stop: at most one line, never a list of the changes; the diff shows them.
 - When you need a decision you can't infer (which copy to keep, which folders to leave alone), call ask_user and stop. The answer arrives as the next user message.
+- When the user hits a bug in puterminator itself, or wants something it can't do, offer once to pass it on. When they agree or ask to send feedback, call draft_feedback with a short plain write-up in their words: what happened and what they expected, or what they want. The app shows the draft; they review and send it. You never send it yourself. After draft_feedback, stop: at most one line.
 - The <context> block says when a plan was applied or discarded. After an apply the snapshot is fresh; don't propose the same changes again.
 
 How to work:
@@ -890,6 +891,23 @@ export const makeAgent = (deps: AgentDeps) =>
 
             return JSON.stringify({ id, files: null } satisfies DownloadLinksOutput);
           }).pipe(Effect.catchTag(["PutioRateLimited", "PutioFailed"], (e) => Effect.succeed(JSON.stringify({ error: stepMessage(e) })))),
+      }),
+      effectTool({
+        name: "draft_feedback",
+        description:
+          "Draft a bug report or feature request to puterminator's maintainer. The app shows it in a card with a button that opens it for the user to edit and send. Nothing is sent until they do.",
+        input: Schema.Struct({
+          kind: Feedback.fields.kind.annotate({ description: "bug: puterminator broke or misbehaved. idea: a feature request or suggestion." }),
+          text: Schema.String.annotate({ description: `The write-up, at most ${FEEDBACK_MAX_CHARS} characters. No put.io file names unless the user gave them for the report.` }),
+        }),
+        run: ({ kind, text }) =>
+          Effect.sync(() => {
+            const draft = feedbackText(text);
+
+            if (draft === null) return JSON.stringify({ error: `Write 1 to ${FEEDBACK_MAX_CHARS} characters.` });
+
+            return JSON.stringify({ kind, text: draft, next: "Drafted. Stop now; the user reviews and sends it from the card." });
+          }),
       }),
       effectTool({
         name: "ask_user",

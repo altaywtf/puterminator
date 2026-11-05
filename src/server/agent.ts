@@ -15,6 +15,8 @@ import { makeStore, type Sql } from "./store";
 const encodeEvent = Schema.encodeSync(ServerFrame);
 
 const POOL_NAME = "pool";
+const FEEDBACK_PER_DAY = 5;
+const today = () => new Date().toISOString().slice(0, 10);
 
 type PoolLedger = { readonly poolReport: (m: string, user: string, tokens: number) => Effect.Effect<number> };
 
@@ -90,6 +92,8 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         thumbnail: (id: number) => agent.thumbnail(id),
         stream: (id: number) => agent.stream(id),
         downloadLinks: (id: number) => agent.downloadLinks(id),
+        takeFeedbackSlot: () => Effect.sync(() => (store.takeFeedbackSlot(today(), FEEDBACK_PER_DAY) ? (store.loadState(Date.now()).username ?? "unknown") : null)),
+        returnFeedbackSlot: () => Effect.sync(() => store.returnFeedbackSlot(today())),
         poolReport: (m: string, user: string, tokens: number) => Effect.sync(() => Math.max(store.poolReport(m, user, tokens), consoleFloor(config.consoleSpend, m))),
       };
     });

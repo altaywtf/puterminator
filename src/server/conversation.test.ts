@@ -121,6 +121,7 @@ describe("a turn", () => {
       ["plan_subtitles", true],
       ["plan_free_space", true],
       ["make_download_links", true],
+      ["draft_feedback", true],
       ["ask_user", true],
     ]);
     expect(JSON.stringify(first?.body.tools)).not.toMatch(/minimum|maximum/);

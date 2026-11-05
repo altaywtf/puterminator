@@ -6,7 +6,7 @@ import { Library } from "../../shared/contract";
 import { planCard, questionCard, runCard } from "../actions";
 import { toolCard } from "../cards";
 import { Message } from "../main";
-import { audits, downloadLinks, folders, library, plans, questions, runs, searches, undos } from "./fixtures";
+import { audits, downloadLinks, feedbackDrafts, folders, library, plans, questions, runs, searches, undos } from "./fixtures";
 
 const Model = Schema.Struct({ expanded: Schema.Array(Schema.String), library: Library, plans: Schema.Record(Schema.String, PlanRecord) });
 
@@ -25,6 +25,7 @@ const CASES: Array<{ tool: string; group: string; name: string; output: string }
   ...folders.map(([name, o]) => ({ tool: "list_folder", group: "folder", name, output: JSON.stringify(o) })),
   ...searches.map(([name, o]) => ({ tool: "search_files", group: "search", name, output: JSON.stringify(o) })),
   ...downloadLinks.map(([name, o]) => ({ tool: "make_download_links", group: "download links", name, output: JSON.stringify(o) })),
+  ...feedbackDrafts.map(([name, o]) => ({ tool: "draft_feedback", group: "feedback", name, output: JSON.stringify(o) })),
 ];
 
 const labelled = (h: H, label: string, card: Html) => h.div([h.Class("grid gap-2")], [h.span([h.Class("text-[13px] text-fg-3")], [label]), card]);
