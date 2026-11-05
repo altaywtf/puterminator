@@ -103,7 +103,17 @@ const routeTaken = () => {
   return routes.some((route) => route.hostname === host && alive(route.pid)) ? host : null;
 };
 
+let trusted = false;
+
+const trustPortless = () => {
+  if (trusted || !existsSync(PORTLESS_CA)) return;
+  setDefaultCACertificates([...getCACertificates("default"), readFileSync(PORTLESS_CA, "utf8")]);
+  trusted = true;
+};
+
 const meConfigured = async (url: string) => {
+  trustPortless();
+
   try {
     const r = await fetch(`${url}/api/me`, { signal: AbortSignal.timeout(2000) });
 
@@ -282,8 +292,6 @@ const down = async () => {
 };
 
 const main = async ([command, ...args]: ReadonlyArray<string>) => {
-  if (existsSync(PORTLESS_CA)) setDefaultCACertificates([...getCACertificates("default"), readFileSync(PORTLESS_CA, "utf8")]);
-
   for (const tool of ["ps", "sqlite3", "pnpm"]) {
     if (spawnSync("sh", ["-c", `command -v ${tool}`]).status !== 0) refuse(`needs ${tool} on PATH`);
   }
