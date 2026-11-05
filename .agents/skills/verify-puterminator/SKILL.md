@@ -17,7 +17,7 @@ V=.agents/skills/verify-puterminator/verify.ts
 $V up
 ```
 
-- Starts `pnpm dev:fake` with `FAKE_PORT=0 DEV_PORT=0`: the fake and the Worker each take a free port, so runs never meet other sessions on the default 1337. `.verify/current/run.json` records the run's `url` and `fakePort`.
+- Starts `pnpm dev:fake`, which serves this checkout at its own [portless](https://portless.sh) URL, `https://<branch>.puterminator.localhost:1355`, so runs in other worktrees never meet. `.verify/current/run.json` records the run's `url` and `fakePort`.
 - Moves `.alchemy/local/puterminator-Puterminator` (shared with `pnpm dev`) into the run folder and puts it back on `down`, so every run starts with no user, no history and no plans. The fake's library resets on every start.
 - Ready means the log shows `ready at <url>` and `GET /api/me` answers `"configured":true`. `up` waits up to 180 s; on failure it stops what it started and restores the storage.
 - `up` refuses while a `dev:fake`, `alchemy dev` or `workerd` it didn't start runs from this checkout. Leave those alone.

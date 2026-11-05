@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { type AddressInfo, createServer as createTcpServer } from "node:net";
+import type { AddressInfo } from "node:net";
 import { buffer as readBytes, text as readBody } from "node:stream/consumers";
 import * as Predicate from "effect/Predicate";
 import type { Json, JsonObject } from "effect/Schema";
@@ -625,16 +625,6 @@ const anthropic = async (req: IncomingMessage, res: ServerResponse) => {
 
 const portOf = (address: AddressInfo | string | null) => (address === null || Predicate.isString(address) ? 0 : address.port);
 
-const freePort = () =>
-  new Promise<number>((resolve, reject) => {
-    const probe = createTcpServer();
-    probe.once("error", reject);
-    probe.listen(0, "localhost", () => {
-      const port = portOf(probe.address());
-      probe.close(() => resolve(port));
-    });
-  });
-
 const server = createServer((req, res) => {
   const url = new URL(req.url ?? "/", upstream);
   const handle = url.pathname.startsWith("/v1/messages") ? anthropic(req, res) : putio(req, res, url);
@@ -646,7 +636,7 @@ const server = createServer((req, res) => {
   });
 });
 
-server.listen(Number(process.env.FAKE_PORT ?? 0), "localhost", async () => {
+server.listen(0, "localhost", () => {
   upstream = `http://localhost:${portOf(server.address())}`;
   log(`put.io + Anthropic fake on ${upstream} (${files.length} files)`);
   mkdirSync(".alchemy", { recursive: true });
@@ -663,11 +653,10 @@ server.listen(Number(process.env.FAKE_PORT ?? 0), "localhost", async () => {
     ].join("\n"),
   );
 
-  const env: NodeJS.ProcessEnv = { ...process.env, DO_NOT_TRACK: "1" };
-
-  if (env.DEV_PORT === "0") env.DEV_PORT = String(await freePort());
-
-  const child = spawn("pnpm", ["exec", "alchemy", "dev", "--stage", "fake", "--env-file", ".alchemy/fake.env"], { stdio: "inherit", env });
+  const child = spawn("pnpm", ["exec", "alchemy", "dev", "--stage", "fake", "--env-file", ".alchemy/fake.env"], {
+    stdio: "inherit",
+    env: { ...process.env, DO_NOT_TRACK: "1" },
+  });
 
   child.on("exit", (code) => process.exit(code ?? 0));
 

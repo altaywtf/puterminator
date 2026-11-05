@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "vite build && DO_NOT_TRACK=1 alchemy dev --stage dev",
-    "dev:fake": "vite build && node src/server/testing/dev-fake.ts",
+    "dev:fake": "vite build && PORTLESS_PORT=1355 portless run node src/server/testing/dev-fake.ts",
     "dev:client": "vite",
     "lab": "vite --port 5174 --strictPort",
     "build": "vite build",
@@ -46,6 +46,7 @@
     "@uinaf/oxlint-plugin-no-comments": "1.0.1",
     "knip": "6.44.1",
     "oxlint": "1.90.0",
+    "portless": "0.16.0",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",
     "vite": "8.3.5",

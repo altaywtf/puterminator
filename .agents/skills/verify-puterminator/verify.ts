@@ -20,7 +20,7 @@ type Run = {
   readonly id: string;
   readonly pid: number;
   readonly stashed: boolean;
-  readonly url: string | null;
+  readonly url: string;
   readonly fakePort: number | null;
 };
 
@@ -51,8 +51,6 @@ const alive = (pid: number) => {
 };
 
 const cwdOf = (pid: number) => lines(tryRun("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"])).find((l) => l.startsWith("n"))?.slice(1) ?? "";
-
-const listeners = (port: number) => lines(tryRun("lsof", ["-nP", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"])).map(Number);
 
 const tree = (root: number) => {
   const children = new Map<number, Array<number>>();
@@ -197,7 +195,8 @@ const up = async () => {
   const dir = runDir(id);
   mkdirSync(join(dir, "evidence"), { recursive: true });
   const logPath = join(dir, "server.log");
-  let run: Run = { id, pid: 0, stashed: false, url: null, fakePort: null };
+  const url = tryRun(join(ROOT, "node_modules/.bin/portless"), ["get", "puterminator"]).trim() || refuse("portless get puterminator printed nothing; run: pnpm install");
+  let run: Run = { id, pid: 0, stashed: false, url, fakePort: null };
   saveRun(run);
   symlinkSync(dir, CURRENT);
 
@@ -214,7 +213,6 @@ const up = async () => {
       cwd: ROOT,
       detached: true,
       stdio: ["ignore", log, log],
-      env: { ...process.env, FAKE_PORT: "0", DEV_PORT: "0" },
     });
 
     child.unref();
@@ -227,10 +225,9 @@ const up = async () => {
       if (!alive(pid)) refuse(`dev:fake exited; log: ${logPath}`);
       const text = readFileSync(logPath, "utf8");
       const fakePort = Number(text.match(/\[fake\] put\.io \+ Anthropic fake on http:\/\/localhost:(\d+)/)?.[1] ?? Number.NaN);
-      const url = text.match(/ready at (http:\/\/localhost:\d+)/)?.[1] ?? null;
 
-      if (url !== null && Number.isInteger(fakePort) && (await meConfigured(url))) {
-        run = { ...run, url, fakePort };
+      if (Number.isInteger(fakePort) && (await meConfigured(url))) {
+        run = { ...run, fakePort };
         saveRun(run);
         console.log(`run ${id} up at ${url} (fake on :${fakePort}, evidence in ${join(dir, "evidence")})`);
 
@@ -258,15 +255,8 @@ const doctor = async () => {
 
   console.log(`run:      ${run.id} at ${tryRun("git", ["-C", ROOT, "rev-parse", "--short", "HEAD"]).trim()}`);
   report("process:", alive(run.pid), `alive (pid ${run.pid})`);
-  report("worker:", run.url !== null && (await meConfigured(run.url)), `answering /api/me at ${run.url ?? "?"}`);
+  report("worker:", await meConfigured(run.url), `answering /api/me at ${run.url}`);
   report("fake:", run.fakePort !== null && (await fakeAnswers(run.fakePort)), `answering on :${run.fakePort ?? "?"}`);
-
-  const ours = tree(run.pid);
-
-  for (const port of [run.fakePort, run.url === null ? null : Number(new URL(run.url).port)]) {
-    const pids = port === null ? [] : listeners(port);
-    report("owner:", pids.length > 0 && pids.every((p) => ours.has(p)), `listener on :${port ?? "?"} started by this run`);
-  }
 
   if (problems.length > 0) refuse("instance not worth driving");
 };
@@ -307,10 +297,6 @@ const down = async () => {
 
   if (existsSync(join(runDir(run.id), "evidence")) && existsSync(CLI)) pw(["close"]);
   await teardown(run);
-
-  for (const port of [run.fakePort, run.url === null ? null : Number(new URL(run.url).port)]) {
-    if (port !== null && listeners(port).length > 0) console.error(`verify: :${port} still listening`);
-  }
 
   console.log(`run ${run.id} down; evidence kept in ${runDir(run.id)}`);
 };

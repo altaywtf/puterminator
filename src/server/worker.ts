@@ -10,16 +10,14 @@ import { makeHandler, type RouteDeps } from "./routes";
 import type { RuntimeContext } from "alchemy/RuntimeContext";
 
 const PUBLIC_ORIGIN = "https://puterminator.com";
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
 const LIVE_SCRIPT_NAME = "puterminator";
 const BUNDLED_WORKERD_MAX_COMPATIBILITY_DATE = "2026-10-19";
 const FEEDBACK_FROM = "puterminator@uinaf.dev";
 const FEEDBACK_TO = "dev@uinaf.dev";
 const oneLine = (text: string) => text.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
 const FeedbackEmail = Cloudflare.Email.SendEmail("FeedbackEmail", { allowedSenderAddresses: [FEEDBACK_FROM] });
-const DEFAULT_DEV_PORT = 1337;
-const devPort = Number(globalThis.process?.env.DEV_PORT ?? 0);
-const pinnedDevPort = Number.isInteger(devPort) && devPort > 0;
+const portlessPort = Number(globalThis.process?.env.PORT ?? 0);
+const isLocal = (hostname: string) => hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".localhost");
 
 export default Cloudflare.Worker(
   "Worker",
@@ -34,7 +32,7 @@ export default Cloudflare.Worker(
       notFoundHandling: "single-page-application",
       runWorkerFirst: WORKER_ROUTES,
     },
-    dev: { port: pinnedDevPort ? devPort : DEFAULT_DEV_PORT, strictPort: pinnedDevPort },
+    dev: Number.isInteger(portlessPort) && portlessPort > 0 ? { port: portlessPort, strictPort: true } : { port: 1337 },
   },
   Effect.gen(function* () {
     const config = yield* readConfig;
@@ -59,9 +57,10 @@ export default Cloudflare.Worker(
       fetch: Effect.gen(function* () {
         const request = yield* HttpServerRequest;
         const host = request.headers.host ?? "";
-        const local = URL.canParse(`http://${host}`) && LOCAL_HOSTS.has(new URL(`http://${host}`).hostname);
+        const local = URL.canParse(`http://${host}`) && isLocal(new URL(`http://${host}`).hostname);
+        const scheme = request.headers["x-forwarded-proto"] === "https" ? "https" : "http";
 
-        return yield* handle(request, local ? `http://${host}` : PUBLIC_ORIGIN);
+        return yield* handle(request, local ? `${scheme}://${host}` : PUBLIC_ORIGIN);
       }),
     };
   }).pipe(Effect.provide(Cloudflare.Email.SendBinding)),

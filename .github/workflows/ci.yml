@@ -34,7 +34,7 @@ jobs:
       - run: pnpm verify
       - name: Boot the Worker on fakes
         run: |
-          pnpm dev:fake > dev-fake.log 2>&1 &
+          PORTLESS=0 pnpm dev:fake > dev-fake.log 2>&1 &
           deadline=$(($(date +%s) + 120))
           until curl -sf --max-time 5 http://localhost:1337/api/me | grep -q '"configured":true'; do
             if [ "$(date +%s)" -ge "$deadline" ]; then

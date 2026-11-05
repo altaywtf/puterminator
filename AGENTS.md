@@ -28,12 +28,12 @@ puterminator is a chat agent for one person's put.io library, live at <https://p
 
 ```bash
 pnpm install --frozen-lockfile   # bootstrap
-pnpm dev:fake                    # boot on :1337 with put.io and Anthropic faked on a free port; no secrets needed
+pnpm dev:fake                    # boot at https://<branch>.puterminator.localhost:1355 (portless) with put.io and Anthropic faked; no secrets needed
 pnpm lab                         # every card in every fixture state on :5174/src/client/lab/
 pnpm verify                      # the gate: typecheck, lint, knip, test, build
 ```
 
-`pnpm dev` runs against the real put.io and Anthropic with a local `.env`. `alchemy dev` doesn't typecheck; `pnpm verify` does. Stop dev servers by the PID you started.
+`pnpm dev` runs on :1337 against the real put.io and Anthropic with a local `.env`; `PORTLESS=0 pnpm dev:fake` also boots on :1337. `alchemy dev` doesn't typecheck; `pnpm verify` does. Stop dev servers by the PID you started.
 
 ## Proof map
 
