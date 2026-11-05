@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <img src=".github/readme/score.png" width="49%" alt="A library scored 55 out of 100" />
-  <img src=".github/readme/plan.png" width="49%" alt="A cleanup plan shown as a diff" />
+  <img src=".github/readme/audit.png" width="49%" alt="A library scored 55 out of 100" />
+  <img src=".github/readme/cleanup.png" width="49%" alt="A cleanup plan shown as a diff" />
 </p>
 
 - Scores a folder for junk, duplicates, release names and wrapper folders.
