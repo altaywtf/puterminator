@@ -248,7 +248,7 @@ const DeleteData = Command.define("DeleteData", {
     }
 
     return Message.FailedFrame({
-      error: Option.isSome(res) && res.value.status === 409 ? "wait for the reply or plan run to finish, then delete your data" : "couldn’t delete your data; try again",
+      error: Option.isSome(res) && res.value.status === 409 ? "wait for the reply or plan run to finish, then try again" : "couldn’t forget you; try again",
     });
   }),
 });
