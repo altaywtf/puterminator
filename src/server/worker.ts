@@ -17,6 +17,9 @@ const FEEDBACK_FROM = "puterminator@uinaf.dev";
 const FEEDBACK_TO = "dev@uinaf.dev";
 const oneLine = (text: string) => text.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
 const FeedbackEmail = Cloudflare.Email.SendEmail("FeedbackEmail", { allowedSenderAddresses: [FEEDBACK_FROM] });
+const DEFAULT_DEV_PORT = 1337;
+const devPort = Number(globalThis.process?.env.DEV_PORT ?? 0);
+const pinnedDevPort = Number.isInteger(devPort) && devPort > 0;
 
 export default Cloudflare.Worker(
   "Worker",
@@ -31,6 +34,7 @@ export default Cloudflare.Worker(
       notFoundHandling: "single-page-application",
       runWorkerFirst: WORKER_ROUTES,
     },
+    dev: { port: pinnedDevPort ? devPort : DEFAULT_DEV_PORT, strictPort: pinnedDevPort },
   },
   Effect.gen(function* () {
     const config = yield* readConfig;
