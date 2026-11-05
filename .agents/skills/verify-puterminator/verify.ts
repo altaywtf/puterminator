@@ -13,7 +13,8 @@ const RUNS = join(ROOT, ".verify");
 const CURRENT = join(RUNS, "current");
 const STORAGE = join(ROOT, ".alchemy/local/puterminator-Puterminator");
 const CLI = join(ROOT, "node_modules/.bin/playwright-cli");
-const PORTLESS_CA = join(process.env.PORTLESS_STATE_DIR ?? join(homedir(), ".portless"), "ca.pem");
+const PORTLESS_STATE = process.env.PORTLESS_STATE_DIR ?? join(homedir(), ".portless");
+const PORTLESS_CA = join(PORTLESS_STATE, "ca.pem");
 
 type Run = {
   readonly id: string;
@@ -92,6 +93,16 @@ const saveRun = (run: Run) => writeFileSync(join(runDir(run.id), "run.json"), JS
 
 const requireRun = () => currentRun() ?? refuse("no run; start one with: up");
 
+const routeTaken = () => {
+  const url = tryRun(join(ROOT, "node_modules/.bin/portless"), ["get", "puterminator"]).trim();
+  const host = URL.canParse(url) ? new URL(url).hostname : refuse("portless get puterminator printed no URL; run: pnpm install");
+  const routes: ReadonlyArray<{ readonly hostname: string; readonly pid: number }> = existsSync(join(PORTLESS_STATE, "routes.json"))
+    ? JSON.parse(readFileSync(join(PORTLESS_STATE, "routes.json"), "utf8"))
+    : [];
+
+  return routes.some((route) => route.hostname === host && alive(route.pid)) ? host : null;
+};
+
 const meConfigured = async (url: string) => {
   try {
     const r = await fetch(`${url}/api/me`, { signal: AbortSignal.timeout(2000) });
@@ -163,6 +174,9 @@ const up = async () => {
   const previous = currentRun();
 
   if (previous) refuse(`run ${previous.id} is ${alive(previous.pid) ? "still up" : "stale"}; run: down`);
+  const taken = routeTaken();
+
+  if (taken !== null) refuse(`a dev:fake you did not start already serves ${taken}; leave it alone`);
 
   const id = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
   const dir = runDir(id);
