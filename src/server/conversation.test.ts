@@ -534,6 +534,32 @@ describe("plans", () => {
     ]);
   });
 
+  it("undoes renames and trash inside a folder the same plan then moved", async () => {
+    const { t, id } = await applied(
+      JSON.stringify({
+        title: "tidy",
+        changes: [
+          { op: "trash", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: null },
+          { op: "rename", path: heat, to: "Heat (1995).mkv" },
+          { op: "move", path: "/Movies", to: "/Films/Movies" },
+        ],
+      }),
+    );
+
+    const before = writes(t).length;
+    await t.receive({ type: "undo", plan: id });
+    expect(planOf(t).undo?.steps.map((s) => [s.state, s.error])).toEqual([
+      ["done", null],
+      ["done", null],
+      ["done", null],
+    ]);
+    expect(writes(t).slice(before)).toEqual([
+      ["/v2/files/move", { file_ids: "1", parent_id: "0" }],
+      ["/v2/files/rename", { file_id: "2", name: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }],
+      ["/v2/trash/restore", { file_ids: "3" }],
+    ]);
+  });
+
   it("undoes a write whose answer was lost, even after put.io refuses its retry, since the first try may have landed", async () => {
     const failWrites: number[] = [];
     const { t, id } = await applied(proposal, { loseWriteAnswers: [2], failWrites });
@@ -543,6 +569,17 @@ describe("plans", () => {
     expect(planOf(t).run?.steps[1]).toMatchObject({ state: "failed", error: "put.io /files/rename → 400", maybeApplied: true });
     await t.receive({ type: "undo", plan: id });
     expect(writes(t).at(-2)).toEqual(["/v2/files/rename", { file_id: "2", name: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }]);
+  });
+
+  it("on retry, counts a trash whose answer was lost and whose file is gone as done, and runs the rest", async () => {
+    const failWrites = [2];
+    const { t, id } = await applied(proposal, { loseWriteAnswers: [3], failWrites });
+    expect(planOf(t).run?.steps.map((s) => s.state)).toEqual(["failed", "failed", "done"]);
+    failWrites.length = 0;
+    const before = writes(t).length;
+    await t.receive({ type: "retry", plan: id });
+    expect(planOf(t).run?.steps.map((s) => s.state)).toEqual(["done", "done", "done"]);
+    expect(writes(t).slice(before)).toEqual([["/v2/files/rename", { file_id: "2", name: "Heat (1995).mkv" }]]);
   });
 
   it("fails a run when the put.io sign-in is gone, instead of leaving it applying", async () => {

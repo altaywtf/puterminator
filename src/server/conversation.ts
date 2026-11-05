@@ -409,8 +409,18 @@ export const makeAgent = (deps: AgentDeps) =>
         const checked = yield* Effect.result(scan);
 
         if (Result.isFailure(checked)) return update((r) => failUnfinished(r, `couldn’t check put.io first: ${stepMessage(checked.failure)}`), finished);
-        const queuedIds = new Set(queued.map((s) => s.change));
-        const stale = staleChanges(store.snapshot(), run.changes.filter((c) => queuedIds.has(c.id)), first.ids, eitherEnd);
+        const present = new Set(store.snapshot().map((f) => f.id));
+
+        const trashed = new Set(
+          queued.flatMap((s) => {
+            const id = first.ids[s.change];
+
+            return eitherEnd && s.maybeApplied && changeOf.get(s.change)?.op === "trash" && id !== undefined && !present.has(id) ? [s.change] : [];
+          }),
+        );
+
+        const queuedIds = new Set(queued.flatMap((s) => (trashed.has(s.change) ? [] : [s.change])));
+        const stale = staleChanges(store.snapshot(), run.changes.filter((c) => queuedIds.has(c.id)), first.ids, eitherEnd, run.changes);
 
         if (stale.length > 0) return update((r) => failUnfinished(r, `the library changed since this plan (${stale[0]}); ${changed}`), finished);
         const folders = folderIds(store.snapshot(), state.folder.id, original);
@@ -465,6 +475,11 @@ export const makeAgent = (deps: AgentDeps) =>
           }
 
           if (change.op === "translate") continue;
+
+          if (trashed.has(step.change)) {
+            setStep(step.change, "done");
+            continue;
+          }
 
           if (change.op === "trash" && !trashOn) {
             setStep(step.change, "failed", "trash is off in your put.io settings, so this would delete for good");

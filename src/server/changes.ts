@@ -197,24 +197,41 @@ export const sidecarsOf = (snapshot: ReadonlyArray<WalkedFile>, video: WalkedFil
   });
 };
 
+const reroot = (path: string, from: string, to: string) => (path.startsWith(`${from}/`) ? [to + path.slice(from.length)] : []);
+
 /** What would stop a stored plan from applying as proposed: a file no longer where the plan saw it, or
-    a destination another file now holds. With `eitherEnd`, for retry and undo, a file may also sit where
-    its change puts it, since put.io may have made that change already or the snapshot may predate it. */
-export const staleChanges = (snapshot: ReadonlyArray<WalkedFile>, changes: ReadonlyArray<Change>, ids: Readonly<Record<string, number>>, eitherEnd = false) => {
+    a destination another file now holds. A file may also sit where a folder move or rename in `context`
+    took it, either way. With `eitherEnd`, for retry and undo, a file may also sit where its own change puts
+    it, since put.io may have made that change already or the snapshot may predate it. */
+export const staleChanges = (
+  snapshot: ReadonlyArray<WalkedFile>,
+  changes: ReadonlyArray<Change>,
+  ids: Readonly<Record<string, number>>,
+  eitherEnd = false,
+  context: ReadonlyArray<Change> = changes,
+) => {
   const byId = new Map(snapshot.map((f) => [f.id, f]));
   const byPath = new Map(snapshot.map((f) => [f.path.toLowerCase(), f]));
+  const shifts = context.flatMap((m): Array<readonly [string, string]> => (m.op === "move" || m.op === "rename" ? [[m.path, finalPath(m)], [finalPath(m), m.path]] : []));
+  const places = (path: string) => [path, ...shifts.flatMap(([from, to]) => reroot(path, from, to))];
 
   return changes.flatMap((c) => {
     const id = ids[c.id] ?? Number.NaN;
     const f = byId.get(id);
-    const inPlace = f !== undefined && (f.path === c.path || (eitherEnd && c.op !== "trash" && f.path === finalPath(c)));
+    const at = (path: string) => f !== undefined && places(path).includes(f.path);
+    const inPlace = at(c.path) || (eitherEnd && c.op !== "trash" && at(finalPath(c)));
 
     if (c.op !== "restore" && !inPlace) return [`${c.path} moved or is gone`];
 
     if (c.op === "trash" || c.op === "restore") return [];
-    const end = byPath.get(finalPath(c).toLowerCase());
 
-    return end && end.id !== id ? [`${finalPath(c)} is taken`] : [];
+    const taken = places(finalPath(c)).some((p) => {
+      const end = byPath.get(p.toLowerCase());
+
+      return end !== undefined && end.id !== id;
+    });
+
+    return taken ? [`${finalPath(c)} is taken`] : [];
   });
 };
 
