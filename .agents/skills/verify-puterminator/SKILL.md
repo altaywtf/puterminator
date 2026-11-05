@@ -5,10 +5,10 @@ description: Drive puterminator's browser UI against the local put.io and Anthro
 
 # Verify puterminator
 
-`verify.sh` (beside this file) runs one isolated instance per checkout and drives it headless with `@playwright/cli`. Every command below runs from the repository root.
+`verify.ts` (beside this file, Node 24) runs one isolated instance per checkout and drives it headless with `@playwright/cli`. Every command below runs from the repository root.
 
 ```bash
-V=.agents/skills/verify-puterminator/verify.sh
+V=.agents/skills/verify-puterminator/verify.ts
 ```
 
 ## Launch
@@ -17,10 +17,10 @@ V=.agents/skills/verify-puterminator/verify.sh
 $V up
 ```
 
-- Starts `pnpm dev:fake` on private ports: the fake from 18788, the Worker from 11337 (`FAKE_PORT`, `DEV_PORT`). Other sessions own the default 1337 and 8788; a run on them gets driven and killed by those sessions.
-- Wipes `.alchemy/local/puterminator-Puterminator` first, so every run starts with no user, no history and no plans. The fake's library resets on every start.
-- Ready means the log shows `ready at <url>` and `GET /api/me` answers `"configured":true`. `up` waits for both, up to 120 s.
-- `up` refuses when a `dev:fake` it didn't start runs from this checkout. Leave that one alone.
+- Starts `pnpm dev:fake` with `FAKE_PORT=0 DEV_PORT=0`: the fake and the Worker each take a free port, so runs never meet other sessions on the default 1337. `.verify/current/run.json` records the run's `url` and `fakePort`.
+- Moves `.alchemy/local/puterminator-Puterminator` (shared with `pnpm dev`) into the run folder and puts it back on `down`, so every run starts with no user, no history and no plans. The fake's library resets on every start.
+- Ready means the log shows `ready at <url>` and `GET /api/me` answers `"configured":true`. `up` waits up to 180 s; on failure it stops what it started and restores the storage.
+- `up` refuses while a `dev:fake`, `alchemy dev` or `workerd` it didn't start runs from this checkout. Leave those alone.
 
 ## Doctor
 
@@ -28,14 +28,14 @@ $V up
 $V doctor
 ```
 
-Run it first whenever anything looks off. It checks that the process is alive, the Worker answers `/api/me`, the fake answers, and the fake on that port belongs to this run. It exits non-zero when the instance isn't worth driving.
+Run it first whenever anything looks off. It checks that the process is alive, the Worker answers `/api/me`, the fake answers, and both ports are held by processes this run started. It exits non-zero when the instance isn't worth driving.
 
 ## Drive
 
-`$V pw <command>` is `playwright-cli` bound to this run's browser session, with its working directory in the run's evidence folder. Target elements with Playwright locators, by role and accessible name:
+`$V pw <command>` is `playwright-cli` bound to this run's browser session, with its working directory in the run's evidence folder, and exits non-zero when the command fails. The first call installs `@playwright/cli` into `~/.cache/verify-puterminator`. Target elements with Playwright locators, by role and accessible name:
 
 ```bash
-U=$(cat .verify/current/url)
+U=$(node -p "require('./.verify/current/run.json').url")
 $V pw open "$U/"
 $V pw click "getByRole('link', { name: 'continue with put.io' })"
 $V pw run-code "async page => { await page.getByRole('heading', { name: /^hi altay/ }).waitFor({ timeout: 30000 }); }"
@@ -75,7 +75,7 @@ Drive the real path: the composer, the suggestion buttons, the card buttons. A f
 $V down
 ```
 
-Closes the browser, stops the process group `up` started, and drops `.verify/current`. The run folder stays, with `server.log` and `evidence/`. `.verify/` is gitignored; delete old runs by hand.
+Closes the browser, stops every process `up` started, puts the stashed storage back, and drops `.verify/current`. A run that stopped any other way stays `current`; run `down` before the next `up`. The run folder stays, with `server.log` and `evidence/`. `.verify/` is gitignored; delete old runs by hand.
 
 ## Feature map
 

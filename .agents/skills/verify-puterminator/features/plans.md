@@ -17,7 +17,7 @@ The model proposes library changes as a diff card; only the user's click applies
 - Type a message containing `clean` and send it.
 - Other planners land on the same card: `subtitle`, `free up` or `space`, `plex` or `layout`, `translate`.
 
-## Driving it with verify.sh
+## Driving it with verify.ts
 
 Preconditions:
 

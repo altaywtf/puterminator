@@ -4,7 +4,7 @@ The maintained recipes for proving each user-facing feature. Read this index, th
 
 ## Baseline
 
-- `$V up` and `$V doctor` pass, with `V=.agents/skills/verify-puterminator/verify.sh` and `U=$(cat .verify/current/url)`.
+- `$V up` and `$V doctor` pass, with `V=.agents/skills/verify-puterminator/verify.ts` and `U=$(node -p "require('./.verify/current/run.json').url")`.
 - Signed in: `$V pw open "$U/"`, `$V pw click "getByRole('link', { name: 'continue with put.io' })"`, then wait for `getByRole('heading', { name: /^hi altay/ })`.
 - The fake library is the seed in [`dev-fake.ts`](../../../../src/server/testing/dev-fake.ts): Movies, Series, Downloads with six RARBG release folders, loose junk at the root. It resets on every `up`.
 - Only drive an instance this run started.
@@ -26,7 +26,7 @@ The maintained recipes for proving each user-facing feature. Read this index, th
 
 ## Feature entry contract
 
-Each feature file has an H1, one paragraph on the user-visible behaviour, then four H2s in this order: `Sub-features`, `How to get to it (user POV)`, `Driving it with verify.sh`, `Gotchas`. The driving section starts with `Preconditions:`, then pairs each user action with its exact command and observable result.
+Each feature file has an H1, one paragraph on the user-visible behaviour, then four H2s in this order: `Sub-features`, `How to get to it (user POV)`, `Driving it with verify.ts`, `Gotchas`. The driving section starts with `Preconditions:`, then pairs each user action with its exact command and observable result.
 
 ## Features
 

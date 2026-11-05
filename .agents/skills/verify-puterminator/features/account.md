@@ -13,7 +13,7 @@ The user signs in with put.io OAuth, signs out (ending every session), or asks p
 - Choose `continue with put.io` on the landing page.
 - Choose `sign out` or `forget me` in the account menu (`account: altay`).
 
-## Driving it with verify.sh
+## Driving it with verify.ts
 
 Preconditions:
 

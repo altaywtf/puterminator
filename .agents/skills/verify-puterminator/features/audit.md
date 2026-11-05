@@ -14,7 +14,7 @@ The agent scans the library, scores naming, junk and duplicates out of 100, and 
 - Type a message containing `audit` or `scan` and send it.
 - Open `browse library` from the account menu to see the tree.
 
-## Driving it with verify.sh
+## Driving it with verify.ts
 
 Preconditions:
 

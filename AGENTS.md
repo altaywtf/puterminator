@@ -28,7 +28,7 @@ puterminator is a chat agent for one person's put.io library, live at <https://p
 
 ```bash
 pnpm install --frozen-lockfile   # bootstrap
-pnpm dev:fake                    # boot on :1337 with put.io and Anthropic faked on :8788; no secrets needed
+pnpm dev:fake                    # boot on :1337 with put.io and Anthropic faked on a free port; no secrets needed
 pnpm lab                         # every card in every fixture state on :5174/src/client/lab/
 pnpm verify                      # the gate: typecheck, lint, knip, test, build
 ```

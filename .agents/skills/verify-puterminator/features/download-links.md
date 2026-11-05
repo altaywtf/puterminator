@@ -13,7 +13,7 @@ The agent asks put.io for direct download links (the one write a tool makes) and
 - Choose the `download links for my biggest files` suggestion on an empty thread.
 - Type a message containing `download` or `link` and send it.
 
-## Driving it with verify.sh
+## Driving it with verify.ts
 
 Preconditions:
 

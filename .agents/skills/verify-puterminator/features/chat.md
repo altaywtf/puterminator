@@ -14,7 +14,7 @@ The user sends a message, the reply streams in with thinking and text, the user 
 - Choose `stop reply` while a reply streams.
 - Choose `new thread` in the account menu.
 
-## Driving it with verify.sh
+## Driving it with verify.ts
 
 Preconditions:
 

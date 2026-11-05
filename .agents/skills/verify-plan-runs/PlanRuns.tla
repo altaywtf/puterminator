@@ -49,7 +49,6 @@ Apply ==
 
 Retry ==
   /\ status \in {"done", "undone"} /\ fiber = "idle" /\ retries < MaxRetries
-  /\ \E i \in Steps : Cur[i] = "failed"
   /\ status' = IF status = "undone" THEN "undoing" ELSE "applying"
   /\ SetCur([i \in Steps |-> IF Cur[i] = "failed" THEN "queued" ELSE Cur[i]], CurMaybe)
   /\ grants' = [i \in Steps |-> IF Cur[i] = "failed" THEN grants[i] + 1 ELSE grants[i]]
