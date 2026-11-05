@@ -1,31 +1,44 @@
-![puterminator — terminates the mess in your put.io.](public/og.png)
+![puterminator](public/og.png)
 
 # puterminator
 
-A chat agent for your put.io library, at [puterminator.com](https://puterminator.com).
+Chat with your put.io library and clean it up.
 
-- Scores a folder for junk, duplicates, release names and wrapper folders.
-- Finds files, plays videos in the browser and makes put.io download links.
-- Proposes renames, moves and trash as a diff. Trash goes to put.io's trash, and an applied plan can be undone.
-- Free: 300 credits a month for everyone, from a shared monthly budget.
+**[Try it at puterminator.com](https://puterminator.com)**. Sign in with put.io. It's free.
 
-## Run it
+## What it does
 
-Node 24 and pnpm.
+- **Finds the mess.** Junk files, duplicates, release-name clutter and folders wrapped in folders.
+- **Finds your stuff.** Ask in plain words, play videos in the browser, get download links.
+- **Proposes, never acts.** Renames, moves and trash show up as a plan. Nothing changes until you apply it, and you can undo it.
 
-```sh
-pnpm install
-pnpm dev:fake   # http://localhost:1337, with put.io and Anthropic faked on :8788
-pnpm verify     # typecheck, lint, knip, test, build
-```
-
-`pnpm dev` runs against the real APIs with a local `.env` (from `.env.example`). `pnpm lab` shows every card on <http://localhost:5174/lab.html>.
-
-[AGENTS.md](AGENTS.md) maps the code and its checks; [docs/architecture.md](docs/architecture.md) draws how it fits together.
+Everyone gets 300 credits a month from a shared budget.
 
 ## Privacy
 
-- It reads file names, sizes, dates, checksums and play status through put.io's API, and your put.io username and avatar.
+- It reads file names, sizes, dates and play status, plus your put.io username and avatar.
 - Your messages, and the file names they need, go to Anthropic's API.
-- Renames, moves and trash happen only when you apply a plan in the browser.
-- The [privacy page](https://puterminator.com/privacy) has the rest.
+- Trash goes to put.io's trash. Your files stay where they are until you apply a plan.
+
+The [privacy page](https://puterminator.com/privacy) has the rest.
+
+## Run it yourself
+
+Needs Node 24 and pnpm.
+
+```sh
+pnpm install
+pnpm dev:fake
+```
+
+It runs on <http://localhost:1337>, with put.io and Anthropic faked. No keys needed.
+
+To use real APIs, copy `.env.example` to `.env` and run `pnpm dev`. You need a put.io OAuth app with `<origin>/auth/callback` as its callback URL and an Anthropic API key. To deploy to Cloudflare Workers, set your domain in [`worker.ts`](src/server/worker.ts) and run `pnpm deploy`.
+
+## Contributing
+
+`pnpm verify` is the gate: typecheck, lint, knip, tests and build. [AGENTS.md](AGENTS.md) maps the code. [docs/architecture.md](docs/architecture.md) shows how it fits together.
+
+## License
+
+[MIT](LICENSE)
