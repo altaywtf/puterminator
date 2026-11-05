@@ -21,12 +21,14 @@ puterminator is a chat agent for one person's put.io library, live at <https://p
 ## Skills
 
 - Effect code: read `node_modules/effect/AGENTS.md` first, then `node_modules/effect/src`. Effect setup: [`effect-ts`](.agents/skills/effect-ts/SKILL.md), keeping the pinned `effect` version.
+- Proving behaviour in the browser: [`verify-puterminator`](.agents/skills/verify-puterminator/SKILL.md) drives an isolated `dev:fake` instance and captures proof.
+- Plan runs (apply, stop, retry, undo): [`verify-plan-runs`](.agents/skills/verify-plan-runs/SKILL.md) model-checks them with TLA+.
 
 ## Lifecycle
 
 ```bash
 pnpm install --frozen-lockfile   # bootstrap
-pnpm dev:fake                    # boot on :1337 with put.io and Anthropic faked on :8788; no secrets needed
+pnpm dev:fake                    # boot on :1337 with put.io and Anthropic faked on a free port; no secrets needed
 pnpm lab                         # every card in every fixture state on :5174/src/client/lab/
 pnpm verify                      # the gate: typecheck, lint, knip, test, build
 ```
@@ -40,7 +42,9 @@ pnpm verify                      # the gate: typecheck, lint, knip, test, build
 | Docs, copy, lint config | `pnpm verify` |
 | Scoring rules, credits, plan validation, apply and undo | Vitest at the owner's boundary: [`audit.test.ts`](src/server/audit.test.ts), [`credits.test.ts`](src/server/credits.test.ts), [`conversation.test.ts`](src/server/conversation.test.ts) against the fakes in [`src/server/testing`](src/server/testing) |
 | Tools, turns, routes | [`conversation.test.ts`](src/server/conversation.test.ts), [`routes.test.ts`](src/server/routes.test.ts) |
-| Cards and visuals | `pnpm lab`, plus `pnpm dev:fake` at 375px wide for anything a phone shows |
+| Cards and visuals | `pnpm lab`, plus [`verify-puterminator`](.agents/skills/verify-puterminator/SKILL.md) at 375px wide for anything a phone shows |
+| User journeys: turns, plans, links, sign-in | [`verify-puterminator`](.agents/skills/verify-puterminator/SKILL.md) |
+| Plan run engine | [`verify-plan-runs`](.agents/skills/verify-plan-runs/SKILL.md), plus Vitest |
 | Deployed behaviour | CI's smoke step after deploy, then a read-only look at the live site |
 
 Add a test only when it catches something existing coverage misses, and prove it fails with the fix reverted.

@@ -2,12 +2,12 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { type AddressInfo, createServer as createTcpServer } from "node:net";
 import { buffer as readBytes, text as readBody } from "node:stream/consumers";
 import * as Predicate from "effect/Predicate";
 import type { Json, JsonObject } from "effect/Schema";
 
-const PORT = Number(process.env.FAKE_PORT ?? 8788);
-const UPSTREAM = `http://localhost:${PORT}`;
+let upstream = "http://localhost";
 const TOKEN = "fake-putio-token";
 const CODE = "fake-code";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -205,7 +205,7 @@ const putio = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
   const found = one && files.find((f) => f.id === Number(one[1]));
 
   if (found) {
-    const screenshot = found.file_type === "VIDEO" ? `${UPSTREAM}/screenshot/${found.id}.svg` : null;
+    const screenshot = found.file_type === "VIDEO" ? `${upstream}/screenshot/${found.id}.svg` : null;
 
     return json(res, 200, { file: { ...found, screenshot }, status: "OK" });
   }
@@ -623,8 +623,20 @@ const anthropic = async (req: IncomingMessage, res: ServerResponse) => {
   res.end();
 };
 
-createServer((req, res) => {
-  const url = new URL(req.url ?? "/", UPSTREAM);
+const portOf = (address: AddressInfo | string | null) => (address === null || Predicate.isString(address) ? 0 : address.port);
+
+const freePort = () =>
+  new Promise<number>((resolve, reject) => {
+    const probe = createTcpServer();
+    probe.once("error", reject);
+    probe.listen(0, "localhost", () => {
+      const port = portOf(probe.address());
+      probe.close(() => resolve(port));
+    });
+  });
+
+const server = createServer((req, res) => {
+  const url = new URL(req.url ?? "/", upstream);
   const handle = url.pathname.startsWith("/v1/messages") ? anthropic(req, res) : putio(req, res, url);
   handle.catch((cause: unknown) => {
     log(`handler failed: ${cause instanceof Error ? cause.message : String(cause)}`);
@@ -632,8 +644,11 @@ createServer((req, res) => {
     if (!res.headersSent) json(res, 500, { status: "ERROR" });
     else res.end();
   });
-}).listen(PORT, "localhost", () => {
-  log(`put.io + Anthropic fake on ${UPSTREAM} (${files.length} files)`);
+});
+
+server.listen(Number(process.env.FAKE_PORT ?? 0), "localhost", async () => {
+  upstream = `http://localhost:${portOf(server.address())}`;
+  log(`put.io + Anthropic fake on ${upstream} (${files.length} files)`);
   mkdirSync(".alchemy", { recursive: true });
   const sessionSecret = process.env.FAKE_UNCONFIGURED ? "short" : randomBytes(32).toString("hex");
   writeFileSync(
@@ -643,15 +658,16 @@ createServer((req, res) => {
       "PUTIO_CLIENT_ID=fake-client",
       "PUTIO_CLIENT_SECRET=fake-secret",
       `SESSION_SECRET=${sessionSecret}`,
-      `DEV_FAKE_UPSTREAM=${UPSTREAM}`,
+      `DEV_FAKE_UPSTREAM=${upstream}`,
       "",
     ].join("\n"),
   );
 
-  const child = spawn("pnpm", ["exec", "alchemy", "dev", "--stage", "fake", "--env-file", ".alchemy/fake.env"], {
-    stdio: "inherit",
-    env: { ...process.env, DO_NOT_TRACK: "1" },
-  });
+  const env: NodeJS.ProcessEnv = { ...process.env, DO_NOT_TRACK: "1" };
+
+  if (env.DEV_PORT === "0") env.DEV_PORT = String(await freePort());
+
+  const child = spawn("pnpm", ["exec", "alchemy", "dev", "--stage", "fake", "--env-file", ".alchemy/fake.env"], { stdio: "inherit", env });
 
   child.on("exit", (code) => process.exit(code ?? 0));
 
