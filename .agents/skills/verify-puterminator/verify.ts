@@ -168,10 +168,14 @@ const stopTree = async (root: number) => {
 };
 
 const restoreStorage = (run: Run) => {
-  rmSync(STORAGE, { recursive: true, force: true });
   const stash = join(runDir(run.id), "stash");
 
-  if (run.stashed && existsSync(stash)) renameSync(stash, STORAGE);
+  if (existsSync(stash)) {
+    rmSync(STORAGE, { recursive: true, force: true });
+    renameSync(stash, STORAGE);
+  } else if (run.pid > 0 && !run.stashed) {
+    rmSync(STORAGE, { recursive: true, force: true });
+  }
 };
 
 const teardown = async (run: Run) => {
