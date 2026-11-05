@@ -40,6 +40,7 @@
     "@effect/platform-node": "catalog:",
     "@foldkit/vite-plugin": "0.28.0",
     "@oxlint/plugins": "1.90.0",
+    "@playwright/cli": "0.1.23",
     "@tailwindcss/vite": "4.3.3",
     "@types/mdast": "4.0.4",
     "@types/node": "26.6.6",

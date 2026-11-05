@@ -2,25 +2,24 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { getCACertificates, setDefaultCACertificates } from "node:tls";
 import { basename, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-const PLAYWRIGHT_CLI = "@playwright/cli@0.1.22";
 const READY_TIMEOUT_MS = 180_000;
 const STOP_TIMEOUT_MS = 10_000;
 const ROOT = execFileSync("git", ["-C", import.meta.dirname, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
 const RUNS = join(ROOT, ".verify");
 const CURRENT = join(RUNS, "current");
 const STORAGE = join(ROOT, ".alchemy/local/puterminator-Puterminator");
-const CLI_DIR = join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "verify-puterminator", PLAYWRIGHT_CLI.replace(/[@/]/g, "_"));
-const CLI = join(CLI_DIR, "node_modules", ".bin", "playwright-cli");
-const DEV_PROCESSES = "[d]ev-fake\\.ts|[a]lchemy.* dev|[w]orkerd";
+const CLI = join(ROOT, "node_modules/.bin/playwright-cli");
+const PORTLESS_CA = join(process.env.PORTLESS_STATE_DIR ?? join(homedir(), ".portless"), "ca.pem");
 
 type Run = {
   readonly id: string;
   readonly pid: number;
   readonly stashed: boolean;
-  readonly url: string;
+  readonly url: string | null;
   readonly fakePort: number | null;
 };
 
@@ -49,8 +48,6 @@ const alive = (pid: number) => {
     return false;
   }
 };
-
-const cwdOf = (pid: number) => lines(tryRun("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"])).find((l) => l.startsWith("n"))?.slice(1) ?? "";
 
 const tree = (root: number) => {
   const children = new Map<number, Array<number>>();
@@ -94,27 +91,6 @@ const currentRun = (): Run | null => {
 const saveRun = (run: Run) => writeFileSync(join(runDir(run.id), "run.json"), JSON.stringify(run, null, 2));
 
 const requireRun = () => currentRun() ?? refuse("no run; start one with: up");
-
-const ancestors = () => {
-  const found = new Set<number>();
-
-  for (let pid = process.pid; pid > 1 && !found.has(pid); pid = Number(tryRun("ps", ["-o", "ppid=", "-p", String(pid)]).trim())) found.add(pid);
-
-  return found;
-};
-
-const checkoutDevProcesses = () => {
-  const own = ancestors();
-
-  return lines(tryRun("pgrep", ["-f", DEV_PROCESSES]))
-    .map(Number)
-    .filter((pid) => {
-      if (own.has(pid)) return false;
-      const cwd = cwdOf(pid);
-
-      return cwd === "" || cwd === ROOT || cwd.startsWith(`${ROOT}/`);
-    });
-};
 
 const meConfigured = async (url: string) => {
   try {
@@ -187,16 +163,12 @@ const up = async () => {
   const previous = currentRun();
 
   if (previous) refuse(`run ${previous.id} is ${alive(previous.pid) ? "still up" : "stale"}; run: down`);
-  const foreign = checkoutDevProcesses();
-
-  if (foreign.length > 0) refuse(`dev processes you did not start run from this checkout (pid ${foreign.join(" ")}); leave them alone`);
 
   const id = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
   const dir = runDir(id);
   mkdirSync(join(dir, "evidence"), { recursive: true });
   const logPath = join(dir, "server.log");
-  const url = tryRun(join(ROOT, "node_modules/.bin/portless"), ["get", "puterminator"]).trim() || refuse("portless get puterminator printed nothing; run: pnpm install");
-  let run: Run = { id, pid: 0, stashed: false, url, fakePort: null };
+  let run: Run = { id, pid: 0, stashed: false, url: null, fakePort: null };
   saveRun(run);
   symlinkSync(dir, CURRENT);
 
@@ -225,9 +197,10 @@ const up = async () => {
       if (!alive(pid)) refuse(`dev:fake exited; log: ${logPath}`);
       const text = readFileSync(logPath, "utf8");
       const fakePort = Number(text.match(/\[fake\] put\.io \+ Anthropic fake on http:\/\/localhost:(\d+)/)?.[1] ?? Number.NaN);
+      const url = text.match(/-> (https:\/\/\S+)/)?.[1] ?? null;
 
-      if (Number.isInteger(fakePort) && (await meConfigured(url))) {
-        run = { ...run, fakePort };
+      if (url !== null && Number.isInteger(fakePort) && (await meConfigured(url))) {
+        run = { ...run, url, fakePort };
         saveRun(run);
         console.log(`run ${id} up at ${url} (fake on :${fakePort}, evidence in ${join(dir, "evidence")})`);
 
@@ -255,16 +228,10 @@ const doctor = async () => {
 
   console.log(`run:      ${run.id} at ${tryRun("git", ["-C", ROOT, "rev-parse", "--short", "HEAD"]).trim()}`);
   report("process:", alive(run.pid), `alive (pid ${run.pid})`);
-  report("worker:", await meConfigured(run.url), `answering /api/me at ${run.url}`);
+  report("worker:", run.url !== null && (await meConfigured(run.url)), `answering /api/me at ${run.url ?? "?"}`);
   report("fake:", run.fakePort !== null && (await fakeAnswers(run.fakePort)), `answering on :${run.fakePort ?? "?"}`);
 
   if (problems.length > 0) refuse("instance not worth driving");
-};
-
-const ensureCli = () => {
-  if (existsSync(CLI)) return;
-  mkdirSync(CLI_DIR, { recursive: true });
-  execFileSync("npm", ["install", "--prefix", CLI_DIR, "--no-audit", "--no-fund", "--silent", PLAYWRIGHT_CLI], { stdio: "inherit" });
 };
 
 const pw = (args: ReadonlyArray<string>) => {
@@ -272,7 +239,6 @@ const pw = (args: ReadonlyArray<string>) => {
   const evidence = join(runDir(run.id), "evidence");
 
   if (!existsSync(evidence)) refuse(`evidence folder is gone: ${evidence}`);
-  ensureCli();
   const r = spawnSync(CLI, [`-s=puterminator-${run.id}`, ...args], { cwd: evidence, encoding: "utf8" });
   const shown = lines(`${r.stdout}\n${r.stderr}`).filter((l) => !/Update available|[╔║╚]/.test(l));
   console.log(shown.join("\n"));
@@ -302,7 +268,9 @@ const down = async () => {
 };
 
 const main = async ([command, ...args]: ReadonlyArray<string>) => {
-  for (const tool of ["lsof", "pgrep", "ps", "sqlite3", "npm", "pnpm"]) {
+  if (existsSync(PORTLESS_CA)) setDefaultCACertificates([...getCACertificates("default"), readFileSync(PORTLESS_CA, "utf8")]);
+
+  for (const tool of ["ps", "sqlite3", "pnpm"]) {
     if (spawnSync("sh", ["-c", `command -v ${tool}`]).status !== 0) refuse(`needs ${tool} on PATH`);
   }
 
