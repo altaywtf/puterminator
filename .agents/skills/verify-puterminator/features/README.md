@@ -6,6 +6,7 @@ The maintained recipes for proving each user-facing feature. Read this index, th
 
 - `$V up` and `$V doctor` pass, with `V=.agents/skills/verify-puterminator/verify.ts` and `U=$(node -p "require('./.verify/current/run.json').url")`.
 - Signed in: `$V pw open "$U/"`, `$V pw click "getByRole('link', { name: 'continue with put.io' })"`, then wait for `getByRole('heading', { name: /^hi altay/ })`.
+- Scanned: wait for `locator('[role=tree]').first()` with `state: 'attached'`. The heading shows about 2 s before the sign-in scan lands, and a plan or link request sent earlier works from an empty snapshot.
 - The fake library is the seed in [`dev-fake.ts`](../../../../src/server/testing/dev-fake.ts): Movies, Series, Downloads with six RARBG release folders, loose junk at the root. It resets on every `up`.
 - Only drive an instance this run started.
 

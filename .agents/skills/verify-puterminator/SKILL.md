@@ -39,10 +39,11 @@ U=$(node -p "require('./.verify/current/run.json').url")
 $V pw open "$U/"
 $V pw click "getByRole('link', { name: 'continue with put.io' })"
 $V pw run-code "async page => { await page.getByRole('heading', { name: /^hi altay/ }).waitFor({ timeout: 30000 }); }"
+$V pw run-code "async page => { await page.locator('[role=tree]').first().waitFor({ state: 'attached', timeout: 30000 }); }"
 $V pw snapshot
 ```
 
-- Sign-in goes through the fake OAuth with no form: the click lands back on `/` signed in as `altay` (user id 4242).
+- Sign-in goes through the fake OAuth with no form: the click lands back on `/` signed in as `altay` (user id 4242). The library tree attaches once the sign-in scan lands; tools answer from that snapshot, so wait for it before asking for anything.
 - Wait with `run-code` and `locator.waitFor`, never a fixed sleep. Replies stream word by word.
 - `$V pw snapshot` prints the accessibility tree with refs. `$V pw find "<text or regexp>"` searches it.
 - The fake picks the model's reply from keywords in your message, so the message decides the journey. [`dev-fake.ts`](../../../src/server/testing/dev-fake.ts) `plan()` holds the keyword table. Each feature file names the exact message to send.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -39,6 +39,8 @@ const tryRun = (cmd: string, args: ReadonlyArray<string>) => {
 };
 
 const alive = (pid: number) => {
+  if (pid <= 0) return false;
+
   try {
     process.kill(pid, 0);
 
@@ -73,9 +75,20 @@ const tree = (root: number) => {
 
 const runDir = (id: string) => join(RUNS, id);
 
+const linked = () => {
+  try {
+    return lstatSync(CURRENT).isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
+
 const currentRun = (): Run | null => {
-  if (!existsSync(CURRENT)) return null;
-  const run: Run = JSON.parse(readFileSync(join(readlinkSync(CURRENT), "run.json"), "utf8"));
+  if (!linked()) return null;
+  const record = join(readlinkSync(CURRENT), "run.json");
+
+  if (!existsSync(record)) refuse(`${CURRENT} points at a missing run; check ${readlinkSync(CURRENT)} for a stash, then remove the link`);
+  const run: Run = JSON.parse(readFileSync(record, "utf8"));
 
   return run;
 };
@@ -162,10 +175,10 @@ const restoreStorage = (run: Run) => {
 };
 
 const teardown = async (run: Run) => {
-  await stopTree(run.pid);
+  if (run.pid > 0) await stopTree(run.pid);
   restoreStorage(run);
 
-  if (existsSync(CURRENT)) unlinkSync(CURRENT);
+  if (linked()) unlinkSync(CURRENT);
 };
 
 const up = async () => {
@@ -179,26 +192,31 @@ const up = async () => {
   const id = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
   const dir = runDir(id);
   mkdirSync(join(dir, "evidence"), { recursive: true });
-  const stashed = existsSync(STORAGE);
-
-  if (stashed) renameSync(STORAGE, join(dir, "stash"));
   const logPath = join(dir, "server.log");
-  const log = openSync(logPath, "w");
-
-  const child = spawn("pnpm", ["dev:fake"], {
-    cwd: ROOT,
-    detached: true,
-    stdio: ["ignore", log, log],
-    env: { ...process.env, FAKE_PORT: "0", DEV_PORT: "0" },
-  });
-
-  child.unref();
-  const pid = child.pid ?? refuse("pnpm dev:fake did not start");
-  let run: Run = { id, pid, stashed, url: null, fakePort: null };
+  let run: Run = { id, pid: 0, stashed: false, url: null, fakePort: null };
   saveRun(run);
   symlinkSync(dir, CURRENT);
 
   try {
+    if (existsSync(STORAGE)) {
+      renameSync(STORAGE, join(dir, "stash"));
+      run = { ...run, stashed: true };
+      saveRun(run);
+    }
+
+    const log = openSync(logPath, "w");
+
+    const child = spawn("pnpm", ["dev:fake"], {
+      cwd: ROOT,
+      detached: true,
+      stdio: ["ignore", log, log],
+      env: { ...process.env, FAKE_PORT: "0", DEV_PORT: "0" },
+    });
+
+    child.unref();
+    const pid = child.pid ?? refuse("pnpm dev:fake did not start");
+    run = { ...run, pid };
+    saveRun(run);
     const deadline = Date.now() + READY_TIMEOUT_MS;
 
     while (Date.now() < deadline) {
