@@ -13,10 +13,15 @@ field() { cat "$(run_dir)/$1"; }
 alive() { kill -0 "$1" 2>/dev/null; }
 port_free() { ! lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
 
+for tool in lsof pgrep curl sqlite3 pnpm; do
+  command -v "$tool" >/dev/null || die "needs $tool on PATH"
+done
+
 checkout_fakes() {
-  local pid
+  local pid cwd
   for pid in $(pgrep -f 'src/server/testing/dev-fake.ts' || true); do
-    [[ "$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" == "$ROOT" ]] && echo "$pid"
+    cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')"
+    [[ -z "$cwd" || "$cwd" == "$ROOT" ]] && echo "$pid"
   done
   return 0
 }
@@ -67,7 +72,12 @@ cmd_pw() {
   local dir
   dir="$(run_dir)"
   cd "$dir/evidence"
-  pnpm -s dlx "$PLAYWRIGHT_CLI" -s="puterminator-$(basename "$dir")" "$@" 2>&1 | grep -v -E 'Update available|╔|║|╚' || true
+  local status
+  set +e
+  pnpm -s dlx "$PLAYWRIGHT_CLI" -s="puterminator-$(basename "$dir")" "$@" 2>&1 | grep -v -E 'Update available|╔|║|╚'
+  status="${PIPESTATUS[0]}"
+  set -e
+  return "$status"
 }
 
 cmd_writes() {
