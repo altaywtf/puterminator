@@ -109,6 +109,7 @@ const outro = (h: H) =>
     h.p([h.Class("m-0 max-w-[72ch]")], ["a uinaf side project, not an official put.io app. AI is involved, so use it at your own risk."]),
     h.p([h.Class("m-0 flex flex-wrap gap-x-4 gap-y-1")], [
       h.a([h.Href("/privacy"), h.Class(FOOTER_LINK)], ["privacy and disclaimer"]),
+      h.a([h.Href("https://github.com/altaywtf/puterminator"), h.Class(FOOTER_LINK)], ["open source on GitHub"]),
       h.a([h.Href("mailto:dev@uinaf.dev"), h.Class(FOOTER_LINK)], ["dev@uinaf.dev"]),
     ]),
   ]);

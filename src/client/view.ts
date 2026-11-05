@@ -184,6 +184,7 @@ const accountMenu = (h: H, model: Model, username: string, url: string | null) =
       ...(model.library ? [menuItem(h, "folder", "browse library", Message.ToggledTree())] : []),
       menuItem(h, "mail", "send feedback", Message.ClickedFeedback({ kind: "bug", text: "" })),
       h.a([h.Href("/privacy"), h.Class(MENU_ACTION)], [icon(h, "lock"), "privacy"]),
+      h.a([h.Href("https://github.com/altaywtf/puterminator"), h.Target("_blank"), h.Rel("noopener"), h.Class(MENU_ACTION)], [icon(h, "code"), "source code"]),
       menuItem(h, "trash", "forget me", Message.ClickedDeleteData()),
       menuRule(h),
       menuItem(h, "exit", "sign out", Message.ClickedSignOut()),
