@@ -51,7 +51,7 @@ Add a test only when it catches something existing coverage misses, and prove it
 - Every Anthropic request is charged, stopped ones included, before the next one starts; the shared budget only holds if no path skips the pool.
 - Tool input schemas stay valid under strict tool use: no optional keys, no numeric bounds, closed objects (`Schema.Finite`, not `Schema.Int`).
 - History is append-only; editing a stored message breaks thinking signatures and the prompt cache.
-- The model only proposes library changes: trash, rename, move and restore start from browser frames (`apply`, `retry`, `undo`) and are never retried automatically. The one write a tool makes is asking put.io for download links.
+- The model only proposes library changes: trash, rename, move, restore and subtitle uploads start from browser frames (`apply`, `retry`, `undo`) and are never retried automatically. The one write a tool makes is asking put.io for download links.
 - A deploy deletes any live secret that [`config.ts`](src/server/config.ts) doesn't read through `Config`.
 - Roll back by redeploying an earlier commit; `wrangler rollback` fails on this script.
 - No code comments: the `uinaf/no-comments` lint rule enforces it. Names, types and tests carry intent; the commit message carries the why.

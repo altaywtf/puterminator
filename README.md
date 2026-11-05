@@ -10,6 +10,7 @@ Chat with your put.io library and clean it up.
 
 - **Finds the mess.** Junk files, duplicates, release-name clutter and folders wrapped in folders.
 - **Finds your stuff.** Ask in plain words, play videos in the browser, get download links.
+- **Translates subtitles.** Ask for a language and it adds a translated `.srt` next to the video.
 - **Proposes, never acts.** Renames, moves and trash show up as a plan. Nothing changes until you apply it, and you can undo it.
 
 Everyone gets 300 credits a month from a shared budget.
@@ -17,7 +18,7 @@ Everyone gets 300 credits a month from a shared budget.
 ## Privacy
 
 - It reads file names, sizes, dates and play status, plus your put.io username and avatar.
-- Your messages, and the file names they need, go to Anthropic's API.
+- Your messages, the file names they need, and any subtitles you ask it to translate go to Anthropic's API.
 - Trash goes to put.io's trash. Your files stay where they are until you apply a plan.
 
 The [privacy page](https://puterminator.com/privacy) has the rest.
