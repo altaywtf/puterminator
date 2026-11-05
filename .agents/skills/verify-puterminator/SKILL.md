@@ -17,10 +17,10 @@ V=.agents/skills/verify-puterminator/verify.ts
 $V up
 ```
 
-- Starts `pnpm dev:fake` with `FAKE_PORT=0 DEV_PORT=0`: the fake and the Worker each take a free port, so runs never meet other sessions on the default 1337. `.verify/current/run.json` records the run's `url` and `fakePort`.
+- Starts `pnpm dev:fake`, which serves this checkout at its own [portless](https://portless.sh) URL, `https://<branch>.puterminator.localhost:1355`, so runs in other worktrees never meet. `.verify/current/run.json` records the run's `url` and `fakePort`.
 - Moves `.alchemy/local/puterminator-Puterminator` (shared with `pnpm dev`) into the run folder and puts it back on `down`, so every run starts with no user, no history and no plans. The fake's library resets on every start.
 - Ready means the log shows `ready at <url>` and `GET /api/me` answers `"configured":true`. `up` waits up to 180 s; on failure it stops what it started and restores the storage.
-- `up` refuses while a `dev:fake`, `alchemy dev` or `workerd` it didn't start runs from this checkout. Leave those alone.
+- portless refuses a second `dev:fake` in one checkout, so `up` fails while yours runs. Stop `pnpm dev` here first too: it shares that storage.
 
 ## Doctor
 
@@ -28,11 +28,11 @@ $V up
 $V doctor
 ```
 
-Run it first whenever anything looks off. It checks that the process is alive, the Worker answers `/api/me`, the fake answers, and both ports are held by processes this run started. It exits non-zero when the instance isn't worth driving.
+Run it first whenever anything looks off. It checks that the process is alive, the Worker answers `/api/me`, and the fake answers. It exits non-zero when the instance isn't worth driving.
 
 ## Drive
 
-`$V pw <command>` is `playwright-cli` bound to this run's browser session, with its working directory in the run's evidence folder, and exits non-zero when the command fails. The first call installs `@playwright/cli` into `~/.cache/verify-puterminator`. Target elements with Playwright locators, by role and accessible name:
+`$V pw <command>` is `playwright-cli` bound to this run's browser session, with its working directory in the run's evidence folder, and exits non-zero when the command fails. Target elements with Playwright locators, by role and accessible name:
 
 ```bash
 U=$(node -p "require('./.verify/current/run.json').url")
