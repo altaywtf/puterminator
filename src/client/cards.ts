@@ -15,7 +15,7 @@ import { auditOf, fmt, size } from "./steps";
 type H = HtmlBuilder<Message>;
 
 /** All a card reads from the app: which toggles are open, the last scan, the plans, whether a reply is running, and fetched download links. */
-export type Ctx = Pick<Model, "expanded" | "library" | "plans"> & { agent?: Model["agent"]; links?: Model["links"] };
+export type Ctx = Pick<Model, "expanded" | "library" | "plans"> & { agent?: Model["agent"]; links?: Model["links"]; drafts?: Model["drafts"] };
 
 const ROWS = 5;
 
@@ -340,12 +340,32 @@ const decodeLayout = Schema.decodeUnknownOption(Schema.fromJsonString(LayoutOutp
 const decodeFreeSpace = Schema.decodeUnknownOption(Schema.fromJsonString(FreeSpaceOutput));
 const decodeFeedback = Schema.decodeUnknownOption(Schema.fromJsonString(Feedback));
 
-const feedbackCard = (h: H, f: Feedback, live: boolean): Html =>
-  panel(h, "feedback draft", live, [
-    cardHead(h, f.kind === "bug" ? "bug report" : "feature request", "draft"),
-    h.p([h.Class("m-0 line-clamp-6 whitespace-pre-wrap text-[13px] leading-[1.6] text-fg-2")], [f.text]),
-    h.button([h.Type("button"), h.Class("btn btn-sm justify-self-start"), h.OnClick(Message.ClickedFeedback({ kind: f.kind, text: f.text }))], ["review and send"]),
+const feedbackCard = (h: H, ctx: Ctx, key: string, f: Feedback, live: boolean): Html => {
+  const entry = ctx.drafts?.[key];
+  const sending = entry?.state === "sending";
+
+  const actions = h.div([h.Class("flex items-center gap-2")], [
+    h.button(
+      [h.Type("button"), h.Disabled(sending), h.Class("btn btn-sm btn-primary"), h.OnClick(Message.ClickedSendDraft({ key, kind: f.kind, text: f.text }))],
+      [sending ? "sending…" : "send"],
+    ),
+    h.button([h.Type("button"), h.Disabled(sending), h.Class("btn btn-sm border-transparent text-fg-2"), h.OnClick(Message.ClickedFeedback({ kind: f.kind, text: f.text, draft: key }))], ["edit"]),
   ]);
+
+  return panel(h, "feedback draft", live, [
+    cardHead(h, f.kind === "bug" ? "bug report" : "feature request", entry?.state === "sent" ? "sent" : "draft"),
+    h.p([h.Class("m-0 line-clamp-6 whitespace-pre-wrap text-[13px] leading-[1.6] text-fg-2")], [f.text]),
+    ...(entry === undefined
+      ? [actions]
+      : Match.value(entry).pipe(
+          Match.discriminatorsExhaustive("state")({
+            sending: () => [actions],
+            sent: () => [h.p([h.Class("m-0 font-mono text-mono text-fg-3"), h.Role("status")], ["thanks. it’s on its way."])],
+            failed: ({ message }) => [h.p([h.Class("m-0 font-mono text-mono text-warn"), h.Role("alert")], [message]), actions],
+          }),
+        )),
+  ]);
+};
 
 type Card = (h: H, ctx: Ctx, key: string, output: string, live: boolean, settled: boolean) => Html | null;
 
@@ -381,7 +401,7 @@ const CARDS = {
       onSome: (r) => planOrRun(h, ctx, r.plan, live),
     }),
   make_download_links: (h, ctx, _key, output, live) => Option.match(decodeLinks(output), { onNone: () => null, onSome: (o) => linksCard(h, ctx, o, live) }),
-  draft_feedback: (h, _ctx, _key, output, live) => Option.match(decodeFeedback(output), { onNone: () => null, onSome: (f) => feedbackCard(h, f, live) }),
+  draft_feedback: (h, ctx, key, output, live) => Option.match(decodeFeedback(output), { onNone: () => null, onSome: (f) => feedbackCard(h, ctx, key, f, live) }),
   ask_user: (h, ctx, _key, output, live, settled) => Option.match(decodeQuestion(output), { onNone: () => null, onSome: (q) => questionCard(h, ctx, q, live, settled) }),
 } satisfies Record<string, Card>;
 

@@ -58,7 +58,7 @@ const view = (model: Model, h: H): Document => ({
         [
           h.h1([h.Class("m-0 font-display text-[28px] font-medium text-accent")], ["lab"]),
           ...actionSections(h, model),
-          ...["score", "folder", "search", "download links"].map((group) =>
+          ...["score", "folder", "search", "download links", "feedback"].map((group) =>
             section(h, group, CASES.flatMap((c, i) => (c.group === group ? [specimen(h, model, c, i)] : []))),
           ),
         ],

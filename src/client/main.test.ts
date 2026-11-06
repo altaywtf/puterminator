@@ -19,3 +19,16 @@ describe("session", () => {
     expect([out.session._tag, out.connection._tag, out.agent]).toEqual(["SignedOut", "Idle", null]);
   });
 });
+
+describe("feedback drafts", () => {
+  it("sends a drafted card once and marks it sent from the card or the dialog", () => {
+    const model = init().model;
+    const clicked = update(model, Message.ClickedSendDraft({ key: "t1", kind: "idea", text: "  show mime types  " }));
+    expect([clicked.model.drafts["t1"], clicked.commands?.length]).toEqual([{ state: "sending" }, 1]);
+    expect(update(clicked.model, Message.ClickedSendDraft({ key: "t1", kind: "idea", text: "x" })).commands ?? []).toEqual([]);
+    expect(update(clicked.model, Message.SentDraft({ key: "t1" })).model.drafts["t1"]).toEqual({ state: "sent" });
+
+    const editing = update(model, Message.ClickedFeedback({ kind: "bug", text: "undo broke", draft: "t2" })).model;
+    expect(update(editing, Message.SentFeedback()).model.drafts["t2"]).toEqual({ state: "sent" });
+  });
+});

@@ -895,7 +895,7 @@ export const makeAgent = (deps: AgentDeps) =>
       effectTool({
         name: "draft_feedback",
         description:
-          "Draft a bug report or feature request to puterminator's maintainer. The app shows it in a card with a button that opens it for the user to edit and send. Nothing is sent until they do.",
+          "Draft a bug report or feature request to puterminator's maintainer. The app shows it in a card where the user sends it as is or edits it first. Nothing is sent until they do.",
         input: Schema.Struct({
           kind: Feedback.fields.kind.annotate({ description: "bug: puterminator broke or misbehaved. idea: a feature request or suggestion." }),
           text: Schema.String.annotate({ description: `The write-up, at most ${FEEDBACK_MAX_CHARS} characters. No put.io file names unless the user gave them for the report.` }),
