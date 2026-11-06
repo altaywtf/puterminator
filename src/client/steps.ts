@@ -1,7 +1,7 @@
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { Audit } from "../shared/audit";
-import { FreeSpaceOutput } from "../shared/tools";
+import { FreeSpaceOutput, MediaInfoOutput } from "../shared/tools";
 
 export const fmt = (n: number) => n.toLocaleString("en-US");
 
@@ -24,6 +24,7 @@ const decodeOutput = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Jso
 const decodeToolError = Schema.decodeUnknownOption(Schema.Struct({ error: Schema.String }));
 const decodeFreeSpaceSummary = Schema.decodeUnknownOption(FreeSpaceOutput);
 const decodeLayoutSummary = Schema.decodeUnknownOption(Schema.Struct({ changes: Schema.Finite, skipped: Schema.Finite }));
+const decodeMediaInfo = Schema.decodeUnknownOption(MediaInfoOutput);
 const decodeLinkedFiles = Schema.decodeUnknownOption(Schema.Struct({ files: Schema.Finite }));
 const decodeFolderCount = Schema.decodeUnknownOption(Schema.Struct({ count: Schema.Finite }));
 const decodeTotal = Schema.decodeUnknownOption(Schema.Struct({ total: Schema.Finite }));
@@ -32,6 +33,16 @@ const decodeItemPath = Schema.decodeUnknownOption(Schema.Struct({ path: Schema.S
 const decodePath = Schema.decodeUnknownOption(Schema.Struct({ path: Schema.NonEmptyString }));
 const decodeCategory = Schema.decodeUnknownOption(Schema.Struct({ category: Schema.String }));
 const decodeQuery = Schema.decodeUnknownOption(Schema.Struct({ query: Schema.NonEmptyString }));
+
+const mediaLine = ({ mime, info, error }: MediaInfoOutput["files"][number]) => {
+  if (error) return error;
+
+  if (!info) return mime ?? "no media info";
+  const video = info.video.map((v) => [v.codec, v.width && v.height ? `${v.width}×${v.height}` : null].filter(Boolean).join(" "));
+  const audio = info.audio.map((a) => [a.codec, a.channels ? `${a.channels}ch` : null].filter(Boolean).join(" "));
+
+  return [mime, ...video, ...audio, info.minutes === null ? null : `${info.minutes} min`].filter(Boolean).join(" · ");
+};
 
 export type StepText = { title: string; detail: string | null; lines: string[] };
 
@@ -92,6 +103,16 @@ export function describeStep(name: string, input: Schema.Json, output: string | 
         onSome: ({ freed, choices }) => `frees ${size(freed)}${choices.length > 0 ? `, ${fmt(choices.length)} for you to pick` : ""}`,
       }),
       lines: [],
+    };
+  }
+
+  if (name === "media_info") {
+    const files = Option.match(Option.flatMap(out, decodeMediaInfo), { onNone: () => [], onSome: ({ files }) => files });
+
+    return {
+      title: "read media info",
+      detail: Option.isSome(out) ? `${fmt(files.length)} ${files.length === 1 ? "file" : "files"}` : null,
+      lines: files.map((f) => `${f.path.slice(f.path.lastIndexOf("/") + 1)}   ${mediaLine(f)}`),
     };
   }
 

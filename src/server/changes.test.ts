@@ -21,7 +21,7 @@ describe("undoChanges", () => {
 });
 
 describe("staleChanges", () => {
-  const file = (id: number, path: string): WalkedFile => ({ id, parent_id: 0, name: path.slice(path.lastIndexOf("/") + 1), path, depth: 1, size: 1, file_type: "VIDEO", extension: "mkv", crc32: null, created_at: "", first_accessed_at: null });
+  const file = (id: number, path: string): WalkedFile => ({ id, parent_id: 0, name: path.slice(path.lastIndexOf("/") + 1), path, depth: 1, size: 1, file_type: "VIDEO", content_type: null, extension: "mkv", crc32: null, created_at: "", first_accessed_at: null });
 
   it("flags a file that moved and a destination another file took", () => {
     const changes: Run["changes"] = [
@@ -48,7 +48,7 @@ describe("staleChanges", () => {
 });
 
 describe("sidecarsOf", () => {
-  const at = (id: number, name: string, file_type = "VIDEO"): WalkedFile => ({ id, parent_id: 9, name, path: `/d/${name}`, depth: 2, size: id, file_type, extension: name.split(".").pop() ?? null, crc32: null, created_at: "", first_accessed_at: null });
+  const at = (id: number, name: string, file_type = "VIDEO"): WalkedFile => ({ id, parent_id: 9, name, path: `/d/${name}`, depth: 2, size: id, file_type, content_type: null, extension: name.split(".").pop() ?? null, crc32: null, created_at: "", first_accessed_at: null });
 
   it("gives a subtitle to the video whose name matches its case when two differ only in case, and to neither when two match exactly", () => {
     const mkv = at(1, "Heat.1995.mkv");
@@ -63,7 +63,7 @@ describe("sidecarsOf", () => {
 });
 
 describe("untranslated", () => {
-  const at = (id: number, path: string, file_type = "VIDEO"): WalkedFile => ({ id, parent_id: 0, name: path.slice(path.lastIndexOf("/") + 1), path, depth: path.split("/").length - 1, size: 1, file_type, extension: "", crc32: null, created_at: "", first_accessed_at: null });
+  const at = (id: number, path: string, file_type = "VIDEO"): WalkedFile => ({ id, parent_id: 0, name: path.slice(path.lastIndexOf("/") + 1), path, depth: path.split("/").length - 1, size: 1, file_type, content_type: null, extension: "", crc32: null, created_at: "", first_accessed_at: null });
 
   it("counts videos with no subtitle file in that language beside them, by folder, most missing first, within the given folder", () => {
     const snapshot = [

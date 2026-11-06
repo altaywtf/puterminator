@@ -57,6 +57,7 @@ export const makeStore = (sql: Sql) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT NOT NULL, path TEXT NOT NULL, depth INTEGER NOT NULL,
     size INTEGER NOT NULL, file_type TEXT NOT NULL, extension TEXT, crc32 TEXT, created_at TEXT NOT NULL, first_accessed_at TEXT)`);
+  sql.exec("CREATE TABLE IF NOT EXISTS file_mime (id INTEGER PRIMARY KEY, content_type TEXT)");
   sql.exec("CREATE TABLE IF NOT EXISTS plans (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, json TEXT NOT NULL)");
   sql.exec("CREATE TABLE IF NOT EXISTS feedback_sent (day TEXT PRIMARY KEY, count INTEGER NOT NULL)");
 
@@ -91,7 +92,7 @@ export const makeStore = (sql: Sql) => {
     },
     deleteUserData: (keepMonth: string) =>
       sql.transaction(() => {
-        for (const table of ["messages", "archived_messages", "files", "plans", "cf_agents_state", "feedback_sent"]) sql.exec(`DELETE FROM ${table}`);
+        for (const table of ["messages", "archived_messages", "files", "file_mime", "plans", "cf_agents_state", "feedback_sent"]) sql.exec(`DELETE FROM ${table}`);
         sql.exec("DELETE FROM secrets WHERE key != 'session_gen'");
         sql.exec("DELETE FROM usage WHERE month != ?", keepMonth);
       }),
@@ -139,7 +140,7 @@ export const makeStore = (sql: Sql) => {
     },
 
     snapshot: (): Array<WalkedFile> =>
-      sql.exec("SELECT * FROM files").map((r) => ({
+      sql.exec("SELECT files.*, file_mime.content_type FROM files LEFT JOIN file_mime USING (id)").map((r) => ({
         id: num(r.id),
         parent_id: r.parent_id == null ? null : num(r.parent_id),
         name: str(r.name),
@@ -147,6 +148,7 @@ export const makeStore = (sql: Sql) => {
         depth: num(r.depth),
         size: num(r.size),
         file_type: str(r.file_type),
+        content_type: strOrNull(r.content_type),
         extension: strOrNull(r.extension),
         crc32: strOrNull(r.crc32),
         created_at: str(r.created_at),
@@ -155,6 +157,7 @@ export const makeStore = (sql: Sql) => {
     saveSnapshot: (files: ReadonlyArray<WalkedFile>, rootId: number) =>
       sql.transaction(() => {
         sql.exec("DELETE FROM files");
+        sql.exec("DELETE FROM file_mime");
         sql.exec("INSERT OR REPLACE INTO secrets (key, value) VALUES ('snapshot_root', ?)", String(rootId));
 
         for (const f of files) {
@@ -172,6 +175,7 @@ export const makeStore = (sql: Sql) => {
             f.created_at,
             f.first_accessed_at,
           );
+          sql.exec("INSERT INTO file_mime (id, content_type) VALUES (?, ?)", f.id, f.content_type);
         }
       }),
   };

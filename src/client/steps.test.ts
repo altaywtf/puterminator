@@ -19,6 +19,24 @@ describe("describeStep", () => {
     expect(d.lines).toHaveLength(6);
   });
 
+  it("lists each file's codecs, resolution and length for media info", () => {
+    const info = { container: "matroska,webm", minutes: 110, kbps: 8215, video: [{ codec: "hevc", profile: "Main 10", width: 1920, height: 1080 }], audio: [{ codec: "eac3", channels: 6 }], subtitles: [], issues: [] };
+
+    const output = {
+      files: [
+        { path: "/Movies/Heat.mkv", mime: "video/x-matroska", info, error: null },
+        { path: "/notes.txt", mime: "text/plain", info: null, error: null },
+        { path: "/Alien.mkv", mime: null, info: null, error: "put.io /files/:id → 404" },
+      ],
+    };
+
+    expect(describeStep("media_info", { paths: [] }, JSON.stringify(output))).toEqual({
+      title: "read media info",
+      detail: "3 files",
+      lines: ["Heat.mkv   video/x-matroska · hevc 1920×1080 · eac3 6ch · 110 min", "notes.txt   text/plain", "Alien.mkv   put.io /files/:id → 404"],
+    });
+  });
+
   it("keeps what it can read from a partly malformed result", () => {
     const d = describeStep("search_files", {}, '{"total":2,"items":[{"path":"/Heat.mkv"},{}]}');
     expect([d.detail, d.lines]).toEqual(["2 matches", ["/Heat.mkv"]]);

@@ -102,7 +102,7 @@ const listing = (path: string, parent: number): ListFolderOutput => {
   return {
     path,
     count: kids.length,
-    items: kids.map(([, , name, bytes, flags]) => ({ name, type: flags & F ? "FOLDER" : flags & V ? "VIDEO" : "TEXT", size: `${(bytes / GB).toFixed(1)} GB`, played: (flags & P) !== 0 })),
+    items: kids.map(([, , name, bytes, flags]) => ({ name, type: flags & F ? "FOLDER" : flags & V ? "VIDEO" : "TEXT", mime: flags & F ? null : flags & V ? "video/x-matroska" : "text/plain", size: `${(bytes / GB).toFixed(1)} GB`, played: (flags & P) !== 0 })),
   };
 };
 
@@ -115,7 +115,8 @@ export const folders: Array<[string, ListFolderOutput]> = [
 const found = (paths: string[], total: number, bytes: string): SearchFilesOutput => ({
   total,
   bytes,
-  items: paths.map((path) => ({ path, type: "VIDEO", size: "", added: "2026-01-01", firstPlayed: null, junk: null })),
+  byMime: [{ mime: "video/x-matroska", count: total, bytes }],
+  items: paths.map((path) => ({ path, type: "VIDEO", mime: "video/x-matroska", size: "", added: "2026-01-01", firstPlayed: null, junk: null })),
 });
 
 export const downloadLinks: Array<[string, DownloadLinksOutput]> = [

@@ -5,6 +5,7 @@ export type PutioFile = {
   name: string;
   size: number;
   file_type: string;
+  content_type: string | null;
   extension: string | null;
   crc32: string | null;
   created_at: string;

@@ -25,6 +25,14 @@ type File = {
   content_type: string;
 };
 
+const MIME = new Map([
+  ["mkv", "video/x-matroska"],
+  ["mp4", "video/mp4"],
+  ["srt", "application/x-subrip"],
+  ["jpg", "image/jpeg"],
+  ["txt", "text/plain"],
+]);
+
 const MB = 2 ** 20;
 const GB = 2 ** 30;
 const files: Array<File> = [];
@@ -44,7 +52,7 @@ const add = (parent: number, name: string, type: File["file_type"], size = 0, pl
     crc32: crc32 ?? (type === "VIDEO" ? id.toString(16).padStart(8, "0") : null),
     created_at: `2025-${String((id % 12) + 1).padStart(2, "0")}-14T10:00:00`,
     first_accessed_at: played ? "2026-02-01T21:00:00" : null,
-    content_type: type === "FOLDER" ? "application/x-directory" : "application/octet-stream",
+    content_type: type === "FOLDER" ? "application/x-directory" : (MIME.get(extension ?? "") ?? "application/octet-stream"),
   });
 
   return id;
@@ -203,6 +211,23 @@ const putio = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
 
   const one = route.match(/^GET \/v2\/files\/(\d+)$/);
   const found = one && files.find((f) => f.id === Number(one[1]));
+
+  if (found && url.searchParams.get("media_info") === "1") {
+    const media_info =
+      found.file_type === "VIDEO"
+        ? {
+            mime_type: found.content_type,
+            format: { name: "matroska,webm", duration: 6612.4, bit_rate: 8_215_000 },
+            streams: [
+              { codec_type: "video", codec_name: "hevc", profile: "Main 10", width: 1920, height: 1080 },
+              { codec_type: "audio", codec_name: "eac3", channels: 6 },
+            ],
+            playback_issues: [],
+          }
+        : null;
+
+    return json(res, 200, { file: { ...found, media_info }, status: "OK" });
+  }
 
   if (found) {
     const screenshot = found.file_type === "VIDEO" ? `${upstream}/screenshot/${found.id}.svg` : null;
@@ -388,6 +413,8 @@ const plan = (messages: Array<Message>): Array<Step> => {
 
     if (call?.name === "draft_feedback") return [{ kind: "text", delayMs: 40, text: "drafted. review it and send." }];
 
+    if (call?.name === "media_info") return [{ kind: "text", delayMs: 40, text: "hevc 1080p in matroska, 5.1 eac3. browsers won't play hevc." }];
+
     if (call?.name === "make_download_links") return [{ kind: "text", delayMs: 40, text: "the links are in the card above." }];
 
     if (call?.name === "propose_translation") {
@@ -516,14 +543,18 @@ const plan = (messages: Array<Message>): Array<Step> => {
     ];
   }
 
+  if (/media info|codec|mime/.test(ask)) {
+    return [{ kind: "tool", name: "media_info", input: { paths: ["/Heat.1995.2160p.WEB-DL.mkv"] } }];
+  }
+
   if (/largest|biggest/.test(ask)) {
-    return [{ kind: "tool", name: "search_files", input: { query: "", category: "large", limit: 3 } }];
+    return [{ kind: "tool", name: "search_files", input: { query: "", mime: "", category: "large", limit: 3 } }];
   }
 
   if (/junk/.test(ask)) {
     return [
       { kind: "thinking", text: "Search the snapshot for junk." },
-      { kind: "tool", name: "search_files", input: { query: "", category: "junk", limit: 5 } },
+      { kind: "tool", name: "search_files", input: { query: "", mime: "", category: "junk", limit: 5 } },
     ];
   }
 

@@ -1,6 +1,8 @@
 import * as Predicate from "effect/Predicate";
 import type { Json } from "effect/Schema";
 
+const CONTENT_TYPES = { FOLDER: "application/x-directory", VIDEO: "video/x-matroska", TEXT: "text/plain" } as const;
+
 export const file = (
   id: number,
   parent_id: number,
@@ -9,7 +11,7 @@ export const file = (
   size = 0,
   seen: { crc32?: string; playedAt?: string } = {},
 ) => ({
-  content_type: file_type === "FOLDER" ? "application/x-directory" : "video/mp4",
+  content_type: CONTENT_TYPES[file_type],
   created_at: "2026-01-01T00:00:00",
   crc32: seen.crc32 ?? null,
   extension: file_type === "VIDEO" ? "mkv" : null,
@@ -28,6 +30,20 @@ export const file = (
   size,
   updated_at: "2026-01-01T00:00:00",
 });
+
+const mediaInfoOf = (f: ReturnType<typeof file>): Json =>
+  f.file_type === "VIDEO"
+    ? {
+        mime_type: f.content_type,
+        format: { name: "matroska,webm", duration: 6612.4, bit_rate: 8_215_000 },
+        streams: [
+          { codec_type: "video", codec_name: "hevc", profile: "Main 10", width: 1920, height: 1080 },
+          { codec_type: "audio", codec_name: "eac3", channels: 6 },
+          { codec_type: "subtitle", codec_name: "subrip" },
+        ],
+        playback_issues: ["open_gop"],
+      }
+    : null;
 
 export type FakePutioOptions = {
   files: ReadonlyArray<ReturnType<typeof file>>;
@@ -187,6 +203,8 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
 
     const one = url.pathname.match(/^\/v2\/files\/(\d+)$/);
     const found = one && tree.find((f) => f.id === Number(one[1]));
+
+    if (found && url.searchParams.get("media_info") === "1") return json(200, { file: { ...found, media_info: mediaInfoOf(found) }, status: "OK" });
 
     if (found) return json(200, { file: { ...found, screenshot: `https://img.put.io/s/${found.id}.jpg` }, status: "OK" });
 

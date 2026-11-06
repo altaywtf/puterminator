@@ -15,12 +15,12 @@ import { type AgentState, type Blocked, blockedText, ClientFrame, ContentBlock, 
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { PlanRecord, Run } from "../shared/actions";
 import { AskInput, applyChange, cleanPath, type StoredPlan, uploadedKey, validateTranslation, untranslated, folderIds, nameOf, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion, videoOf } from "./changes";
-import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
+import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, mediaInfo, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
 import { blockedBy, outOfBudget } from "./credits";
 import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
 import { month, type Store, type StoredRecord } from "./store";
 import { buildTree, type WalkedFile } from "./tree";
-import type { DownloadLinksOutput, DownloadLinksResponse, FreeSpaceOutput, LayoutOutput, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
+import type { DownloadLinksOutput, DownloadLinksResponse, FreeSpaceOutput, LayoutOutput, ListFolderOutput, MediaInfoOutput, SearchFilesOutput } from "../shared/tools";
 import { planLayout } from "./layout";
 import { planFreeSpace } from "./space";
 import { planSubtitles } from "./subtitles";
@@ -34,7 +34,7 @@ Who you are:
 - The name is the only terminator joke. No catchphrases, no movie quotes.
 - You sort files. You never judge taste or legality.
 
-You can scan, score, list folders, search files and make download links; every file you name links to put.io and videos play in the app. You can also change the library, but only through a plan the user approves:
+You can scan, score, list folders, search files (by name, category or MIME type), read a file's media info and make download links; every file you name links to put.io and videos play in the app. You can also change the library, but only through a plan the user approves:
 - To make the library work with Plex, Infuse, Jellyfin or Kodi, call plan_layout: it builds the whole plan itself. If the snapshot doesn't show which folders hold movies and shows, ask with ask_user, offering existing top-level folders or new 'Movies' and 'TV Shows'. Afterwards, one line on what it did and how many files it left alone.
 - To fix subtitles put.io or a media server doesn't show, call plan_subtitles: it renames each stray .srt to its video's name and moves it next to the video. One line afterwards; say how many it left alone and why.
 - To translate subtitles, call propose_translation with the videos or folders and the language; a folder covers every video under it, so pass a show or season folder as is. It needs put.io to have an English subtitle for each video; at most 30 videos at a time. It leaves out videos it can't translate; name them and say why in one line.
@@ -76,6 +76,42 @@ you: no. 92/100. the only real dent is junk, and it's 16 MB.`;
 
 const formatSize = (b: number) =>
   b >= 2 ** 30 ? `${(b / 2 ** 30).toFixed(1)} GB` : b >= 2 ** 20 ? `${Math.round(b / 2 ** 20)} MB` : `${Math.max(1, Math.round(b / 2 ** 10))} KB`;
+
+const mimeOf = (f: WalkedFile) => (f.file_type === "FOLDER" ? null : f.content_type);
+
+const byMime = (rows: ReadonlyArray<WalkedFile>) => {
+  const groups = new Map<string, { count: number; bytes: number }>();
+
+  for (const f of rows) {
+    const mime = mimeOf(f);
+
+    if (mime === null) continue;
+    const g = groups.get(mime) ?? { count: 0, bytes: 0 };
+    groups.set(mime, { count: g.count + 1, bytes: g.bytes + f.size });
+  }
+
+  return [...groups]
+    .sort(([, a], [, b]) => b.bytes - a.bytes)
+    .slice(0, 10)
+    .map(([mime, g]) => ({ mime, count: g.count, bytes: formatSize(g.bytes) }));
+};
+
+type Probe = NonNullable<Effect.Success<ReturnType<typeof mediaInfo>>["media_info"]>;
+
+const mediaSummary = (m: Probe): NonNullable<MediaInfoOutput["files"][number]["info"]> => {
+  const streams = m.streams ?? [];
+  const of = (type: string) => streams.filter((s) => s.codec_type === type);
+
+  return {
+    container: m.format?.name ?? null,
+    minutes: m.format?.duration == null ? null : Math.round(m.format.duration / 60),
+    kbps: m.format?.bit_rate == null ? null : Math.round(m.format.bit_rate / 1000),
+    video: of("video").map((s) => ({ codec: s.codec_name ?? null, profile: s.profile ?? null, width: s.width ?? null, height: s.height ?? null })),
+    audio: of("audio").map((s) => ({ codec: s.codec_name ?? null, channels: s.channels ?? null })),
+    subtitles: of("subtitle").map((s) => s.codec_name ?? null),
+    issues: [...(m.playback_issues ?? [])],
+  };
+};
 
 const decodeFrame = Schema.decodeUnknownOption(ClientFrame);
 const toMessage = Schema.decodeUnknownSync(MessageParam);
@@ -672,21 +708,22 @@ export const makeAgent = (deps: AgentDeps) =>
             return JSON.stringify({
               path: clean || "/",
               count: rows.length,
-              items: rows.slice(0, 200).map((f) => ({ name: f.name, type: f.file_type, size: formatSize(f.size), played: !!f.first_accessed_at })),
+              items: rows.slice(0, 200).map((f) => ({ name: f.name, type: f.file_type, mime: mimeOf(f), size: formatSize(f.size), played: !!f.first_accessed_at })),
             } satisfies ListFolderOutput);
           })),
       }),
       effectTool({
         name: "search_files",
         description:
-          "Search the last snapshot by name substring (empty string for none) and a category: any, junk, never_played, messy_names, large, folders.",
+          "Search the last snapshot by name substring (empty string for none), MIME type substring (empty string for any) and a category: any, junk, never_played, messy_names, large, folders. byMime counts matches per MIME type, the 10 largest types.",
         input: Schema.Struct({
           query: Schema.String,
+          mime: Schema.String.annotate({ description: "e.g. 'matroska', 'video/mp4' or ''" }),
           category: Schema.Literals(["any", "junk", "never_played", "messy_names", "large", "folders"]),
           limit: Schema.Finite.annotate({ description: "1 to 100" }),
         }),
-        run: ({ query, category, limit }) =>
-          once("search_files", { query, category, limit }, Effect.sync(() => {
+        run: ({ query, mime, category, limit }) =>
+          once("search_files", { query, mime, category, limit }, Effect.sync(() => {
             const here = snapshotHere();
 
             if (Result.isFailure(here)) return here.failure;
@@ -695,6 +732,11 @@ export const makeAgent = (deps: AgentDeps) =>
             const q = query.trim().toLowerCase();
 
             if (q) rows = rows.filter((f) => f.path.toLowerCase().includes(q));
+            const m = mime.trim().toLowerCase();
+
+            if (m && !here.success.some((f) => mimeOf(f) !== null)) return JSON.stringify({ error: "This snapshot has no MIME types. Run scan_library first." });
+
+            if (m) rows = rows.filter((f) => mimeOf(f)?.toLowerCase().includes(m));
 
             if (category === "junk") rows = rows.filter((f) => junkReason(f));
 
@@ -711,15 +753,51 @@ export const makeAgent = (deps: AgentDeps) =>
             return JSON.stringify({
               total: rows.length,
               bytes: formatSize(rows.reduce((a, f) => a + (f.file_type === "FOLDER" ? 0 : f.size), 0)),
+              byMime: byMime(rows),
               items: rows.slice(0, Math.min(100, Math.max(1, Math.floor(limit)))).map((f) => ({
                 path: f.path,
                 type: f.file_type,
+                mime: mimeOf(f),
                 size: formatSize(f.size),
                 added: f.created_at.slice(0, 10),
                 firstPlayed: f.first_accessed_at?.slice(0, 10) ?? null,
                 junk: junkReason(f),
               })),
             } satisfies SearchFilesOutput);
+          })),
+      }),
+      effectTool({
+        name: "media_info",
+        description:
+          "Read put.io's media info for files from the snapshot: MIME type, container, duration, bitrate, video, audio and subtitle streams, and playback issues. One put.io request per file; prefer search_files' mime filter for MIME types alone.",
+        input: Schema.Struct({ paths: Schema.Array(Schema.String).annotate({ description: "1 to 20 file paths from the snapshot" }) }),
+        run: ({ paths }) =>
+          once("media_info", paths, Effect.gen(function* () {
+            const here = snapshotHere();
+
+            if (Result.isFailure(here)) return here.failure;
+
+            if (!store.token()) return signedOut;
+
+            if (paths.length === 0 || paths.length > 20) return JSON.stringify({ error: "Give 1 to 20 paths." });
+            const byPath = new Map(here.success.map((f) => [f.path, f]));
+            const clean = [...new Set(paths.map(cleanPath))];
+            const missing = clean.filter((p) => !byPath.has(p));
+
+            if (missing.length > 0) return JSON.stringify({ error: `Not in the snapshot: ${missing.slice(0, 5).join(", ")}` });
+            const folders = clean.filter((p) => byPath.get(p)?.file_type === "FOLDER");
+
+            if (folders.length > 0) return JSON.stringify({ error: `Folders have no media info: ${folders.slice(0, 5).join(", ")}` });
+            const targets = clean.flatMap((p) => byPath.get(p) ?? []);
+
+            const files = yield* Effect.forEach(targets, (f) =>
+              mediaInfo(f.id).pipe(
+                Effect.map(({ content_type, media_info }) => ({ path: f.path, mime: media_info?.mime_type ?? content_type, info: media_info ? mediaSummary(media_info) : null, error: null })),
+                Effect.catchTag(["PutioFailed", "PutioRateLimited"], (e) => Effect.succeed({ path: f.path, mime: mimeOf(f), info: null, error: stepMessage(e) })),
+              ),
+            );
+
+            return JSON.stringify({ files } satisfies MediaInfoOutput);
           })),
       }),
       effectTool({

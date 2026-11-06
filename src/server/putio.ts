@@ -136,6 +136,7 @@ const ScanFile = Schema.Struct({
   name: Schema.String,
   size: Schema.Finite,
   file_type: Schema.String,
+  content_type: Schema.NullOr(Schema.String),
   extension: Schema.NullOr(Schema.String),
   crc32: Schema.NullOr(Schema.String),
   created_at: Schema.String,
@@ -182,6 +183,38 @@ const FileMedia = Schema.Struct({ file: Schema.Struct({ file_type: Schema.String
 /** A file's type and screenshot URL; put.io serves screenshots without auth. */
 export const fileMedia = (id: number) =>
   read("/files/:id", requestJson(FileMedia, { method: "GET", path: `/v2/files/${id}` })).pipe(Effect.map(({ file }) => file));
+
+const MediaInfo = Schema.Struct({
+  file: Schema.Struct({
+    content_type: Schema.NullOr(Schema.String),
+    media_info: Schema.optional(
+      Schema.NullOr(
+        Schema.Struct({
+          mime_type: Schema.optional(Schema.NullOr(Schema.String)),
+          format: Schema.optional(
+            Schema.NullOr(Schema.Struct({ name: Schema.optional(Schema.String), duration: Schema.optional(Schema.Finite), bit_rate: Schema.optional(Schema.Finite) })),
+          ),
+          streams: Schema.optional(
+            Schema.Array(
+              Schema.Struct({
+                codec_type: Schema.optional(Schema.String),
+                codec_name: Schema.optional(Schema.NullOr(Schema.String)),
+                profile: Schema.optional(Schema.NullOr(Schema.String)),
+                width: Schema.optional(Schema.Finite),
+                height: Schema.optional(Schema.Finite),
+                channels: Schema.optional(Schema.Finite),
+              }),
+            ),
+          ),
+          playback_issues: Schema.optional(Schema.Array(Schema.String)),
+        }),
+      ),
+    ),
+  }),
+});
+
+export const mediaInfo = (id: number) =>
+  read("/files/:id", requestJson(MediaInfo, { method: "GET", path: `/v2/files/${id}`, query: { media_info: 1 } })).pipe(Effect.map(({ file }) => file));
 
 const DownloadToken = Schema.Struct({ info: Schema.Struct({ download_token: Schema.String }) });
 

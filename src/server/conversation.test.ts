@@ -114,6 +114,7 @@ describe("a turn", () => {
       ["scan_library", true],
       ["list_folder", true],
       ["search_files", true],
+      ["media_info", true],
       ["propose_changes", true],
       ["plan_layout", true],
       ["propose_translation", true],
@@ -921,7 +922,7 @@ describe("plans", () => {
 });
 
 const scanned = (at: string, root = 0) => (store: ReturnType<typeof makeStore>) => {
-  store.saveSnapshot([{ id: 4, parent_id: 0, name: "Alien (1979).mkv", path: "/Alien (1979).mkv", depth: 1, size: 1, file_type: "VIDEO", extension: "mkv", crc32: null, created_at: "2026-01-01T00:00:00", first_accessed_at: null }], root);
+  store.saveSnapshot([{ id: 4, parent_id: 0, name: "Alien (1979).mkv", path: "/Alien (1979).mkv", depth: 1, size: 1, file_type: "VIDEO", content_type: "video/x-matroska", extension: "mkv", crc32: null, created_at: "2026-01-01T00:00:00", first_accessed_at: null }], root);
   store.saveState({ ...store.loadState(Date.now()), lastAudit: { at, rootName: "Your Files", score: 90, items: 1 } });
 };
 
@@ -1263,6 +1264,60 @@ describe("free up space", () => {
   });
 });
 
+describe("media info", () => {
+  it("filters and groups search results by MIME type from the snapshot", async () => {
+    const t = await setup([
+      tool("toolu_s", "scan_library"),
+      tool("toolu_m", "search_files", JSON.stringify({ query: "", mime: "MATROSKA", category: "any", limit: 10 })),
+      tool("toolu_a", "search_files", JSON.stringify({ query: "", mime: "", category: "any", limit: 10 })),
+      say("two mkvs."),
+    ]);
+
+    await t.receive(send("which files are matroska?"));
+    const mkv = JSON.parse(t.toolOutput("toolu_m"));
+    expect(mkv.items.map((i: { path: string; mime: string }) => [i.path, i.mime])).toEqual([
+      ["/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", "video/x-matroska"],
+      ["/Alien (1979).mkv", "video/x-matroska"],
+    ]);
+    expect(JSON.parse(t.toolOutput("toolu_a")).byMime).toEqual([
+      { mime: "video/x-matroska", count: 2, bytes: "2.0 GB" },
+      { mime: "text/plain", count: 1, bytes: "1 KB" },
+    ]);
+  });
+
+  it("reads put.io's media info per file, null for files put.io didn't probe, and refuses folders", async () => {
+    const t = await setup([
+      tool("toolu_s", "scan_library"),
+      tool("toolu_i", "media_info", JSON.stringify({ paths: ["/Alien (1979).mkv", "/Movies/RARBG_DO_NOT_MIRROR.exe"] })),
+      tool("toolu_f", "media_info", JSON.stringify({ paths: ["/Movies"] })),
+      say("hevc."),
+    ]);
+
+    await t.receive(send("what codecs?"));
+    expect(JSON.parse(t.toolOutput("toolu_i"))).toEqual({
+      files: [
+        {
+          path: "/Alien (1979).mkv",
+          mime: "video/x-matroska",
+          info: {
+            container: "matroska,webm",
+            minutes: 110,
+            kbps: 8215,
+            video: [{ codec: "hevc", profile: "Main 10", width: 1920, height: 1080 }],
+            audio: [{ codec: "eac3", channels: 6 }],
+            subtitles: ["subrip"],
+            issues: ["open_gop"],
+          },
+          error: null,
+        },
+        { path: "/Movies/RARBG_DO_NOT_MIRROR.exe", mime: "text/plain", info: null, error: null },
+      ],
+    });
+    expect(t.putio.log.filter((r) => r.url.searchParams.get("media_info") === "1").map((r) => r.url.pathname)).toEqual(["/v2/files/4", "/v2/files/3"]);
+    expect(t.toolOutput("toolu_f")).toContain("Folders have no media info");
+  });
+});
+
 describe("download links", () => {
   it("has put.io make them, gives the model only the job, and hands the links to the browser", async () => {
     const t = await setup([
@@ -1374,7 +1429,7 @@ describe("threads", () => {
 
 describe("repeated calls", () => {
   it("answers an identical read call in the same turn with a pointer, not a second result", async () => {
-    const search = JSON.stringify({ query: "heat", category: "any", limit: 10 });
+    const search = JSON.stringify({ query: "heat", mime: "", category: "any", limit: 10 });
 
     const t = await setup([
       tool("toolu_s0", "scan_library"),

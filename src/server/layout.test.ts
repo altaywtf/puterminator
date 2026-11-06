@@ -17,6 +17,7 @@ const node = (path: string, over: Partial<WalkedFile> = {}): WalkedFile => {
     depth: path.split("/").length - 1,
     size: 700 * 2 ** 20,
     file_type: /\.(mkv|mp4|avi)$/.test(name) ? "VIDEO" : name.includes(".") ? "FILE" : "FOLDER",
+    content_type: null,
     extension: name.includes(".") ? (name.split(".").pop() ?? null) : null,
     crc32: null,
     created_at: "2026-01-01T00:00:00",

@@ -15,6 +15,7 @@ const file = (path: string, over: Partial<WalkedFile> = {}): WalkedFile => {
     depth: path.split("/").length - 1,
     size: 700 * 2 ** 20,
     file_type: /\.(mkv|mp4|avi)$/.test(name) ? "VIDEO" : "FILE",
+    content_type: null,
     extension: name.includes(".") ? name.split(".").pop()! : null,
     crc32: null,
     created_at: "2026-01-01T00:00:00",
@@ -222,7 +223,7 @@ describe("audit", () => {
 
 describe("buildTree", () => {
   const f = (id: number, parent_id: number, name: string, file_type = "FILE") => ({
-    id, parent_id, name, file_type, size: 1, extension: null, crc32: null, created_at: "2026-01-01", first_accessed_at: null,
+    id, parent_id, name, file_type, content_type: null, size: 1, extension: null, crc32: null, created_at: "2026-01-01", first_accessed_at: null,
   });
 
   const childrenBeforeFolders = [f(3, 2, "ep1.mkv", "VIDEO"), f(2, 1, "Season 01", "FOLDER"), f(1, 0, "Show", "FOLDER"), f(4, 0, "loose.txt")];
