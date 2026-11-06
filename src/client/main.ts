@@ -76,7 +76,15 @@ export const Model = Schema.Struct({
       text: Schema.String,
       status: Schema.Literals(["editing", "sending", "sent"]),
       error: Schema.NullOr(Schema.String),
+      draft: Schema.NullOr(Schema.String),
     }),
+  ),
+  drafts: Schema.Record(
+    Schema.String,
+    Schema.Union([
+      Schema.Struct({ state: Schema.Literals(["sending", "sent"]) }),
+      Schema.Struct({ state: Schema.Literal("failed"), message: Schema.String }),
+    ]),
   ),
   player: Schema.NullOr(
     Schema.Struct({ id: Schema.Finite, name: Schema.String, src: Schema.NullOr(Schema.String), failed: Schema.Boolean }),
@@ -148,12 +156,15 @@ export const Message = defineMessageUnion({
   ClickedDeleteData: {},
   CancelledDelete: {},
   ConfirmedDelete: {},
-  ClickedFeedback: { kind: Feedback.fields.kind, text: Schema.String },
+  ClickedFeedback: { kind: Feedback.fields.kind, text: Schema.String, draft: Schema.NullOr(Schema.String) },
+  ClickedSendDraft: { key: Schema.String, kind: Feedback.fields.kind, text: Schema.String },
+  SentDraft: { key: Schema.String },
+  FailedDraft: { key: Schema.String, message: Schema.String },
   ChoseFeedbackKind: { kind: Feedback.fields.kind },
   UpdatedFeedback: { text: Schema.String },
   SubmittedFeedback: {},
-  SentFeedback: {},
-  FailedFeedback: { error: Schema.String },
+  SentFeedback: { draft: Schema.NullOr(Schema.String) },
+  FailedFeedback: { error: Schema.String, draft: Schema.NullOr(Schema.String) },
   ClosedFeedback: {},
   CompletedEffect: {},
 });
@@ -280,22 +291,32 @@ const DeleteData = Command.define("DeleteData", {
   }),
 });
 
-const SendFeedback = Command.define("SendFeedback", {
-  args: { feedback: Feedback },
-  messages: [Message.SentFeedback, Message.FailedFeedback],
-  execute: ({ feedback }) =>
-    Effect.tryPromise(() =>
-      fetch("/api/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(feedback) }),
-    ).pipe(
-      Effect.option,
-      Effect.map((res) =>
-        Option.isSome(res) && res.value.ok
-          ? Message.SentFeedback()
-          : Message.FailedFeedback({
-              error: Option.isSome(res) && res.value.status === 429 ? "that’s enough for today. try again tomorrow." : "couldn’t send it. try again.",
-            }),
-      ),
+const postFeedback = (feedback: Feedback) =>
+  Effect.tryPromise(() =>
+    fetch("/api/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(feedback) }),
+  ).pipe(
+    Effect.option,
+    Effect.map((res): string | null =>
+      Option.isSome(res) && res.value.ok
+        ? null
+        : Option.isSome(res) && res.value.status === 429
+          ? "that’s enough for today. try again tomorrow."
+          : "couldn’t send it. try again.",
     ),
+  );
+
+const SendFeedback = Command.define("SendFeedback", {
+  args: { feedback: Feedback, draft: Schema.NullOr(Schema.String) },
+  messages: [Message.SentFeedback, Message.FailedFeedback],
+  execute: ({ feedback, draft }) =>
+    postFeedback(feedback).pipe(Effect.map((error) => (error === null ? Message.SentFeedback({ draft }) : Message.FailedFeedback({ error, draft })))),
+});
+
+const SendDraft = Command.define("SendDraft", {
+  args: { key: Schema.String, feedback: Feedback },
+  messages: [Message.SentDraft, Message.FailedDraft],
+  execute: ({ key, feedback }) =>
+    postFeedback(feedback).pipe(Effect.map((message) => (message === null ? Message.SentDraft({ key }) : Message.FailedDraft({ key, message })))),
 });
 
 const ArmStop = Command.define("ArmStop", {
@@ -679,8 +700,8 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     ClickedDeleteData: () => ({ model: modifyFields(model, { confirmingDelete: () => true }), commands: [FocusDialog({ focus: DELETE_CANCEL_ID })] }),
     CancelledDelete: () => ({ model: modifyFields(model, { confirmingDelete: () => false }), commands: [FocusDialog({ focus: null })] }),
     ConfirmedDelete: () => ({ model: modifyFields(model, { confirmingDelete: () => false }), commands: [FocusDialog({ focus: null }), DeleteData()] }),
-    ClickedFeedback: ({ kind, text }) => ({
-      model: modifyFields(model, { feedback: () => ({ kind, text, status: "editing" as const, error: null }) }),
+    ClickedFeedback: ({ kind, text, draft }) => ({
+      model: modifyFields(model, { feedback: () => ({ kind, text, status: "editing" as const, error: null, draft }) }),
       commands: [FocusDialog({ focus: FEEDBACK_TEXT_ID })],
     }),
     ChoseFeedbackKind: ({ kind }) => ({ model: modifyFields(model, { feedback: (f) => (f && f.status === "editing" ? { ...f, kind } : f) }) }),
@@ -691,16 +712,46 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
       if (!f || f.status !== "editing" || text === null) return { model };
 
+      const draft = f.draft;
+
       return {
-        model: modifyFields(model, { feedback: () => ({ ...f, status: "sending" as const, error: null }) }),
-        commands: [SendFeedback({ feedback: { kind: f.kind, text } })],
+        model: modifyFields(model, {
+          feedback: () => ({ ...f, status: "sending" as const, error: null }),
+          drafts: (ds) => (draft === null ? ds : { ...ds, [draft]: { state: "sending" as const } }),
+        }),
+        commands: [SendFeedback({ feedback: { kind: f.kind, text }, draft })],
       };
     },
-    SentFeedback: () =>
-      model.feedback
-        ? { model: modifyFields(model, { feedback: (f) => (f ? { ...f, status: "sent" as const } : f) }), commands: [FocusDialog({ focus: FEEDBACK_CLOSE_ID })] }
-        : { model },
-    FailedFeedback: ({ error }) => ({ model: modifyFields(model, { feedback: (f) => (f ? { ...f, status: "editing" as const, error } : f) }) }),
+    SentFeedback: ({ draft }) => {
+      const showing = model.feedback?.status === "sending" && model.feedback.draft === draft;
+
+      return {
+        model: modifyFields(model, {
+          feedback: (f) => (f && showing ? { ...f, status: "sent" as const } : f),
+          drafts: (ds) => (draft === null ? ds : { ...ds, [draft]: { state: "sent" as const } }),
+        }),
+        commands: showing ? [FocusDialog({ focus: FEEDBACK_CLOSE_ID })] : [],
+      };
+    },
+    ClickedSendDraft: ({ key, kind, text }) => {
+      const trimmed = feedbackText(text);
+      const state = model.drafts[key]?.state;
+
+      if (trimmed === null || state === "sending" || state === "sent") return { model };
+
+      return {
+        model: modifyFields(model, { drafts: (ds) => ({ ...ds, [key]: { state: "sending" as const } }) }),
+        commands: [SendDraft({ key, feedback: { kind, text: trimmed } })],
+      };
+    },
+    SentDraft: ({ key }) => ({ model: modifyFields(model, { drafts: (ds) => ({ ...ds, [key]: { state: "sent" as const } }) }) }),
+    FailedDraft: ({ key, message }) => ({ model: modifyFields(model, { drafts: (ds) => ({ ...ds, [key]: { state: "failed" as const, message } }) }) }),
+    FailedFeedback: ({ error, draft }) => ({
+      model: modifyFields(model, {
+        feedback: (f) => (f && f.status === "sending" && f.draft === draft ? { ...f, status: "editing" as const, error } : f),
+        drafts: (ds) => (draft === null ? ds : { ...ds, [draft]: { state: "failed" as const, message: error } }),
+      }),
+    }),
     ClosedFeedback: () => ({ model: modifyFields(model, { feedback: () => null }), commands: [FocusDialog({ focus: null })] }),
     CompletedEffect: () => ({ model }),
   });
@@ -730,6 +781,7 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     avatarFailed: false,
     confirmingDelete: false,
     feedback: null,
+    drafts: {},
     player: null,
     links: {},
   },

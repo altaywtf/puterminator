@@ -34,7 +34,7 @@ const specimen = (h: H, model: Model, c: (typeof CASES)[number], i: number): Htm
   labelled(
     h,
     `${c.tool} · ${c.name}`,
-    toolCard(h, model, { name: c.tool, key: `lab${i}`, output: c.output }, false) ??
+    toolCard(h, model, { name: c.tool, key: `lab${i}`, id: `lab${i}`, output: c.output }, false) ??
       h.p([h.Class("m-0 rounded-2xl border border-dashed border-line p-5 text-[13px] text-fg-4")], ["no card: the thread shows only the step line"]),
   );
 
@@ -58,7 +58,7 @@ const view = (model: Model, h: H): Document => ({
         [
           h.h1([h.Class("m-0 font-display text-[28px] font-medium text-accent")], ["lab"]),
           ...actionSections(h, model),
-          ...["score", "folder", "search", "download links"].map((group) =>
+          ...["score", "folder", "search", "download links", "feedback"].map((group) =>
             section(h, group, CASES.flatMap((c, i) => (c.group === group ? [specimen(h, model, c, i)] : []))),
           ),
         ],
