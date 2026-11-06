@@ -42,7 +42,7 @@ describe("toTurns", () => {
     expect(turns.map((t) => t.role)).toEqual(["user", "assistant"]);
     expect(turns[1]!.items).toEqual([
       { kind: "thinking", key: "m1.0", text: "Scan first.", streaming: false },
-      { kind: "tool", key: "m1.1", name: "scan_library", input: {}, state: "done", output: '{"score":71}' },
+      { kind: "tool", key: "m1.1", id: "t1", name: "scan_library", input: {}, state: "done", output: '{"score":71}' },
       { kind: "text", key: "m3.0", text: "Score 71." },
     ]);
   });

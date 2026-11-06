@@ -34,7 +34,7 @@ const specimen = (h: H, model: Model, c: (typeof CASES)[number], i: number): Htm
   labelled(
     h,
     `${c.tool} · ${c.name}`,
-    toolCard(h, model, { name: c.tool, key: `lab${i}`, output: c.output }, false) ??
+    toolCard(h, model, { name: c.tool, key: `lab${i}`, id: `lab${i}`, output: c.output }, false) ??
       h.p([h.Class("m-0 rounded-2xl border border-dashed border-line p-5 text-[13px] text-fg-4")], ["no card: the thread shows only the step line"]),
   );
 

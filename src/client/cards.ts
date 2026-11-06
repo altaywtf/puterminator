@@ -367,7 +367,9 @@ const feedbackCard = (h: H, ctx: Ctx, key: string, f: Feedback, live: boolean): 
   ]);
 };
 
-type Card = (h: H, ctx: Ctx, key: string, output: string, live: boolean, settled: boolean) => Html | null;
+type Call = { readonly key: string; readonly id: string };
+
+type Card = (h: H, ctx: Ctx, call: Call, output: string, live: boolean, settled: boolean) => Html | null;
 
 const planOrRun = (h: H, ctx: Ctx, plan: Plan, live: boolean): Html => {
   const record = ctx.plans[plan.id];
@@ -381,32 +383,32 @@ const planOrRun = (h: H, ctx: Ctx, plan: Plan, live: boolean): Html => {
   return planCard(h, ctx, plan, live);
 };
 
-const proposedPlanCard: Card = (h, ctx, _key, output, live) =>
+const proposedPlanCard: Card = (h, ctx, _call, output, live) =>
   Option.match(decodePlan(output), { onNone: () => null, onSome: (p) => planOrRun(h, ctx, p, live) });
 
-const generatedPlanCard: Card = (h, ctx, _key, output, live) =>
+const generatedPlanCard: Card = (h, ctx, _call, output, live) =>
   Option.match(Option.flatMapNullishOr(decodeLayout(output), (o) => ctx.plans[o.plan]), { onNone: () => null, onSome: (r) => planOrRun(h, ctx, r.plan, live) });
 
 const CARDS = {
-  scan_library: (h, ctx, key, output, live) => Option.match(auditOf(output), { onNone: () => null, onSome: (a) => scoreCard(h, ctx, a, key, live) }),
-  list_folder: (h, ctx, key, output, live) => Option.match(decodeListFolder(output), { onNone: () => null, onSome: (o) => folderCard(h, ctx, key, o, live) }),
-  search_files: (h, ctx, key, output, live) => Option.match(decodeSearchFiles(output), { onNone: () => null, onSome: (o) => searchCard(h, ctx, key, o, live) }),
+  scan_library: (h, ctx, { key }, output, live) => Option.match(auditOf(output), { onNone: () => null, onSome: (a) => scoreCard(h, ctx, a, key, live) }),
+  list_folder: (h, ctx, { key }, output, live) => Option.match(decodeListFolder(output), { onNone: () => null, onSome: (o) => folderCard(h, ctx, key, o, live) }),
+  search_files: (h, ctx, { key }, output, live) => Option.match(decodeSearchFiles(output), { onNone: () => null, onSome: (o) => searchCard(h, ctx, key, o, live) }),
   propose_changes: proposedPlanCard,
   propose_translation: proposedPlanCard,
   plan_layout: generatedPlanCard,
   plan_subtitles: generatedPlanCard,
-  plan_free_space: (h, ctx, _key, output, live) =>
+  plan_free_space: (h, ctx, _call, output, live) =>
     Option.match(Option.flatMapNullishOr(decodeFreeSpace(output), (o) => (o.plan === null ? null : ctx.plans[o.plan])), {
       onNone: () => null,
       onSome: (r) => planOrRun(h, ctx, r.plan, live),
     }),
-  make_download_links: (h, ctx, _key, output, live) => Option.match(decodeLinks(output), { onNone: () => null, onSome: (o) => linksCard(h, ctx, o, live) }),
-  draft_feedback: (h, ctx, key, output, live) => Option.match(decodeFeedback(output), { onNone: () => null, onSome: (f) => feedbackCard(h, ctx, key, f, live) }),
-  ask_user: (h, ctx, _key, output, live, settled) => Option.match(decodeQuestion(output), { onNone: () => null, onSome: (q) => questionCard(h, ctx, q, live, settled) }),
+  make_download_links: (h, ctx, _call, output, live) => Option.match(decodeLinks(output), { onNone: () => null, onSome: (o) => linksCard(h, ctx, o, live) }),
+  draft_feedback: (h, ctx, { id }, output, live) => Option.match(decodeFeedback(output), { onNone: () => null, onSome: (f) => feedbackCard(h, ctx, id, f, live) }),
+  ask_user: (h, ctx, _call, output, live, settled) => Option.match(decodeQuestion(output), { onNone: () => null, onSome: (q) => questionCard(h, ctx, q, live, settled) }),
 } satisfies Record<string, Card>;
 
 const hasCard = (name: string): name is keyof typeof CARDS => Object.hasOwn(CARDS, name);
 
 /** The card for a finished tool call, or null when the tool has none or its output doesn't decode. */
-export const toolCard = (h: H, ctx: Ctx, tool: { name: string; key: string; output: string | null }, live: boolean, settled = false): Html | null =>
-  hasCard(tool.name) && tool.output !== null ? CARDS[tool.name](h, ctx, tool.key, tool.output, live, settled) : null;
+export const toolCard = (h: H, ctx: Ctx, tool: Call & { name: string; output: string | null }, live: boolean, settled = false): Html | null =>
+  hasCard(tool.name) && tool.output !== null ? CARDS[tool.name](h, ctx, tool, tool.output, live, settled) : null;

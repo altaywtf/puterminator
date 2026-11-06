@@ -16,6 +16,7 @@ export const Item = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("tool"),
     key: Schema.String,
+    id: Schema.String,
     name: Schema.String,
     input: Schema.Json,
     state: ToolState,
@@ -97,7 +98,7 @@ export function toTurns(
       if (b.type === "tool_use") {
         const r = results.get(str(b, "id"));
         const state: ToolState = r ? (r.error ? "error" : "done") : busy ? "running" : "error";
-        turn.items.push({ kind: "tool", key: k, name: str(b, "name"), input: toolInput(b), state, output: r?.text ?? null });
+        turn.items.push({ kind: "tool", key: k, id: str(b, "id"), name: str(b, "name"), input: toolInput(b), state, output: r?.text ?? null });
       }
     });
   };

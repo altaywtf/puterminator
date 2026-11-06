@@ -163,8 +163,8 @@ export const Message = defineMessageUnion({
   ChoseFeedbackKind: { kind: Feedback.fields.kind },
   UpdatedFeedback: { text: Schema.String },
   SubmittedFeedback: {},
-  SentFeedback: {},
-  FailedFeedback: { error: Schema.String },
+  SentFeedback: { draft: Schema.NullOr(Schema.String) },
+  FailedFeedback: { error: Schema.String, draft: Schema.NullOr(Schema.String) },
   ClosedFeedback: {},
   CompletedEffect: {},
 });
@@ -306,9 +306,10 @@ const postFeedback = (feedback: Feedback) =>
   );
 
 const SendFeedback = Command.define("SendFeedback", {
-  args: { feedback: Feedback },
+  args: { feedback: Feedback, draft: Schema.NullOr(Schema.String) },
   messages: [Message.SentFeedback, Message.FailedFeedback],
-  execute: ({ feedback }) => postFeedback(feedback).pipe(Effect.map((error) => (error === null ? Message.SentFeedback() : Message.FailedFeedback({ error })))),
+  execute: ({ feedback, draft }) =>
+    postFeedback(feedback).pipe(Effect.map((error) => (error === null ? Message.SentFeedback({ draft }) : Message.FailedFeedback({ error, draft })))),
 });
 
 const SendDraft = Command.define("SendDraft", {
@@ -711,23 +712,26 @@ export const update = (model: Model, message: Message): UpdateReturn =>
 
       if (!f || f.status !== "editing" || text === null) return { model };
 
+      const draft = f.draft;
+
       return {
-        model: modifyFields(model, { feedback: () => ({ ...f, status: "sending" as const, error: null }) }),
-        commands: [SendFeedback({ feedback: { kind: f.kind, text } })],
+        model: modifyFields(model, {
+          feedback: () => ({ ...f, status: "sending" as const, error: null }),
+          drafts: (ds) => (draft === null ? ds : { ...ds, [draft]: { state: "sending" as const } }),
+        }),
+        commands: [SendFeedback({ feedback: { kind: f.kind, text }, draft })],
       };
     },
-    SentFeedback: () => {
-      const draft = model.feedback?.draft ?? null;
+    SentFeedback: ({ draft }) => {
+      const showing = model.feedback?.status === "sending" && model.feedback.draft === draft;
 
-      return model.feedback
-        ? {
-            model: modifyFields(model, {
-              feedback: (f) => (f ? { ...f, status: "sent" as const } : f),
-              drafts: (ds) => (draft === null ? ds : { ...ds, [draft]: { state: "sent" as const } }),
-            }),
-            commands: [FocusDialog({ focus: FEEDBACK_CLOSE_ID })],
-          }
-        : { model };
+      return {
+        model: modifyFields(model, {
+          feedback: (f) => (f && showing ? { ...f, status: "sent" as const } : f),
+          drafts: (ds) => (draft === null ? ds : { ...ds, [draft]: { state: "sent" as const } }),
+        }),
+        commands: showing ? [FocusDialog({ focus: FEEDBACK_CLOSE_ID })] : [],
+      };
     },
     ClickedSendDraft: ({ key, kind, text }) => {
       const trimmed = feedbackText(text);
@@ -742,7 +746,12 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     },
     SentDraft: ({ key }) => ({ model: modifyFields(model, { drafts: (ds) => ({ ...ds, [key]: { state: "sent" as const } }) }) }),
     FailedDraft: ({ key, message }) => ({ model: modifyFields(model, { drafts: (ds) => ({ ...ds, [key]: { state: "failed" as const, message } }) }) }),
-    FailedFeedback: ({ error }) => ({ model: modifyFields(model, { feedback: (f) => (f ? { ...f, status: "editing" as const, error } : f) }) }),
+    FailedFeedback: ({ error, draft }) => ({
+      model: modifyFields(model, {
+        feedback: (f) => (f && f.status === "sending" && f.draft === draft ? { ...f, status: "editing" as const, error } : f),
+        drafts: (ds) => (draft === null ? ds : { ...ds, [draft]: { state: "failed" as const, message: error } }),
+      }),
+    }),
     ClosedFeedback: () => ({ model: modifyFields(model, { feedback: () => null }), commands: [FocusDialog({ focus: null })] }),
     CompletedEffect: () => ({ model }),
   });

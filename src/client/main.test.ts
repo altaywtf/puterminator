@@ -29,6 +29,11 @@ describe("feedback drafts", () => {
     expect(update(clicked.model, Message.SentDraft({ key: "t1" })).model.drafts["t1"]).toEqual({ state: "sent" });
 
     const editing = update(model, Message.ClickedFeedback({ kind: "bug", text: "undo broke", draft: "t2" })).model;
-    expect(update(editing, Message.SentFeedback()).model.drafts["t2"]).toEqual({ state: "sent" });
+    const sending = update(editing, Message.SubmittedFeedback()).model;
+    expect(sending.drafts["t2"]).toEqual({ state: "sending" });
+
+    const other = update(update(sending, Message.ClosedFeedback()).model, Message.ClickedFeedback({ kind: "idea", text: "mime types", draft: "t3" })).model;
+    const sent = update(other, Message.SentFeedback({ draft: "t2" })).model;
+    expect([sent.drafts["t2"], sent.drafts["t3"], sent.feedback?.status]).toEqual([{ state: "sent" }, undefined, "editing"]);
   });
 });

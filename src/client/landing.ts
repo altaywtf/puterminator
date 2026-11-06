@@ -95,7 +95,7 @@ const layout = (h: H) =>
   ]);
 
 const score = (h: H, model: Model) =>
-  h.div([h.Class("grid")], [toolCard(h, { expanded: model.expanded, library, plans: {} }, { name: "scan_library", key: "landing", output: JSON.stringify(audit) }, false) ?? h.span([], [])]);
+  h.div([h.Class("grid")], [toolCard(h, { expanded: model.expanded, library, plans: {} }, { name: "scan_library", key: "landing", id: "landing", output: JSON.stringify(audit) }, false) ?? h.span([], [])]);
 
 const examples = (h: H, model: Model) =>
   h.section([h.Class(`${WIDE} pb-20`), h.AriaLabel("examples")], [
