@@ -48,7 +48,7 @@ export const parseRelease = (fileName: string): Release | null => {
   const episode = stem.match(/^(.+?)[\s._-]+s(\d{1,2})[\s._-]?e(\d{1,3})(?!\d)/i) ?? stem.match(/^(.+?)[\s._-]+(\d{1,2})x(\d{2,3})(?!\d)/i);
 
   if (episode?.[1] && episode[2] && episode[3] && showOf(episode[1])) return { title: showOf(episode[1]), season: Number(episode[2]), episode: Number(episode[3]) };
-  const movie = stem.match(/^(.+?)[\s._([-]+((?:19|20)\d{2})(?!\d)/);
+  const movie = stem.match(/^(.+)[\s._([-]+((?:19|20)\d{2})(?!\d)/);
 
   if (movie?.[1] && movie[2] && titleOf(movie[1])) return { title: titleOf(movie[1]), year: Number(movie[2]) };
 

@@ -1158,25 +1158,25 @@ describe("translate subtitles", () => {
 });
 
 describe("translate with a subtitle from OpenSubtitles", () => {
-  const video = "Normal.People.S01E01.1080p.AMZN.WEB-DL.DD5.1.H.264-Cinefeel.mkv";
-  const files = [file(50, 0, "Normal People", "FOLDER"), file(51, 50, video, "VIDEO", 2 ** 30)];
+  const video = "Quiet.Harbor.S01E01.1080p.AMZN.WEB-DL.DD5.1.H.264-Kestrel.mkv";
+  const files = [file(50, 0, "Quiet Harbor", "FOLDER"), file(51, 50, video, "VIDEO", 2 ** 30)];
   const srt = (end: string) => `1\n00:00:01,000 --> 00:00:02,000\nHello.\n\n2\n01:44:00,000 --> ${end}\n<i>Run!</i>\n`;
   const fits = srt("01:45:00,000");
-  const episode = { title: "Normal People", season: 1, episode: 1 };
+  const episode = { title: "Quiet Harbor", season: 1, episode: 1 };
 
   const subtitles = [
-    { ...episode, fileId: 1, release: "Normal.People.S01E01.720p.HULU.WEBRip.DDP5.1.x264-NTb", srt: fits, downloads: 176_839 },
-    { ...episode, fileId: 2, release: "Normal.People.S01E01.1080p.AMZN.WEB-DL.DDP5.1.H.264-Cinefeel", srt: srt("01:55:00,000"), downloads: 10 },
-    { ...episode, fileId: 3, release: "Normal.People.S01E01.720p.HDTV.x264-MTB", srt: fits, downloads: 49_850 },
-    { ...episode, episode: 2, fileId: 4, release: "Normal.People.S01E02.1080p.AMZN.WEB-DL.DDP5.1.H.264-Cinefeel", srt: fits, downloads: 9 },
+    { ...episode, fileId: 1, release: "Quiet.Harbor.S01E01.720p.HULU.WEBRip.DDP5.1.x264-Wren", srt: fits, downloads: 176_839 },
+    { ...episode, fileId: 2, release: "Quiet.Harbor.S01E01.1080p.AMZN.WEB-DL.DDP5.1.H.264-Kestrel", srt: srt("01:55:00,000"), downloads: 10 },
+    { ...episode, fileId: 3, release: "Quiet.Harbor.S01E01.720p.HDTV.x264-Moth", srt: fits, downloads: 49_850 },
+    { ...episode, episode: 2, fileId: 4, release: "Quiet.Harbor.S01E02.1080p.AMZN.WEB-DL.DDP5.1.H.264-Kestrel", srt: fits, downloads: 9 },
   ];
 
-  const propose = [tool("toolu_s", "scan_library"), tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Normal People"], language: "tur" })), say("plan's up.")];
+  const propose = [tool("toolu_s", "scan_library"), tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Quiet Harbor"], language: "tur" })), say("plan's up.")];
   const matches = say(JSON.stringify({ matches: true }), { input: 1, output: 1 });
   const translated = say(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba." }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }));
 
   const proposeAndApply = async (t: Awaited<ReturnType<typeof setup>>) => {
-    await t.receive(send("turkish subtitles for normal people"));
+    await t.receive(send("turkish subtitles for quiet harbor"));
     const proposed = { downloads: [...t.opensubtitles.downloads], plan: t.store.plans()[0]?.record.plan.changes.map((c) => c.path) };
 
     await t.receive({ type: "apply", plan: t.store.plans()[0]?.record.plan.id ?? "", exclude: [] });
@@ -1190,20 +1190,20 @@ describe("translate with a subtitle from OpenSubtitles", () => {
     const proposed = await proposeAndApply(t);
 
     expect([proposed, Object.fromEntries(t.opensubtitles.searches[0] ?? []), t.opensubtitles.downloads, t.putio.uploads.map((u) => [u.name, u.text])]).toEqual([
-      { downloads: [], plan: [`/Normal People/${video}`] },
-      { episode_number: "1", foreign_parts_only: "exclude", languages: "en", query: "normal people", season_number: "1", type: "episode" },
+      { downloads: [], plan: [`/Quiet Harbor/${video}`] },
+      { episode_number: "1", foreign_parts_only: "exclude", languages: "en", query: "quiet harbor", season_number: "1", type: "episode" },
       [2, 1],
-      [["Normal.People.S01E01.1080p.AMZN.WEB-DL.DD5.1.H.264-Cinefeel.tur.srt", "1\n00:00:01,000 --> 00:00:02,000\nMerhaba.\n\n2\n01:44:00,000 --> 01:45:00,000\n<i>Koş!</i>\n"]],
+      [["Quiet.Harbor.S01E01.1080p.AMZN.WEB-DL.DD5.1.H.264-Kestrel.tur.srt", "1\n00:00:01,000 --> 00:00:02,000\nMerhaba.\n\n2\n01:44:00,000 --> 01:45:00,000\n<i>Koş!</i>\n"]],
     ]);
   });
 
   it("signs in to OpenSubtitles once for episodes translated in parallel, and matches a show named with its year", async () => {
-    const named = [file(60, 0, "Severance (2022)", "FOLDER"), ...[1, 2, 3].map((n) => file(60 + n, 60, `Severance (2022) - S01E0${n}.mkv`, "VIDEO", 2 ** 30))];
-    const show = [1, 2, 3].map((n) => ({ title: "Severance", season: 1, episode: n, fileId: 100 + n, release: `Severance.S01E0${n}.1080p.ATVP.WEB-DL-NTb`, srt: fits }));
-    const season = [tool("toolu_s", "scan_library"), tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Severance (2022)"], language: "tur" })), say("plan's up.")];
+    const named = [file(60, 0, "Lantern Street (2022)", "FOLDER"), ...[1, 2, 3].map((n) => file(60 + n, 60, `Lantern Street (2022) - S01E0${n}.mkv`, "VIDEO", 2 ** 30))];
+    const show = [1, 2, 3].map((n) => ({ title: "Lantern Street", season: 1, episode: n, fileId: 100 + n, release: `Lantern.Street.S01E0${n}.1080p.ATVP.WEB-DL-Wren`, srt: fits }));
+    const season = [tool("toolu_s", "scan_library"), tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Lantern Street (2022)"], language: "tur" })), say("plan's up.")];
     const t = await setup([...season, matches, matches, matches], { files: named, online: { subtitles: show } });
 
-    await t.receive(send("turkish subtitles for severance"));
+    await t.receive(send("turkish subtitles for lantern street"));
     await t.receive({ type: "apply", plan: t.store.plans()[0]?.record.plan.id ?? "", exclude: [] });
 
     expect([t.opensubtitles.logins(), t.opensubtitles.downloads.toSorted()]).toEqual([1, [101, 102, 103]]);
@@ -1223,10 +1223,10 @@ describe("translate with a subtitle from OpenSubtitles", () => {
   it("leaves out, when proposing, an episode no one has an English subtitle for", async () => {
     const t = await setup([...propose], { files, online: { subtitles: subtitles.filter((s) => s.episode === 2) } });
 
-    await t.receive(send("turkish subtitles for normal people"));
+    await t.receive(send("turkish subtitles for quiet harbor"));
 
     expect(JSON.parse(t.toolOutput("toolu_t")).cant_translate).toEqual([
-      { path: `/Normal People/${video}`, why: "neither put.io nor OpenSubtitles has an English subtitle for this video" },
+      { path: `/Quiet Harbor/${video}`, why: "neither put.io nor OpenSubtitles has an English subtitle for this video" },
     ]);
   });
 });
