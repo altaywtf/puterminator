@@ -34,4 +34,4 @@ minimumReleaseAgeExclude:
   - "@distilled.cloud/core@1.0.0-rc.18"
   - "@distilled.cloud/iceberg@1.0.0-rc.18"
   - alchemy@2.0.0-beta.85
-  - "@putdotio/sdk@13.3.2"
+  - "@putdotio/sdk@13.3.2 || 14.0.0"
