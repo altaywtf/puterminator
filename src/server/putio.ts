@@ -5,7 +5,7 @@ import {
   isPutioAuthError,
   isPutioRateLimitError,
   makePutioFetchLayer,
-  makePutioSdkLayer,
+  putioSdkLayer,
   type PutioSdkContext,
   type PutioSdkError,
   requestJson,
@@ -44,7 +44,7 @@ export type PutioError = PutioUnauthorized | PutioRateLimited | PutioFailed;
 
 /** Workers need `fetch` called unbound, so pass a closure; tests pass a fake. */
 export const putioLayer = (accessToken: string | undefined, fetchImpl: typeof fetch = (input, init) => fetch(input, init)) =>
-  makePutioSdkLayer(accessToken === undefined ? {} : { accessToken }).pipe(Layer.provideMerge(makePutioFetchLayer(fetchImpl)));
+  putioSdkLayer(accessToken === undefined ? {} : { accessToken }).pipe(Layer.provideMerge(makePutioFetchLayer(fetchImpl)));
 
 const minutesLeft = (e: PutioRateLimited) => {
   const minutes = Math.max(1, Math.ceil(e.retryAfterMs / 60_000));
