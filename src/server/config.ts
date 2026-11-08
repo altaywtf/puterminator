@@ -42,6 +42,8 @@ export type AppConfig = {
   readonly unlimitedUsers: ReadonlyArray<string>;
   /** null when any of the three OpenSubtitles keys is unset: translations then use put.io's subtitles only. */
   readonly openSubtitles: OpenSubtitlesCredentials | null;
+  /** TMDB read access token; null translates without film and show facts. */
+  readonly tmdbToken: Redacted.Redacted<string> | null;
   /** Local dev only: base URL of the fake put.io and Anthropic. */
   readonly devUpstream: string | null;
 };
@@ -91,6 +93,7 @@ export const readConfig = Effect.gen(function* () {
     Option.all({ apiKey: openSubtitlesKey, username: openSubtitlesUser, password: openSubtitlesPassword }).pipe(Option.filter(({ username }) => username.trim() !== "")),
   );
 
+  const tmdbToken = Option.getOrNull(yield* Config.option(Config.Redacted("TMDB_READ_TOKEN")));
   const devUpstream = Option.getOrNull(yield* Config.schema(DevUpstream, "DEV_FAKE_UPSTREAM").pipe(Config.option));
 
   const auth = yield* validateAuth({
@@ -99,7 +102,7 @@ export const readConfig = Effect.gen(function* () {
     SESSION_SECRET: Redacted.value(SESSION_SECRET),
   });
 
-  const config: AppConfig = { auth, anthropicApiKey, model, monthlyCredits, poolBudgetCredits, consoleSpend, unlimitedUsers, openSubtitles, devUpstream };
+  const config: AppConfig = { auth, anthropicApiKey, model, monthlyCredits, poolBudgetCredits, consoleSpend, unlimitedUsers, openSubtitles, tmdbToken, devUpstream };
 
   return config;
 });

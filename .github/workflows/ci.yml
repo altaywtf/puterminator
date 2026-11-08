@@ -85,6 +85,7 @@ jobs:
           OPENSUBTITLES_API_KEY: ${{ secrets.OPENSUBTITLES_API_KEY }}
           OPENSUBTITLES_USERNAME: ${{ secrets.OPENSUBTITLES_USERNAME }}
           OPENSUBTITLES_PASSWORD: ${{ secrets.OPENSUBTITLES_PASSWORD }}
+          TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
           UNLIMITED_USERS: ${{ vars.UNLIMITED_USERS }}
         run: pnpm exec alchemy deploy --stage prod --yes
       - name: Smoke the live site

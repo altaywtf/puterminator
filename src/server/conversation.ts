@@ -25,6 +25,7 @@ import { planLayout } from "./layout";
 import { planFreeSpace } from "./space";
 import { planSubtitles } from "./subtitles";
 import type { OpenSubtitles } from "./opensubtitles";
+import type { Tmdb } from "./tmdb";
 import { checkSource, LanguageCode, LANGUAGES, translateSubtitle } from "./translate";
 
 const SYSTEM = `You are puterminator, an agent that helps one person understand and tidy their put.io library.
@@ -152,6 +153,8 @@ export interface AgentDeps {
   readonly putioFetch?: typeof fetch;
   /** Where translations find an English subtitle put.io lacks; null leaves those videos out. */
   readonly openSubtitles?: OpenSubtitles | null;
+  /** Film and show facts that help translations; null translates without them. */
+  readonly tmdb?: Tmdb | null;
   /** put.io's API origin for URLs handed to the browser; the dev fake overrides it. */
   readonly putioBase?: string;
   readonly partialEveryMs?: number;
@@ -186,6 +189,7 @@ export const makeAgent = (deps: AgentDeps) =>
   Effect.gen(function* () {
     const { store, broadcast } = deps;
     let state: AgentState = store.loadState(yield* Clock.currentTimeMillis);
+    const sources = { online: deps.openSubtitles ?? null, tmdb: deps.tmdb ?? null };
     const capFor = () => (state.username !== null && (deps.unlimitedUsers ?? []).includes(state.username) ? Number.MAX_SAFE_INTEGER : deps.monthlyCredits * CREDIT_TOKENS);
     const budget = deps.poolBudgetCredits * CREDIT_TOKENS;
     let poolTotal: number | null = null;
@@ -494,7 +498,7 @@ export const makeAgent = (deps: AgentDeps) =>
             setStep(step.change, "running");
             const parentId = first.parents?.[step.change] ?? state.folder.id;
             const spend = spendFor(m);
-            const done = yield* Effect.exit(translateSubtitle(fileId, change.path, parentId, nameOf(change.to), lang, spend, deps.openSubtitles ?? null).pipe(Effect.provide(deps.anthropic)));
+            const done = yield* Effect.exit(translateSubtitle(fileId, change.path, parentId, nameOf(change.to), lang, spend, sources).pipe(Effect.provide(deps.anthropic)));
             yield* refreshCredits;
 
             if (Exit.isSuccess(done)) {
@@ -863,7 +867,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
             const checks = yield* Effect.forEach(
               out.plan.changes,
-              (c) => checkSource(out.ids[c.id] ?? 0, c.path, spend, deps.openSubtitles ?? null).pipe(Effect.as(null), Effect.catch((e) => Effect.succeed({ path: c.path, why: stepMessage(e) }))),
+              (c) => checkSource(out.ids[c.id] ?? 0, c.path, spend, sources).pipe(Effect.as(null), Effect.catch((e) => Effect.succeed({ path: c.path, why: stepMessage(e) }))),
               { concurrency: SOURCE_CHECKS },
             ).pipe(Effect.provide(Layer.merge(deps.anthropic, putioLayer(store.token() ?? undefined, deps.putioFetch))));
 
