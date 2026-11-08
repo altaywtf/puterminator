@@ -1,7 +1,7 @@
 {
   "name": "puterminator",
   "short_name": "puterminator",
-  "description": "terminates the mess in your put.io",
+  "description": "your AI companion for put.io things",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

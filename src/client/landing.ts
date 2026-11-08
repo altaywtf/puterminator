@@ -26,8 +26,9 @@ const hero = (h: H) =>
     h.div([h.Class("grid gap-7")], [
       h.div([h.Class("min-[861px]:hidden")], [art(h, "idle", 72)]),
       h.h1([h.Class("m-0 max-w-[18ch] font-display text-[56px] leading-[1.02] font-medium text-fg-strong max-[480px]:text-[36px]")], [
-        "terminates the mess in your ",
+        "your AI companion for ",
         h.span([h.Class("text-accent")], ["put.io"]),
+        " things",
       ]),
       h.p([h.Class("m-0 max-w-[50ch] text-[17px] text-fg-2 max-[480px]:text-[15px]")], [
         "a chat agent for your put.io library. it scores the mess, finds junk and doubles, and turns release names into folders plex, jellyfin, infuse and kodi can read.",
