@@ -89,7 +89,7 @@ export function describeStep(name: string, input: Schema.Json, output: string | 
       title: "tidy subtitles",
       detail: Option.match(Option.flatMap(out, decodeLayoutSummary), {
         onNone: () => null,
-        onSome: ({ changes, skipped }) => `${fmt(changes)} ${changes === 1 ? "subtitle" : "subtitles"}${skipped > 0 ? `, ${fmt(skipped)} left alone` : ""}`,
+        onSome: ({ changes, skipped }) => `${fmt(changes)} ${changes === 1 ? "change" : "changes"}${skipped > 0 ? `, ${fmt(skipped)} left alone` : ""}`,
       }),
       lines: [],
     };

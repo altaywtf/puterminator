@@ -1301,14 +1301,14 @@ describe("tidy subtitles", () => {
     file(17, 0, "random.srt", "TEXT", 100),
   ];
 
-  const run = async (within: string) => {
+  const run = async (within: string, own_folders = false, library = files) => {
     const t = await setup(
       [
         tool("toolu_s", "scan_library"),
-        tool("toolu_t", "plan_subtitles", JSON.stringify({ within })),
+        tool("toolu_t", "plan_subtitles", JSON.stringify({ within, own_folders })),
         say("plan's up."),
       ],
-      { files },
+      { files: library },
     );
 
     await t.receive(send("fix my subtitles"));
@@ -1331,6 +1331,32 @@ describe("tidy subtitles", () => {
     const { plan } = await run("haze (1995)/");
 
     expect(plan?.changes.map((c) => c.path)).toEqual(["/Haze (1995)/Subs/English.srt"]);
+  });
+
+  it("with own_folders, gives each episode in a shared season folder its own folder and carries its subtitles along", async () => {
+    const season = [
+      file(1, 0, "Quiet Harbor (2020)", "FOLDER"),
+      file(2, 1, "Season 01", "FOLDER"),
+      file(3, 2, "Quiet Harbor (2020) - S01E01.mkv", "VIDEO", 2 ** 30),
+      file(4, 2, "Quiet Harbor (2020) - S01E01.tur.srt", "TEXT", 100),
+      file(5, 2, "Quiet Harbor (2020) - S01E02.mkv", "VIDEO", 2 ** 30),
+      file(6, 2, "Quiet Harbor (2020) - S01E02.tur.srt", "TEXT", 100),
+      file(7, 2, "Quiet Harbor (2020) - S01E03.mkv", "VIDEO", 2 ** 30),
+      file(8, 2, "Quiet Harbor (2020) - S01E03", "FOLDER"),
+      file(9, 0, "Haze (1995)", "FOLDER"),
+      file(10, 9, "Haze (1995).mkv", "VIDEO", 2 ** 30),
+    ];
+
+    const { result, plan } = await run("", true, season);
+    const s = "/Quiet Harbor (2020)/Season 01";
+
+    expect(plan?.changes.map((c) => [c.path, c.to])).toEqual([
+      [`${s}/Quiet Harbor (2020) - S01E01.mkv`, `${s}/Quiet Harbor (2020) - S01E01/Quiet Harbor (2020) - S01E01.mkv`],
+      [`${s}/Quiet Harbor (2020) - S01E01.tur.srt`, `${s}/Quiet Harbor (2020) - S01E01/Quiet Harbor (2020) - S01E01.tur.srt`],
+      [`${s}/Quiet Harbor (2020) - S01E02.mkv`, `${s}/Quiet Harbor (2020) - S01E02/Quiet Harbor (2020) - S01E02.mkv`],
+      [`${s}/Quiet Harbor (2020) - S01E02.tur.srt`, `${s}/Quiet Harbor (2020) - S01E02/Quiet Harbor (2020) - S01E02.tur.srt`],
+    ]);
+    expect(result.skipped).toBe(1);
   });
 });
 

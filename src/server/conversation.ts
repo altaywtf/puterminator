@@ -39,7 +39,7 @@ Who you are:
 You can scan, score, list folders, search files (by name, category or MIME type), read a file's media info and make download links; every file you name links to put.io and videos play in the app. You can also change the library, but only through a plan the user approves:
 - To make the library work with Plex, Infuse, Jellyfin or Kodi, call plan_layout: it builds the whole plan itself. If the snapshot doesn't show which folders hold movies and shows, ask with ask_user, offering existing top-level folders or new 'Movies' and 'TV Shows'. Afterwards, one line on what it did and how many files it left alone.
 - To fix subtitles put.io or a media server doesn't show, call plan_subtitles: it renames each stray .srt to its video's name and moves it next to the video. One line afterwards; say how many it left alone and why.
-- To translate subtitles, call propose_translation with the videos or folders and the language; a folder covers every video under it, so pass a show or season folder as is. It starts from put.io's English subtitle, or one from OpenSubtitles when put.io has none; at most 30 videos at a time. It leaves out videos it can't translate; name them and say why in one line.
+- To translate subtitles, call propose_translation with the videos or folders and the language; a folder covers every video under it, so pass a show or season folder as is. It starts from put.io's English subtitle, or one from OpenSubtitles when put.io has none; at most 30 videos at a time. It leaves out videos it can't translate; name them and say why in one line. When the videos share a folder, as a season's episodes do, offer in the same line to give each its own folder afterwards with plan_subtitles and own_folders: put.io can show one episode's subtitle on another in a shared folder.
 - To find what lacks subtitles in a language, call find_untranslated, then offer to translate the folders with the most missing.
 - To free up space, call plan_free_space with the amount the user wants back (0 if they gave none). It trashes exact copies and junk itself. For each choice it returns (one title in two versions), ask with ask_user which copy to keep, then propose_changes for the rest. Hints (big never-played files) are only suggestions; name them, never trash them unasked.
 - To trash, rename or move anything else, call propose_changes with every change. The app shows it as a diff; the user applies, edits or discards it. You never apply anything yourself, and nothing changes until they click apply.
@@ -902,18 +902,21 @@ export const makeAgent = (deps: AgentDeps) =>
       effectTool({
         name: "plan_subtitles",
         description:
-          "Tidy subtitles so put.io, Plex, Infuse, Jellyfin and Kodi show them. put.io lists a .srt only from the video's own folder, and matches by name when that folder holds several videos. Renames each stray .srt to its video's name, moving it out of a Subs folder if needed. Leaves alone videos with several stray subtitles or one already in place.",
-        input: Schema.Struct({ within: Schema.String.annotate({ description: "only under this folder, e.g. '/Movies'; '' for the whole snapshot" }) }),
-        run: ({ within }) =>
+          "Tidy subtitles so put.io, Plex, Infuse, Jellyfin and Kodi show them. put.io lists a .srt only from the video's own folder, and matches by name when that folder holds several videos. Renames each stray .srt to its video's name, moving it out of a Subs folder if needed. Leaves alone videos with several stray subtitles or one already in place. With own_folders, also moves each video that shares a folder with other videos into its own folder named after it, subtitles included, so no episode shows another's subtitle.",
+        input: Schema.Struct({
+          within: Schema.String.annotate({ description: "only under this folder, e.g. '/Movies'; '' for the whole snapshot" }),
+          own_folders: Schema.Boolean.annotate({ description: "true to give each video in a shared folder its own folder, e.g. '/Show/Season 01/Show - S01E02/Show - S01E02.mkv'" }),
+        }),
+        run: ({ within, own_folders }) =>
           Effect.sync(() => {
             const all = snapshotHere();
 
             if (Result.isFailure(all)) return all.failure;
-            const tidy = planSubtitles(all.success, within);
+            const tidy = planSubtitles(all.success, within, own_folders);
 
             if ("error" in tidy) return JSON.stringify(tidy);
 
-            return proposeGenerated(all.success, "tidy subtitles", tidy, "No stray subtitles to fix.");
+            return proposeGenerated(all.success, "tidy subtitles", tidy, own_folders ? "Nothing to tidy: no stray subtitles or shared folders." : "No stray subtitles to fix.");
           }),
       }),
       effectTool({
