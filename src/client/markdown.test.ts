@@ -42,9 +42,9 @@ describe("renderMarkdown", () => {
   });
 
   it("links inline code that names one scanned file, and leaves the rest as code", () => {
-    const lib = { rootId: 0, rootName: "Your Files", files: [[1, 0, "Movies", 9, FileFlag.folder], [2, 1, "Heat.mkv", 9, FileFlag.video]] } satisfies Library;
-    const html = renderMarkdown("keep `Heat.mkv`, not `Alien.mkv`", false, lib);
+    const lib = { rootId: 0, rootName: "Your Files", files: [[1, 0, "Movies", 9, FileFlag.folder], [2, 1, "Haze.mkv", 9, FileFlag.video]] } satisfies Library;
+    const html = renderMarkdown("keep `Haze.mkv`, not `Alvex.mkv`", false, lib);
     expect(hrefs(html)).toEqual(["https://app.put.io/files/2"]);
-    expect(text(html)).toContain("Alien.mkv");
+    expect(text(html)).toContain("Alvex.mkv");
   });
 });

@@ -51,13 +51,13 @@ describe("sidecarsOf", () => {
   const at = (id: number, name: string, file_type = "VIDEO"): WalkedFile => ({ id, parent_id: 9, name, path: `/d/${name}`, depth: 2, size: id, file_type, content_type: null, extension: name.split(".").pop() ?? null, crc32: null, created_at: "", first_accessed_at: null });
 
   it("gives a subtitle to the video whose name matches its case when two differ only in case, and to neither when two match exactly", () => {
-    const mkv = at(1, "Heat.1995.mkv");
-    const mp4 = at(2, "heat.1995.mp4");
-    const srt = at(3, "heat.1995.en.srt", "TEXT");
+    const mkv = at(1, "Haze.1995.mkv");
+    const mp4 = at(2, "haze.1995.mp4");
+    const srt = at(3, "haze.1995.en.srt", "TEXT");
 
     expect(sidecarsOf([mkv, mp4, srt], mkv)).toEqual([]);
     expect(sidecarsOf([mkv, mp4, srt], mp4)).toEqual([srt]);
-    expect(sidecarsOf([mkv, at(4, "Heat.1995.mp4"), at(5, "Heat.1995.en.srt", "TEXT")], mkv)).toEqual([]);
+    expect(sidecarsOf([mkv, at(4, "Haze.1995.mp4"), at(5, "Haze.1995.en.srt", "TEXT")], mkv)).toEqual([]);
     expect(sidecarsOf([mkv, srt], mkv)).toEqual([srt]);
   });
 });
@@ -67,26 +67,26 @@ describe("untranslated", () => {
 
   it("counts videos with no subtitle file in that language beside them, by folder, most missing first, within the given folder", () => {
     const snapshot = [
-      at(1, "/TV/Medici/S1/E1.mkv"),
-      at(2, "/TV/Medici/S1/E1.tur.srt", "TEXT"),
-      at(3, "/TV/Medici/S1/E2.mkv"),
-      at(4, "/TV/Medici/S2/E1.mkv"),
-      at(5, "/TV/Medici/S2/E2.mkv"),
-      at(6, "/TV/Medici/S2/E2.TUR.srt", "TEXT"),
-      at(7, "/TV/Curb/S10/E5.mkv"),
-      at(8, "/TV/Curb/S10/E6.mkv"),
+      at(1, "/TV/Merovia/S1/E1.mkv"),
+      at(2, "/TV/Merovia/S1/E1.tur.srt", "TEXT"),
+      at(3, "/TV/Merovia/S1/E2.mkv"),
+      at(4, "/TV/Merovia/S2/E1.mkv"),
+      at(5, "/TV/Merovia/S2/E2.mkv"),
+      at(6, "/TV/Merovia/S2/E2.TUR.srt", "TEXT"),
+      at(7, "/TV/Cove/S10/E5.mkv"),
+      at(8, "/TV/Cove/S10/E6.mkv"),
       at(9, "/TV/Done/E1.mkv"),
       at(10, "/TV/Done/E1.tur.srt", "TEXT"),
-      at(11, "/Movies/Heat.mkv"),
+      at(11, "/Movies/Haze.mkv"),
     ];
 
     expect(untranslated(snapshot, "tur", "/TV")).toEqual({
       videos: 4,
       folders: 3,
       top: [
-        { folder: "/TV/Curb/S10", videos: 2, missing: 2 },
-        { folder: "/TV/Medici/S1", videos: 2, missing: 1 },
-        { folder: "/TV/Medici/S2", videos: 2, missing: 1 },
+        { folder: "/TV/Cove/S10", videos: 2, missing: 2 },
+        { folder: "/TV/Merovia/S1", videos: 2, missing: 1 },
+        { folder: "/TV/Merovia/S2", videos: 2, missing: 1 },
       ],
     });
   });

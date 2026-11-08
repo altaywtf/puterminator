@@ -6,7 +6,7 @@ export type Node = {
   name: string;
   size: number;
   flags: number;
-  /** Relative to the scan root, as tool results write it: `/Movies/Heat.mkv`. */
+  /** Relative to the scan root, as tool results write it: `/Movies/Haze.mkv`. */
   path: string;
   depth: number;
   children: number[];

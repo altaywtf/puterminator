@@ -9,12 +9,12 @@ const lib: Library = {
   rootName: "Your Files",
   files: [
     [1, 0, "Movies", 3000, folder],
-    [2, 1, "Heat.mkv", 2000, video],
+    [2, 1, "Haze.mkv", 2000, video],
     [3, 1, "sample.mkv", 10, video | junk],
     [4, 0, "Shows", 5000, folder],
     [5, 4, "S01", 5000, folder],
     [6, 5, "Pilot.mkv", 4000, video | played],
-    [7, 5, "Heat.mkv", 900, video],
+    [7, 5, "Haze.mkv", 900, video],
   ],
 };
 
@@ -43,7 +43,7 @@ describe("library index", () => {
     expect(resolve(ix, "/Shows/S01/Pilot.mkv")?.id).toBe(6);
     expect(resolve(ix, "Movies/sample.mkv")?.id).toBe(3);
     expect(resolve(ix, "Pilot.mkv")?.id).toBe(6);
-    expect(resolve(ix, "Heat.mkv")).toBeNull();
+    expect(resolve(ix, "Haze.mkv")).toBeNull();
     expect(resolve(ix, "nope.mkv")).toBeNull();
   });
 

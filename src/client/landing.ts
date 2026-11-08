@@ -57,10 +57,10 @@ const diff = (h: H, sign: "-" | "+", text: string) =>
 
 const names = (h: H) =>
   tile(h, "", "release names, fixed", "clean up the names in Downloads", [
-    diff(h, "-", "Perfect.Days.2023.1080p.BluRay.x264-WoAT.mkv"),
-    diff(h, "+", "Perfect Days (2023).mkv"),
-    diff(h, "-", "Severance.S02E01.1080p.WEB.H264-SuccessfulCrab.mkv"),
-    diff(h, "+", "Severance - S02E01.mkv"),
+    diff(h, "-", "Perfect.Hours.2023.1080p.BluRay.x264-QoXT.mkv"),
+    diff(h, "+", "Perfect Hours (2023).mkv"),
+    diff(h, "-", "Sevenfold.S02E01.1080p.WEB.H264-AmbitiousEel.mkv"),
+    diff(h, "+", "Sevenfold - S02E01.mkv"),
   ]);
 
 const tree = (h: H, lines: Array<[branch: string, name: string, folder: boolean]>) =>
@@ -80,16 +80,16 @@ const layout = (h: H) =>
       tree(h, [
         ["", "# before", false],
         ["", "Downloads/", true],
-        ["├─ ", "Dune.Part.Two.2024.2160p.WEB-DL.DDP5.1.Atmos.H.265-FLUX/", true],
-        ["│  └─ ", "Dune.Part.Two.2024.2160p.WEB-DL.DDP5.1.Atmos.H.265-FLUX.mkv", false],
-        ["└─ ", "The.Bear.S03E01.1080p.WEB.h264-ETHEL.mkv", false],
+        ["├─ ", "Dunmar.Part.Two.2024.2160p.WEB-DL.DDP5.1.Atmos.H.265-FLAX/", true],
+        ["│  └─ ", "Dunmar.Part.Two.2024.2160p.WEB-DL.DDP5.1.Atmos.H.265-FLAX.mkv", false],
+        ["└─ ", "The.Badger.S03E01.1080p.WEB.h264-MABEL.mkv", false],
       ]),
       tree(h, [
         ["", "# after", false],
         ["", "Movies/", true],
-        ["└─ ", "Dune Part Two (2024)/Dune Part Two (2024).mkv", false],
+        ["└─ ", "Dunmar Part Two (2024)/Dunmar Part Two (2024).mkv", false],
         ["", "Series/", true],
-        ["└─ ", "The Bear/Season 03/The Bear - S03E01.mkv", false],
+        ["└─ ", "The Badger/Season 03/The Badger - S03E01.mkv", false],
       ]),
     ]),
   ]);

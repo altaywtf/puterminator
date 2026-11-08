@@ -75,10 +75,10 @@ describe("ServerEvent", () => {
 describe("Audit", () => {
   it("matches what audit() returns, field for field", () => {
     const flat = [
-      { id: 1, parent_id: 0, name: "The.Office.S02E01.720p.HDTV.x264", file_type: "FOLDER", size: 0 },
-      { id: 2, parent_id: 1, name: "The.Office.S02E01.720p.HDTV.x264.mkv", file_type: "VIDEO", size: 2 ** 30 },
-      { id: 3, parent_id: 1, name: "RARBG_DO_NOT_MIRROR.exe", file_type: "FILE", size: 100 },
-      { id: 4, parent_id: 0, name: "The Office S02E01 1080p WEB.mkv", file_type: "VIDEO", size: 2 * 2 ** 30 },
+      { id: 1, parent_id: 0, name: "The.Cubicle.S02E01.720p.HDTV.x264", file_type: "FOLDER", size: 0 },
+      { id: 2, parent_id: 1, name: "The.Cubicle.S02E01.720p.HDTV.x264.mkv", file_type: "VIDEO", size: 2 ** 30 },
+      { id: 3, parent_id: 1, name: "www.Ripgrove.to.exe", file_type: "FILE", size: 100 },
+      { id: 4, parent_id: 0, name: "The Cubicle S02E01 1080p WEB.mkv", file_type: "VIDEO", size: 2 * 2 ** 30 },
     ].map((f) => ({ ...f, content_type: null, extension: null, crc32: null, created_at: "2026-01-01T00:00:00", first_accessed_at: null }));
 
     const result = audit(buildTree(flat, 0).files, "Your Files", false);

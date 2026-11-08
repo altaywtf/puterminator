@@ -15,9 +15,9 @@ import { memorySql } from "./testing/sqlite";
 
 const library = [
   file(1, 0, "Movies", "FOLDER"),
-  file(2, 1, "Heat.1995.1080p.BluRay.x264-GRP.mkv", "VIDEO", 2 ** 30),
-  file(3, 1, "RARBG_DO_NOT_MIRROR.exe", "TEXT", 100),
-  file(4, 0, "Alien (1979).mkv", "VIDEO", 2 ** 30),
+  file(2, 1, "Haze.1995.1080p.BluRay.x264-GRP.mkv", "VIDEO", 2 ** 30),
+  file(3, 1, "www.Ripgrove.to.exe", "TEXT", 100),
+  file(4, 0, "Alvex (1979).mkv", "VIDEO", 2 ** 30),
 ];
 
 const frame = (event: ClientEvent) => JSON.stringify(event);
@@ -349,7 +349,7 @@ describe("previews", () => {
 });
 
 describe("plans", () => {
-  const heat = "/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv";
+  const haze = "/Movies/Haze.1995.1080p.BluRay.x264-GRP.mkv";
   const WRITES = ["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/files/create-folder", "/v2/trash/restore"];
 
   const writes = (t: Awaited<ReturnType<typeof setup>>) =>
@@ -358,9 +358,9 @@ describe("plans", () => {
   const proposal = JSON.stringify({
     title: "clean up Movies",
     changes: [
-      { op: "trash", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: null },
-      { op: "rename", path: heat, to: "Heat (1995).mkv" },
-      { op: "move", path: "/Alien (1979).mkv", to: "/Movies/Alien (1979)/Alien (1979).mkv" },
+      { op: "trash", path: "/Movies/www.Ripgrove.to.exe", to: null },
+      { op: "rename", path: haze, to: "Haze (1995).mkv" },
+      { op: "move", path: "/Alvex (1979).mkv", to: "/Movies/Alvex (1979)/Alvex (1979).mkv" },
     ],
   });
 
@@ -386,9 +386,9 @@ describe("plans", () => {
     const record = planOf(t);
     expect(record.status).toBe("proposed");
     expect(record.plan.changes.map((c) => [c.op, c.path, c.to])).toEqual([
-      ["trash", "/Movies/RARBG_DO_NOT_MIRROR.exe", null],
-      ["rename", heat, "Heat (1995).mkv"],
-      ["move", "/Alien (1979).mkv", "/Movies/Alien (1979)/Alien (1979).mkv"],
+      ["trash", "/Movies/www.Ripgrove.to.exe", null],
+      ["rename", haze, "Haze (1995).mkv"],
+      ["move", "/Alvex (1979).mkv", "/Movies/Alvex (1979)/Alvex (1979).mkv"],
     ]);
     expect(writes(t)).toEqual([]);
   });
@@ -400,7 +400,7 @@ describe("plans", () => {
     await t.receive({ type: "apply", plan: plan.id, exclude: ["c2"] });
     expect(writes(t)).toEqual([
       ["/v2/files/delete", { file_ids: "3" }],
-      ["/v2/files/create-folder", { name: "Alien (1979)", parent_id: "1" }],
+      ["/v2/files/create-folder", { name: "Alvex (1979)", parent_id: "1" }],
       ["/v2/files/move", { file_ids: "4", parent_id: expect.any(String) }],
     ]);
     const record = planOf(t);
@@ -427,7 +427,7 @@ describe("plans", () => {
     expect(planOf(t).run?.steps.map((s) => s.state)).toEqual(["done", "failed", "done"]);
     const before = writes(t).length;
     await t.receive({ type: "retry", plan: id });
-    expect(writes(t).slice(before)).toEqual([["/v2/files/rename", { file_id: "2", name: "Heat (1995).mkv" }]]);
+    expect(writes(t).slice(before)).toEqual([["/v2/files/rename", { file_id: "2", name: "Haze (1995).mkv" }]]);
   });
 
   it("undoes the done steps last first, once: restore from trash, rename and move back", async () => {
@@ -448,7 +448,7 @@ describe("plans", () => {
   });
 
   it("rescans until put.io's background restore shows the file again", async () => {
-    const trash = JSON.stringify({ title: "junk", changes: [{ op: "trash", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: null }] });
+    const trash = JSON.stringify({ title: "junk", changes: [{ op: "trash", path: "/Movies/www.Ripgrove.to.exe", to: null }] });
     const t = await setup(proposeTurn(trash), { restoreLagListings: 2 });
     await t.receive(send("trash it"));
     const id = planOf(t).plan.id;
@@ -465,42 +465,42 @@ describe("plans", () => {
         JSON.stringify({
           title: "names",
           changes: [
-            { op: "rename", path: heat, to: "Heat (1995).mkv" },
-            { op: "move", path: "/Alien (1979).mkv", to: "/Movies/Alien (1979).mkv" },
+            { op: "rename", path: haze, to: "Haze (1995).mkv" },
+            { op: "move", path: "/Alvex (1979).mkv", to: "/Movies/Alvex (1979).mkv" },
           ],
         }),
       ),
       {
         files: [
           ...library,
-          file(5, 1, "Heat.1995.1080p.BluRay.x264-GRP.eng.srt", "TEXT", 100),
-          file(6, 1, "Heat.1995.1080p.BluRay.x264-GRP-forced.en.ass", "TEXT", 100),
-          file(7, 1, "Heat.1995.1080p.BluRay.x264-GRP.nfo", "TEXT", 100),
-          file(8, 0, "Alien (1979).srt", "TEXT", 100),
+          file(5, 1, "Haze.1995.1080p.BluRay.x264-GRP.eng.srt", "TEXT", 100),
+          file(6, 1, "Haze.1995.1080p.BluRay.x264-GRP-forced.en.ass", "TEXT", 100),
+          file(7, 1, "Haze.1995.1080p.BluRay.x264-GRP.nfo", "TEXT", 100),
+          file(8, 0, "Alvex (1979).srt", "TEXT", 100),
         ],
       },
     );
 
     await t.receive(send("rename"));
     expect(planOf(t).plan.changes.map((c) => [c.op, c.path, c.to])).toEqual([
-      ["rename", heat, "Heat (1995).mkv"],
-      ["rename", "/Movies/Heat.1995.1080p.BluRay.x264-GRP.eng.srt", "Heat (1995).eng.srt"],
-      ["rename", "/Movies/Heat.1995.1080p.BluRay.x264-GRP-forced.en.ass", "Heat (1995)-forced.en.ass"],
-      ["move", "/Alien (1979).mkv", "/Movies/Alien (1979).mkv"],
-      ["move", "/Alien (1979).srt", "/Movies/Alien (1979).srt"],
+      ["rename", haze, "Haze (1995).mkv"],
+      ["rename", "/Movies/Haze.1995.1080p.BluRay.x264-GRP.eng.srt", "Haze (1995).eng.srt"],
+      ["rename", "/Movies/Haze.1995.1080p.BluRay.x264-GRP-forced.en.ass", "Haze (1995)-forced.en.ass"],
+      ["move", "/Alvex (1979).mkv", "/Movies/Alvex (1979).mkv"],
+      ["move", "/Alvex (1979).srt", "/Movies/Alvex (1979).srt"],
     ]);
   });
 
   it("undoes a rename back to the old name", async () => {
-    const rename = JSON.stringify({ title: "names", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] });
+    const rename = JSON.stringify({ title: "names", changes: [{ op: "rename", path: haze, to: "Haze (1995).mkv" }] });
     const t = await setup(proposeTurn(rename));
     await t.receive(send("rename"));
     const id = planOf(t).plan.id;
     await t.receive({ type: "apply", plan: id, exclude: [] });
     await t.receive({ type: "undo", plan: id });
     expect(writes(t)).toEqual([
-      ["/v2/files/rename", { file_id: "2", name: "Heat (1995).mkv" }],
-      ["/v2/files/rename", { file_id: "2", name: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }],
+      ["/v2/files/rename", { file_id: "2", name: "Haze (1995).mkv" }],
+      ["/v2/files/rename", { file_id: "2", name: "Haze.1995.1080p.BluRay.x264-GRP.mkv" }],
     ]);
   });
 
@@ -519,7 +519,7 @@ describe("plans", () => {
         title: "films",
         changes: [
           { op: "rename", path: "/Movies", to: "Films" },
-          { op: "move", path: "/Alien (1979).mkv", to: "/Films/Alien (1979).mkv" },
+          { op: "move", path: "/Alvex (1979).mkv", to: "/Films/Alvex (1979).mkv" },
         ],
       }),
     );
@@ -536,7 +536,7 @@ describe("plans", () => {
         title: "archive",
         changes: [
           { op: "move", path: "/Movies", to: "/Old/Movies" },
-          { op: "move", path: heat, to: "/Heat.mkv" },
+          { op: "move", path: haze, to: "/Haze.mkv" },
         ],
       }),
     );
@@ -545,7 +545,7 @@ describe("plans", () => {
     await t.receive({ type: "undo", plan: id });
     expect(writes(t).slice(before)).toEqual([
       ["/v2/files/move", { file_ids: "2", parent_id: "1" }],
-      ["/v2/files/rename", { file_id: "2", name: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }],
+      ["/v2/files/rename", { file_id: "2", name: "Haze.1995.1080p.BluRay.x264-GRP.mkv" }],
       ["/v2/files/move", { file_ids: "1", parent_id: "0" }],
     ]);
   });
@@ -555,8 +555,8 @@ describe("plans", () => {
       JSON.stringify({
         title: "tidy",
         changes: [
-          { op: "trash", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: null },
-          { op: "rename", path: heat, to: "Heat (1995).mkv" },
+          { op: "trash", path: "/Movies/www.Ripgrove.to.exe", to: null },
+          { op: "rename", path: haze, to: "Haze (1995).mkv" },
           { op: "move", path: "/Movies", to: "/Films/Movies" },
         ],
       }),
@@ -571,7 +571,7 @@ describe("plans", () => {
     ]);
     expect(writes(t).slice(before)).toEqual([
       ["/v2/files/move", { file_ids: "1", parent_id: "0" }],
-      ["/v2/files/rename", { file_id: "2", name: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }],
+      ["/v2/files/rename", { file_id: "2", name: "Haze.1995.1080p.BluRay.x264-GRP.mkv" }],
       ["/v2/trash/restore", { file_ids: "3" }],
     ]);
   });
@@ -584,7 +584,7 @@ describe("plans", () => {
     await t.receive({ type: "retry", plan: id });
     expect(planOf(t).run?.steps[1]).toMatchObject({ state: "failed", error: "put.io /files/rename → 400", maybeApplied: true });
     await t.receive({ type: "undo", plan: id });
-    expect(writes(t).at(-2)).toEqual(["/v2/files/rename", { file_id: "2", name: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }]);
+    expect(writes(t).at(-2)).toEqual(["/v2/files/rename", { file_id: "2", name: "Haze.1995.1080p.BluRay.x264-GRP.mkv" }]);
   });
 
   it("on retry, counts a trash whose answer was lost and whose file is gone as done, and runs the rest", async () => {
@@ -595,7 +595,7 @@ describe("plans", () => {
     const before = writes(t).length;
     await t.receive({ type: "retry", plan: id });
     expect(planOf(t).run?.steps.map((s) => s.state)).toEqual(["done", "done", "done"]);
-    expect(writes(t).slice(before)).toEqual([["/v2/files/rename", { file_id: "2", name: "Heat (1995).mkv" }]]);
+    expect(writes(t).slice(before)).toEqual([["/v2/files/rename", { file_id: "2", name: "Haze (1995).mkv" }]]);
   });
 
   it("fails a run when the put.io sign-in is gone, instead of leaving it applying", async () => {
@@ -694,16 +694,16 @@ describe("plans", () => {
     const record = planOf(t);
 
     expect(record.plan.changes.map((c) => [c.op, c.path, c.to])).toEqual([
-      ["move", "/Alien (1979).mkv", "/Movies/Alien (1979)/Alien (1979).mkv"],
-      ["move", heat, "/Movies/Heat (1995)/Heat (1995).mkv"],
+      ["move", "/Alvex (1979).mkv", "/Movies/Alvex (1979)/Alvex (1979).mkv"],
+      ["move", haze, "/Movies/Haze (1995)/Haze (1995).mkv"],
     ]);
     const sentToModel = JSON.stringify(t.anthropic.requests.at(-1)?.body.messages.at(-1));
 
     expect(sentToModel).toContain(`\\"changes\\":2`);
-    expect(sentToModel).not.toContain("Heat (1995).mkv");
+    expect(sentToModel).not.toContain("Haze (1995).mkv");
     await t.receive({ type: "apply", plan: record.plan.id, exclude: [] });
     expect(planOf(t).run?.steps.map((s) => s.state)).toEqual(["done", "done"]);
-    expect(t.putio.log.filter((r) => r.url.pathname === "/v2/files/create-folder").map((r) => r.body.get("name"))).toEqual(["Alien (1979)", "Heat (1995)"]);
+    expect(t.putio.log.filter((r) => r.url.pathname === "/v2/files/create-folder").map((r) => r.body.get("name"))).toEqual(["Alvex (1979)", "Haze (1995)"]);
   });
 
   const twoPlans = async (first: [string, string], second: [string, string], opts: Parameters<typeof setup>[1] = {}) => {
@@ -726,7 +726,7 @@ describe("plans", () => {
   };
 
   it("refuses to apply a plan the library has moved on from", async () => {
-    const { t, a, b } = await twoPlans([heat, "Heat (1995).mkv"], [heat, "Heat.mkv"]);
+    const { t, a, b } = await twoPlans([haze, "Haze (1995).mkv"], [haze, "Haze.mkv"]);
     await t.receive({ type: "apply", plan: a, exclude: [] });
     const before = writes(t).length;
 
@@ -736,25 +736,25 @@ describe("plans", () => {
   });
 
   it("checks put.io itself before a run, so a rename made elsewhere since the scan stops it", async () => {
-    const t = await setup(proposeTurn(JSON.stringify({ title: "x", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] })));
+    const t = await setup(proposeTurn(JSON.stringify({ title: "x", changes: [{ op: "rename", path: haze, to: "Haze (1995).mkv" }] })));
     await t.receive(send("go"));
-    await t.putio.fetch("https://api.put.io/v2/files/rename", { method: "POST", body: new URLSearchParams({ file_id: "2", name: "Heat.mkv" }) });
+    await t.putio.fetch("https://api.put.io/v2/files/rename", { method: "POST", body: new URLSearchParams({ file_id: "2", name: "Haze.mkv" }) });
     const before = writes(t).length;
 
     await t.receive({ type: "apply", plan: planOf(t).plan.id, exclude: [] });
     expect(writes(t).length).toBe(before);
-    expect(planOf(t).run?.steps[0]?.error).toBe(`the library changed since this plan (${heat} moved or is gone); ask for a new one`);
+    expect(planOf(t).run?.steps[0]?.error).toBe(`the library changed since this plan (${haze} moved or is gone); ask for a new one`);
   });
 
   it("won't retry onto a name another plan took since", async () => {
-    const { t, a, b } = await twoPlans([heat, "Heat (1995).mkv"], ["/Movies/RARBG_DO_NOT_MIRROR.exe", "Heat (1995).mkv"], { failWrites: [2] });
+    const { t, a, b } = await twoPlans([haze, "Haze (1995).mkv"], ["/Movies/www.Ripgrove.to.exe", "Haze (1995).mkv"], { failWrites: [2] });
     await t.receive({ type: "apply", plan: a, exclude: [] });
     await t.receive({ type: "apply", plan: b, exclude: [] });
     const before = writes(t).length;
 
     await t.receive({ type: "retry", plan: a });
     expect(writes(t).length).toBe(before);
-    expect(recordOf(t, a)?.run?.steps[0]?.error).toBe("the library changed since this plan (/Movies/Heat (1995).mkv is taken); ask for a new one");
+    expect(recordOf(t, a)?.run?.steps[0]?.error).toBe("the library changed since this plan (/Movies/Haze (1995).mkv is taken); ask for a new one");
   });
 
   const oneAfterAnother = async (first: ProposeInput, second: ProposeInput, opts: Parameters<typeof setup>[1] = {}) => {
@@ -778,42 +778,42 @@ describe("plans", () => {
 
   it("won't undo onto a name another plan took since, and says to undo it by hand", async () => {
     const { t, first, before } = await oneAfterAnother(
-      { title: "a", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] },
-      { title: "b", changes: [{ op: "rename", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: "Heat.1995.1080p.BluRay.x264-GRP.mkv" }] },
+      { title: "a", changes: [{ op: "rename", path: haze, to: "Haze (1995).mkv" }] },
+      { title: "b", changes: [{ op: "rename", path: "/Movies/www.Ripgrove.to.exe", to: "Haze.1995.1080p.BluRay.x264-GRP.mkv" }] },
     );
 
     await t.receive({ type: "undo", plan: first });
     expect(writes(t).length).toBe(before);
-    expect(planOf(t).undo?.steps.map((s) => [s.state, s.error])).toEqual([["failed", `the library changed since this plan (${heat} is taken); undo it by hand`]]);
+    expect(planOf(t).undo?.steps.map((s) => [s.state, s.error])).toEqual([["failed", `the library changed since this plan (${haze} is taken); undo it by hand`]]);
   });
 
   it("won't undo a file another plan has moved on since", async () => {
     const { t, first, before } = await oneAfterAnother(
-      { title: "a", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] },
-      { title: "b", changes: [{ op: "move", path: "/Movies/Heat (1995).mkv", to: "/Heat (1995).mkv" }] },
+      { title: "a", changes: [{ op: "rename", path: haze, to: "Haze (1995).mkv" }] },
+      { title: "b", changes: [{ op: "move", path: "/Movies/Haze (1995).mkv", to: "/Haze (1995).mkv" }] },
     );
 
     await t.receive({ type: "undo", plan: first });
     expect(writes(t).length).toBe(before);
-    expect(planOf(t).undo?.steps[0]?.error).toBe("the library changed since this plan (/Movies/Heat (1995).mkv moved or is gone); undo it by hand");
+    expect(planOf(t).undo?.steps[0]?.error).toBe("the library changed since this plan (/Movies/Haze (1995).mkv moved or is gone); undo it by hand");
   });
 
   it("won't retry a file another plan has moved since it failed", async () => {
     const { t, first, before } = await oneAfterAnother(
-      { title: "a", changes: [{ op: "rename", path: heat, to: "Heat (1995).mkv" }] },
-      { title: "b", changes: [{ op: "move", path: heat, to: "/Heat.1995.1080p.BluRay.x264-GRP.mkv" }] },
+      { title: "a", changes: [{ op: "rename", path: haze, to: "Haze (1995).mkv" }] },
+      { title: "b", changes: [{ op: "move", path: haze, to: "/Haze.1995.1080p.BluRay.x264-GRP.mkv" }] },
       { failRenames: [2] },
     );
 
     await t.receive({ type: "retry", plan: first });
     expect(writes(t).length).toBe(before);
-    expect(recordOf(t, first)?.run?.steps[0]?.error).toBe(`the library changed since this plan (${heat} moved or is gone); ask for a new one`);
+    expect(recordOf(t, first)?.run?.steps[0]?.error).toBe(`the library changed since this plan (${haze} moved or is gone); ask for a new one`);
   });
 
   it("leaves a subtitle where it is when its video's move fails", async () => {
     const { t } = await applied(
-      JSON.stringify({ title: "x", changes: [{ op: "move", path: heat, to: "/Heat/Heat (1995).mkv" }] }),
-      { files: [...library, file(5, 1, "heat.1995.1080p.bluray.x264-grp.EN.srt", "TEXT", 100)], failWrites: [2] },
+      JSON.stringify({ title: "x", changes: [{ op: "move", path: haze, to: "/Haze/Haze (1995).mkv" }] }),
+      { files: [...library, file(5, 1, "haze.1995.1080p.bluray.x264-grp.EN.srt", "TEXT", 100)], failWrites: [2] },
     );
 
     expect(planOf(t).run?.steps.map((s) => [s.change, s.state, s.error])).toEqual([
@@ -836,31 +836,31 @@ describe("plans", () => {
   });
 
   it("rejects changes that collide: into or inside a trashed folder, onto one path, onto an existing name in any case", async () => {
-    expect(await rejection([{ op: "trash", path: "/Movies", to: null }, { op: "move", path: "/Alien (1979).mkv", to: "/Movies/Alien (1979).mkv" }])).toContain(
+    expect(await rejection([{ op: "trash", path: "/Movies", to: null }, { op: "move", path: "/Alvex (1979).mkv", to: "/Movies/Alvex (1979).mkv" }])).toContain(
       "lands in /Movies, which this plan trashes",
     );
-    expect(await rejection([{ op: "trash", path: "/Movies", to: null }, { op: "trash", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: null }])).toContain(
+    expect(await rejection([{ op: "trash", path: "/Movies", to: null }, { op: "trash", path: "/Movies/www.Ripgrove.to.exe", to: null }])).toContain(
       "inside /Movies, which this plan trashes",
     );
     expect(
       await rejection([
-        { op: "move", path: "/Alien (1979).mkv", to: "/Movies/x.mkv" },
-        { op: "move", path: heat, to: "/Movies/X.mkv" },
+        { op: "move", path: "/Alvex (1979).mkv", to: "/Movies/x.mkv" },
+        { op: "move", path: haze, to: "/Movies/X.mkv" },
       ]),
     ).toContain("two changes end there");
-    expect(await rejection([{ op: "rename", path: heat, to: "rarbg_do_not_mirror.EXE" }])).toContain("already exists there");
+    expect(await rejection([{ op: "rename", path: haze, to: "WWW.RIPGROVE.TO.EXE" }])).toContain("already exists there");
   });
 
   it("leaves another cut's subtitles alone, and keeps subtitles with their video when it's left out", async () => {
     const t = await setup(
-      proposeTurn(JSON.stringify({ title: "names", changes: [{ op: "rename", path: "/Movies/Heat.mkv", to: "Heat (1995).mkv" }] })),
+      proposeTurn(JSON.stringify({ title: "names", changes: [{ op: "rename", path: "/Movies/Haze.mkv", to: "Haze (1995).mkv" }] })),
       {
         files: [
           file(1, 0, "Movies", "FOLDER"),
-          file(2, 1, "Heat.mkv", "VIDEO", 2 ** 30),
-          file(3, 1, "Heat.Extended.mkv", "VIDEO", 2 ** 30),
-          file(4, 1, "Heat.Extended.srt", "TEXT", 100),
-          file(5, 1, "Heat.en.srt", "TEXT", 100),
+          file(2, 1, "Haze.mkv", "VIDEO", 2 ** 30),
+          file(3, 1, "Haze.Extended.mkv", "VIDEO", 2 ** 30),
+          file(4, 1, "Haze.Extended.srt", "TEXT", 100),
+          file(5, 1, "Haze.en.srt", "TEXT", 100),
         ],
       },
     );
@@ -868,8 +868,8 @@ describe("plans", () => {
     await t.receive(send("rename"));
     const { plan } = planOf(t);
     expect(plan.changes.map((c) => [c.id, c.path])).toEqual([
-      ["c1", "/Movies/Heat.mkv"],
-      ["c1s1", "/Movies/Heat.en.srt"],
+      ["c1", "/Movies/Haze.mkv"],
+      ["c1s1", "/Movies/Haze.en.srt"],
     ]);
     await t.receive({ type: "apply", plan: plan.id, exclude: ["c1"] });
     expect(writes(t)).toEqual([]);
@@ -927,7 +927,7 @@ describe("plans", () => {
 });
 
 const scanned = (at: string, root = 0) => (store: ReturnType<typeof makeStore>) => {
-  store.saveSnapshot([{ id: 4, parent_id: 0, name: "Alien (1979).mkv", path: "/Alien (1979).mkv", depth: 1, size: 1, file_type: "VIDEO", content_type: "video/x-matroska", extension: "mkv", crc32: null, created_at: "2026-01-01T00:00:00", first_accessed_at: null }], root);
+  store.saveSnapshot([{ id: 4, parent_id: 0, name: "Alvex (1979).mkv", path: "/Alvex (1979).mkv", depth: 1, size: 1, file_type: "VIDEO", content_type: "video/x-matroska", extension: "mkv", crc32: null, created_at: "2026-01-01T00:00:00", first_accessed_at: null }], root);
   store.saveState({ ...store.loadState(Date.now()), lastAudit: { at, rootName: "Your Files", score: 90, items: 1 } });
 };
 
@@ -987,12 +987,12 @@ describe("library freshness", () => {
     );
 
     t.agent.connected();
-    await t.putio.fetch("https://api.put.io/v2/files/rename", { method: "POST", body: new URLSearchParams({ file_id: "4", name: "Aliens (1986).mkv" }) });
+    await t.putio.fetch("https://api.put.io/v2/files/rename", { method: "POST", body: new URLSearchParams({ file_id: "4", name: "Alvexes (1986).mkv" }) });
     await Effect.runPromise(t.agent.receive(send("rescan")));
     await vi.waitFor(() => expect(t.anthropic.requests).toHaveLength(1));
     release();
     await t.settle();
-    expect(t.store.snapshot().map((f) => f.name)).toContain("Aliens (1986).mkv");
+    expect(t.store.snapshot().map((f) => f.name)).toContain("Alvexes (1986).mkv");
   });
 
   it("tells the model how old the last scan is", async () => {
@@ -1003,17 +1003,17 @@ describe("library freshness", () => {
 });
 
 describe("translate subtitles", () => {
-  const files = [file(1, 0, "Movies", "FOLDER"), file(2, 1, "Heat (1995).mkv", "VIDEO", 2 ** 30)];
+  const files = [file(1, 0, "Movies", "FOLDER"), file(2, 1, "Haze (1995).mkv", "VIDEO", 2 ** 30)];
   const english = "1\n00:00:01,000 --> 00:00:02,000\nHello.\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Run!</i>\n";
 
   const scan = tool("toolu_s", "scan_library");
   const done = say("plan's up.");
-  const proposeTurns = [scan, tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Movies/Heat (1995).mkv", "/movies/HEAT (1995).mkv"], language: "tur" })), done];
+  const proposeTurns = [scan, tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Movies/Haze (1995).mkv", "/movies/HAZE (1995).mkv"], language: "tur" })), done];
   const matches = (yes: boolean) => say(JSON.stringify({ matches: yes }), { input: 1, output: 1 });
   const proposeChecking = (...checks: ReadonlyArray<ReturnType<typeof matches>>) => [...proposeTurns.slice(0, 2), ...checks, ...proposeTurns.slice(2)];
 
   const proposeAndApply = async (t: Awaited<ReturnType<typeof setup>>) => {
-    await t.receive(send("turkish subtitles for heat"));
+    await t.receive(send("turkish subtitles for haze"));
     const planId = t.store.plans()[0]?.record.plan.id ?? "";
     const m = month(Date.now());
     const before = t.store.used(m);
@@ -1031,14 +1031,14 @@ describe("translate subtitles", () => {
     const { planId, charged } = await proposeAndApply(t);
 
     expect(t.putio.uploads).toEqual([
-      { name: "Heat (1995).tur.srt", parentId: 1, text: "1\n00:00:01,000 --> 00:00:02,000\nMerhaba.\nNasılsın?\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Koş!</i>\n" },
+      { name: "Haze (1995).tur.srt", parentId: 1, text: "1\n00:00:01,000 --> 00:00:02,000\nMerhaba.\nNasılsın?\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Koş!</i>\n" },
     ]);
     expect(t.anthropic.requests.at(-1)?.body.model).toBe("claude-haiku-5-5");
     expect(t.store.plans()[0]?.record.status).toBe("done");
 
     await t.receive({ type: "undo", plan: planId });
     const deleted = t.putio.log.filter((r) => r.url.pathname === "/v2/files/delete").map((r) => r.body.get("file_ids"));
-    const uploadedId = t.store.snapshot().find((f) => f.name === "Heat (1995).tur.srt")?.id;
+    const uploadedId = t.store.snapshot().find((f) => f.name === "Haze (1995).tur.srt")?.id;
 
     expect(deleted).toHaveLength(1);
     expect(deleted[0]).not.toBe("2");
@@ -1064,12 +1064,12 @@ describe("translate subtitles", () => {
 
   it("translates every episode under a season folder in one plan, leaving out ones that already have the language", async () => {
     const season = [
-      file(30, 0, "Medici", "FOLDER"),
+      file(30, 0, "Merovia", "FOLDER"),
       file(31, 30, "Season 2", "FOLDER"),
-      file(32, 31, "Medici S02E01.mkv", "VIDEO", 2 ** 30),
-      file(33, 31, "Medici S02E02.mkv", "VIDEO", 2 ** 30),
-      file(34, 31, "Medici S02E02.tur.srt", "TEXT", 100),
-      file(35, 31, "Medici S02E03.mkv", "VIDEO", 2 ** 30),
+      file(32, 31, "Merovia S02E01.mkv", "VIDEO", 2 ** 30),
+      file(33, 31, "Merovia S02E02.mkv", "VIDEO", 2 ** 30),
+      file(34, 31, "Merovia S02E02.tur.srt", "TEXT", 100),
+      file(35, 31, "Merovia S02E03.mkv", "VIDEO", 2 ** 30),
     ];
 
     const sub = [{ key: "k1", language_code: "eng", source: "mkv", name: "English", srt: english }];
@@ -1078,7 +1078,7 @@ describe("translate subtitles", () => {
     const t = await setup(
       [
         scan,
-        tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Medici/Season 2"], language: "tur" })),
+        tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Merovia/Season 2"], language: "tur" })),
         done,
         translated,
         translated,
@@ -1094,8 +1094,8 @@ describe("translate subtitles", () => {
     ]).toEqual([
       1,
       [
-        ["Medici S02E01.tur.srt", 31],
-        ["Medici S02E03.tur.srt", 31],
+        ["Merovia S02E01.tur.srt", 31],
+        ["Merovia S02E03.tur.srt", 31],
       ],
       "done",
     ]);
@@ -1125,13 +1125,13 @@ describe("translate subtitles", () => {
     await proposeAndApply(t);
 
     expect([JSON.parse(String(t.anthropic.requests.at(-3)?.body.messages.at(-1)?.content)), t.putio.uploads.map((u) => u.text)]).toEqual([
-      { video: "/Movies/Heat (1995).mkv", lines: ["Put it down now!"] },
+      { video: "/Movies/Haze (1995).mkv", lines: ["Put it down now!"] },
       ["1\n00:00:01,000 --> 00:00:02,000\nMerhaba.\n\n2\n00:00:03,000 --> 00:00:04,500\n<i>Koş!</i>\n"],
     ]);
   });
 
   it("leaves out, when proposing, videos whose English subtitle is missing or for another video, and says why", async () => {
-    const three = [...files, file(3, 1, "Alien (1979).mkv", "VIDEO", 2 ** 30), file(4, 1, "Ronin (1998).mkv", "VIDEO", 2 ** 30)];
+    const three = [...files, file(3, 1, "Alvex (1979).mkv", "VIDEO", 2 ** 30), file(4, 1, "Rondel (1998).mkv", "VIDEO", 2 ** 30)];
     const propose = tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Movies"], language: "tur" }));
 
     const t = await setup([scan, propose, matches(false), done], {
@@ -1148,10 +1148,10 @@ describe("translate subtitles", () => {
 
     expect([out.cant_translate, t.store.plans()[0]?.record.plan.changes.map((c) => c.path), t.putio.uploads]).toEqual([
       [
-        { path: "/Movies/Alien (1979).mkv", why: "put.io has no English subtitle for this video" },
-        { path: "/Movies/Heat (1995).mkv", why: "put.io’s English subtitles are for a different video" },
+        { path: "/Movies/Alvex (1979).mkv", why: "put.io has no English subtitle for this video" },
+        { path: "/Movies/Haze (1995).mkv", why: "put.io’s English subtitles are for a different video" },
       ],
-      ["/Movies/Ronin (1998).mkv"],
+      ["/Movies/Rondel (1998).mkv"],
       [],
     ]);
   });
@@ -1233,20 +1233,20 @@ describe("translate with a subtitle from OpenSubtitles", () => {
 
 describe("tidy subtitles", () => {
   const files = [
-    file(1, 0, "Heat (1995)", "FOLDER"),
-    file(2, 1, "Heat (1995).mkv", "VIDEO", 2 ** 30),
+    file(1, 0, "Haze (1995)", "FOLDER"),
+    file(2, 1, "Haze (1995).mkv", "VIDEO", 2 ** 30),
     file(3, 1, "Subs", "FOLDER"),
     file(4, 3, "English.srt", "TEXT", 100),
-    file(18, 1, "Heat (1995)-trailer.mkv", "VIDEO", 120 * 2 ** 20),
-    file(5, 0, "Alien (1979)", "FOLDER"),
-    file(6, 5, "Alien (1979).mkv", "VIDEO", 2 ** 30),
-    file(7, 5, "alien-eng.srt", "TEXT", 100),
-    file(8, 0, "Drive (2011)", "FOLDER"),
-    file(9, 8, "Drive (2011).mkv", "VIDEO", 2 ** 30),
-    file(10, 8, "Drive (2011).srt", "TEXT", 100),
+    file(18, 1, "Haze (1995)-trailer.mkv", "VIDEO", 120 * 2 ** 20),
+    file(5, 0, "Alvex (1979)", "FOLDER"),
+    file(6, 5, "Alvex (1979).mkv", "VIDEO", 2 ** 30),
+    file(7, 5, "alvex-eng.srt", "TEXT", 100),
+    file(8, 0, "Drovel (2011)", "FOLDER"),
+    file(9, 8, "Drovel (2011).mkv", "VIDEO", 2 ** 30),
+    file(10, 8, "Drovel (2011).srt", "TEXT", 100),
     file(11, 8, "forced.srt", "TEXT", 100),
-    file(12, 0, "Dune (2021)", "FOLDER"),
-    file(13, 12, "Dune (2021).mkv", "VIDEO", 2 ** 30),
+    file(12, 0, "Dunmar (2021)", "FOLDER"),
+    file(13, 12, "Dunmar (2021).mkv", "VIDEO", 2 ** 30),
     file(14, 12, "Subs", "FOLDER"),
     file(15, 14, "1_English.srt", "TEXT", 100),
     file(16, 14, "2_Turkish.srt", "TEXT", 100),
@@ -1273,16 +1273,16 @@ describe("tidy subtitles", () => {
     const { result, plan } = await run("");
 
     expect(plan?.changes.map((c) => [c.op, c.path, c.to])).toEqual([
-      ["move", "/Heat (1995)/Subs/English.srt", "/Heat (1995)/Heat (1995).srt"],
-      ["rename", "/Alien (1979)/alien-eng.srt", "Alien (1979).srt"],
+      ["move", "/Haze (1995)/Subs/English.srt", "/Haze (1995)/Haze (1995).srt"],
+      ["rename", "/Alvex (1979)/alvex-eng.srt", "Alvex (1979).srt"],
     ]);
     expect(result.skipped).toBe(4);
   });
 
   it("matches the folder it's limited to the way plan_layout does", async () => {
-    const { plan } = await run("heat (1995)/");
+    const { plan } = await run("haze (1995)/");
 
-    expect(plan?.changes.map((c) => c.path)).toEqual(["/Heat (1995)/Subs/English.srt"]);
+    expect(plan?.changes.map((c) => c.path)).toEqual(["/Haze (1995)/Subs/English.srt"]);
   });
 });
 
@@ -1291,16 +1291,16 @@ describe("free up space", () => {
 
   const files = [
     file(1, 0, "Movies", "FOLDER"),
-    file(2, 1, "Heat (1995).mkv", "VIDEO", 4 * GB, { crc32: "aaaa0001", playedAt: "2026-02-01T00:00:00" }),
-    file(3, 0, "Heat.1995.1080p.BluRay.x264-GRP.mkv", "VIDEO", 4 * GB, { crc32: "aaaa0001" }),
-    file(4, 1, "Alien (1979).mkv", "VIDEO", 2 * GB, { crc32: "bbbb0001" }),
-    file(5, 0, "Alien.1979.720p.WEB.x264-GRP.mkv", "VIDEO", GB, { crc32: "bbbb0002" }),
-    file(6, 0, "RARBG_DO_NOT_MIRROR.exe", "TEXT", 100),
-    file(7, 1, "Dune (2021).mkv", "VIDEO", 8 * GB, { crc32: "cccc0001" }),
+    file(2, 1, "Haze (1995).mkv", "VIDEO", 4 * GB, { crc32: "aaaa0001", playedAt: "2026-02-01T00:00:00" }),
+    file(3, 0, "Haze.1995.1080p.BluRay.x264-GRP.mkv", "VIDEO", 4 * GB, { crc32: "aaaa0001" }),
+    file(4, 1, "Alvex (1979).mkv", "VIDEO", 2 * GB, { crc32: "bbbb0001" }),
+    file(5, 0, "Alvex.1979.720p.WEB.x264-GRP.mkv", "VIDEO", GB, { crc32: "bbbb0002" }),
+    file(6, 0, "www.Ripgrove.to.exe", "TEXT", 100),
+    file(7, 1, "Dunmar (2021).mkv", "VIDEO", 8 * GB, { crc32: "cccc0001" }),
     file(8, 0, "__MACOSX", "FOLDER"),
-    file(9, 8, "Heat (1995).mkv", "VIDEO", 4 * GB, { crc32: "aaaa0001" }),
+    file(9, 8, "Haze (1995).mkv", "VIDEO", 4 * GB, { crc32: "aaaa0001" }),
     file(10, 0, "Old", "FOLDER"),
-    file(11, 10, "Alien.1979.720p.WEB.x264-GRP.mkv", "VIDEO", GB, { crc32: "bbbb0002" }),
+    file(11, 10, "Alvex.1979.720p.WEB.x264-GRP.mkv", "VIDEO", GB, { crc32: "bbbb0002" }),
   ];
 
   const run = async (freeGb: number) => {
@@ -1323,23 +1323,23 @@ describe("free up space", () => {
     const { result, plan } = await run(0);
 
     expect(plan?.changes.map((c) => [c.op, c.path])).toEqual([
-      ["trash", "/Heat.1995.1080p.BluRay.x264-GRP.mkv"],
-      ["trash", "/Old/Alien.1979.720p.WEB.x264-GRP.mkv"],
-      ["trash", "/__MACOSX/Heat (1995).mkv"],
-      ["trash", "/RARBG_DO_NOT_MIRROR.exe"],
+      ["trash", "/Haze.1995.1080p.BluRay.x264-GRP.mkv"],
+      ["trash", "/Old/Alvex.1979.720p.WEB.x264-GRP.mkv"],
+      ["trash", "/__MACOSX/Haze (1995).mkv"],
+      ["trash", "/www.Ripgrove.to.exe"],
     ]);
     expect(result).toMatchObject({
       freed: 9 * GB + 100,
       disk: { avail: 5e9, size: 1e12 },
-      choices: [{ options: [{ path: "/Movies/Alien (1979).mkv" }, { path: "/Alien.1979.720p.WEB.x264-GRP.mkv" }] }],
+      choices: [{ options: [{ path: "/Movies/Alvex (1979).mkv" }, { path: "/Alvex.1979.720p.WEB.x264-GRP.mkv" }] }],
     });
-    expect(result.hints.map((h: { path: string }) => h.path)).toEqual(["/Movies/Dune (2021).mkv"]);
+    expect(result.hints.map((h: { path: string }) => h.path)).toEqual(["/Movies/Dunmar (2021).mkv"]);
   });
 
   it("stops once the target is met", async () => {
     const { result, plan } = await run(1);
 
-    expect([plan?.changes.map((c) => c.path), result.freed, result.left]).toEqual([["/Heat.1995.1080p.BluRay.x264-GRP.mkv"], 4 * GB, 3]);
+    expect([plan?.changes.map((c) => c.path), result.freed, result.left]).toEqual([["/Haze.1995.1080p.BluRay.x264-GRP.mkv"], 4 * GB, 3]);
   });
 });
 
@@ -1355,8 +1355,8 @@ describe("media info", () => {
     await t.receive(send("which files are matroska?"));
     const mkv = JSON.parse(t.toolOutput("toolu_m"));
     expect(mkv.items.map((i: { path: string; mime: string }) => [i.path, i.mime])).toEqual([
-      ["/Movies/Heat.1995.1080p.BluRay.x264-GRP.mkv", "video/x-matroska"],
-      ["/Alien (1979).mkv", "video/x-matroska"],
+      ["/Movies/Haze.1995.1080p.BluRay.x264-GRP.mkv", "video/x-matroska"],
+      ["/Alvex (1979).mkv", "video/x-matroska"],
     ]);
     expect(JSON.parse(t.toolOutput("toolu_a")).byMime).toEqual([
       { mime: "video/x-matroska", count: 2, bytes: "2.0 GB" },
@@ -1367,7 +1367,7 @@ describe("media info", () => {
   it("reads put.io's media info per file, null for files put.io didn't probe, and refuses folders", async () => {
     const t = await setup([
       tool("toolu_s", "scan_library"),
-      tool("toolu_i", "media_info", JSON.stringify({ paths: ["/Alien (1979).mkv", "/Movies/RARBG_DO_NOT_MIRROR.exe"] })),
+      tool("toolu_i", "media_info", JSON.stringify({ paths: ["/Alvex (1979).mkv", "/Movies/www.Ripgrove.to.exe"] })),
       tool("toolu_f", "media_info", JSON.stringify({ paths: ["/Movies"] })),
       say("hevc."),
     ]);
@@ -1376,7 +1376,7 @@ describe("media info", () => {
     expect(JSON.parse(t.toolOutput("toolu_i"))).toEqual({
       files: [
         {
-          path: "/Alien (1979).mkv",
+          path: "/Alvex (1979).mkv",
           mime: "video/x-matroska",
           info: {
             container: "matroska,webm",
@@ -1389,7 +1389,7 @@ describe("media info", () => {
           },
           error: null,
         },
-        { path: "/Movies/RARBG_DO_NOT_MIRROR.exe", mime: "text/plain", info: null, error: null },
+        { path: "/Movies/www.Ripgrove.to.exe", mime: "text/plain", info: null, error: null },
       ],
     });
     expect(t.putio.log.filter((r) => r.url.searchParams.get("media_info") === "1").map((r) => r.url.pathname)).toEqual(["/v2/files/4", "/v2/files/3"]);
@@ -1401,7 +1401,7 @@ describe("download links", () => {
   it("has put.io make them, gives the model only the job, and hands the links to the browser", async () => {
     const t = await setup([
       tool("toolu_s", "scan_library"),
-      tool("toolu_l", "make_download_links", JSON.stringify({ paths: ["/Movies", "/Alien (1979).mkv"] })),
+      tool("toolu_l", "make_download_links", JSON.stringify({ paths: ["/Movies", "/Alvex (1979).mkv"] })),
       say("links are in the card."),
     ]);
 
@@ -1411,9 +1411,9 @@ describe("download links", () => {
     expect(await Effect.runPromise(t.agent.downloadLinks(70))).toEqual({
       status: "done",
       links: [
-        "https://dl.put.io/files/2/Heat.1995.1080p.BluRay.x264-GRP.mkv",
-        "https://dl.put.io/files/3/RARBG_DO_NOT_MIRROR.exe",
-        "https://dl.put.io/files/4/Alien%20(1979).mkv",
+        "https://dl.put.io/files/2/Haze.1995.1080p.BluRay.x264-GRP.mkv",
+        "https://dl.put.io/files/3/www.Ripgrove.to.exe",
+        "https://dl.put.io/files/4/Alvex%20(1979).mkv",
       ],
     });
   });
@@ -1428,7 +1428,7 @@ describe("sign out", () => {
 });
 
 describe("delete data", () => {
-  const proposed = JSON.stringify({ title: "x", changes: [{ op: "trash", path: "/Movies/RARBG_DO_NOT_MIRROR.exe", to: null }] });
+  const proposed = JSON.stringify({ title: "x", changes: [{ op: "trash", path: "/Movies/www.Ripgrove.to.exe", to: null }] });
 
   it("keeps only the month's token count and a newer session generation, and ends every session", async () => {
     const t = await setup([
@@ -1508,7 +1508,7 @@ describe("threads", () => {
 
 describe("repeated calls", () => {
   it("answers an identical read call in the same turn with a pointer, not a second result", async () => {
-    const search = JSON.stringify({ query: "heat", mime: "", category: "any", limit: 10 });
+    const search = JSON.stringify({ query: "haze", mime: "", category: "any", limit: 10 });
 
     const t = await setup([
       tool("toolu_s0", "scan_library"),
@@ -1517,7 +1517,7 @@ describe("repeated calls", () => {
       say("found it."),
     ]);
 
-    await t.receive(send("find heat"));
+    await t.receive(send("find haze"));
     expect(t.toolOutput("toolu_s1")).toContain('"total":1');
     expect(t.toolOutput("toolu_s2")).toContain("already made this exact call");
   });

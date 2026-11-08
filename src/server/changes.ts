@@ -14,7 +14,7 @@ export const ProposeInput = Schema.Struct({
     Schema.Struct({
       op: Schema.Literals(["trash", "rename", "move"]),
       path: Schema.String.annotate({ description: "the file or folder, as scan and search return it, e.g. '/Downloads/x.nfo'" }),
-      to: Schema.NullOr(Schema.String).annotate({ description: "trash: null. rename: the new name. move: the new full path, e.g. '/Movies/Heat (1995)'" }),
+      to: Schema.NullOr(Schema.String).annotate({ description: "trash: null. rename: the new name. move: the new full path, e.g. '/Movies/Haze (1995)'" }),
     }),
   ),
 });
@@ -170,9 +170,9 @@ const subtitlesFor = (
     });
 };
 
-/** Subtitle files beside a video that are named after it, like `Heat.eng.srt` next to `Heat.mkv`, matched
-    regardless of case. A sibling video with a longer name, like `Heat.Unrated.1080p.mkv`, claims subtitles
-    that share its next word, like `Heat.Unrated.en.srt`. When siblings differ from the video only in case,
+/** Subtitle files beside a video that are named after it, like `Haze.eng.srt` next to `Haze.mkv`, matched
+    regardless of case. A sibling video with a longer name, like `Haze.Unrated.1080p.mkv`, claims subtitles
+    that share its next word, like `Haze.Unrated.en.srt`. When siblings differ from the video only in case,
     only an exact-case match counts; a sibling with the very same name leaves the subtitles to neither. */
 export const sidecarsOf = (snapshot: ReadonlyArray<WalkedFile>, video: WalkedFile) => {
   const exact = stemOf(video.name);
