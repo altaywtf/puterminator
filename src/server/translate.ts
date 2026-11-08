@@ -318,7 +318,7 @@ const factsText = (facts: Facts | null) => {
 
   if (facts.episode) lines.push(`This episode: ${facts.episode.title}${facts.episode.overview ? `. ${facts.episode.overview}` : ""}`);
 
-  if (facts.characters.length > 0) lines.push(`Characters: ${facts.characters.map((c) => (c.gender ? `${c.name} (${c.gender})` : c.name)).join(", ")}`);
+  if (facts.characters.length > 0) lines.push(`Characters, with who plays them as a hint only: ${facts.characters.map((c) => (c.played ? `${c.name} (${c.played})` : c.name)).join(", ")}`);
 
   return lines.join("\n");
 };
@@ -330,7 +330,7 @@ const NOTES_SCHEMA: JSONOutputFormat["schema"] = { type: "object", properties: {
 const translatorNotes = (cues: ReadonlyArray<Cue>, facts: string, language: string, spend: Spend) =>
   Effect.gen(function* () {
     const reply = yield* askHaiku(
-      `You brief a subtitler who will translate English subtitles into ${language} in separate chunks. From the facts and the whole English subtitle, write short notes that keep the chunks consistent: each recurring character's gender and how others address them, who speaks formally or informally to whom in ${language}, recurring names, places and terms with how to render them, and the tone. At most 200 words.`,
+      `You brief a subtitler who will translate English subtitles into ${language} in separate chunks. From the facts and the whole English subtitle, write short notes that keep the chunks consistent: each recurring character's gender as the dialogue shows it, not who plays them, and how others address them, who speaks formally or informally to whom in ${language}, recurring names, places and terms with how to render them, and the tone. At most 200 words.`,
       JSON.stringify({ facts, subtitle: cues.slice(0, MAX_BRIEF_LINES).map((c) => c.text.replace(/\n/g, " ")).join("\n") }),
       NOTES_SCHEMA,
       spend,

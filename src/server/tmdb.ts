@@ -13,7 +13,7 @@ export type Facts = {
   readonly genres: ReadonlyArray<string>;
   readonly overview: string;
   readonly episode: { readonly title: string; readonly overview: string } | null;
-  readonly characters: ReadonlyArray<{ readonly name: string; readonly gender: "female" | "male" | null }>;
+  readonly characters: ReadonlyArray<{ readonly name: string; readonly played: "actress" | "actor" | null }>;
 };
 
 export type Tmdb = { readonly facts: (release: Release, imdbId: string | null) => Effect.Effect<Facts | null> };
@@ -56,12 +56,12 @@ const decodeMovie = Schema.decodeUnknownOption(
 const normal = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 const yearOf = (date: string | null | undefined) => (date && /^\d{4}/.test(date) ? Number(date.slice(0, 4)) : null);
 
-const GENDERS = new Map<number, "female" | "male">([
-  [1, "female"],
-  [2, "male"],
+const PERFORMERS = new Map<number, "actress" | "actor">([
+  [1, "actress"],
+  [2, "actor"],
 ]);
 
-const genderOf = (code: number | null | undefined) => (code == null ? null : (GENDERS.get(code) ?? null));
+const performerOf = (code: number | null | undefined) => (code == null ? null : (PERFORMERS.get(code) ?? null));
 
 const charactersOf = (credits: typeof Credits.Type | undefined): Facts["characters"] => {
   const seen = new Set<string>();
@@ -72,7 +72,7 @@ const charactersOf = (credits: typeof Credits.Type | undefined): Facts["characte
     if (name === "" || seen.has(name) || seen.size >= MAX_CHARACTERS) return [];
     seen.add(name);
 
-    return [{ name, gender: genderOf(c.gender) }];
+    return [{ name, played: performerOf(c.gender) }];
   });
 };
 

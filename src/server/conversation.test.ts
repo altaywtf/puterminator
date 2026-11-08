@@ -1268,7 +1268,7 @@ describe("translation context", () => {
     await t.receive({ type: "apply", plan: t.store.plans()[0]?.record.plan.id ?? "", exclude: [] });
 
     const translator = t.anthropic.requests.slice(-2).map((r) => ({ system: String(r.body.system), input: JSON.parse(String(r.body.messages.at(-1)?.content)) }));
-    const brief = "About this video:\nTitle: Quiet Harbor (2020), Drama\nSynopsis: Two teenagers in a harbor town.\nThis episode: Pilot. Ada meets Bram.\nCharacters: Ada Quill (female), Bram Oake (male)\nTranslator notes: Ada and Bram use informal sen.";
+    const brief = "About this video:\nTitle: Quiet Harbor (2020), Drama\nSynopsis: Two teenagers in a harbor town.\nThis episode: Pilot. Ada meets Bram.\nCharacters, with who plays them as a hint only: Ada Quill (actress), Bram Oake (actor)\nTranslator notes: Ada and Bram use informal sen.";
 
     expect([
       translator.map((r) => r.system.endsWith(brief)),
