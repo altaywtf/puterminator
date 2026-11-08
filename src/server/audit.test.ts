@@ -51,31 +51,31 @@ describe("naming", () => {
   });
 
   it("reads underscores as separators and keeps a folder's last tag", () => {
-    expect(isMessyName("Haze_1995_1080p_BluRay_x264_RIPGROVE.mkv")).toBe(true);
-    expect(isMessyName("Haze.1995.HEVC", true)).toBe(true);
+    expect(isMessyName("Haze_1995_1080p_BluRay_x264_RARBG.mkv")).toBe(true);
+    expect(isMessyName("Haze.1995.YIFY", true)).toBe(true);
   });
 });
 
 describe("junk", () => {
   it("catches tracker filler, info files and samples", () => {
     const junkReason = junkFinder([]);
-    expect(junkReason(file("/Movies/X/www.Ripgrove.to.exe", { size: 100 }))).toBe("tracker filler");
+    expect(junkReason(file("/Movies/X/RARBG_DO_NOT_MIRROR.exe", { size: 100 }))).toBe("tracker filler");
     expect(junkReason(file("/Movies/X/movie.nfo", { size: 4096 }))).toBe(".nfo file");
     expect(junkReason(file("/Movies/X/Sample/x-sample.mkv", { size: 20 * 2 ** 20 }))).toBe("sample clip");
-    expect(junkReason(file("/Movies/X/WWW.NOSUCHFLIX.TO.jpg", { size: 50_000 }))).not.toBeNull();
+    expect(junkReason(file("/Movies/X/WWW.YTS.MX.jpg", { size: 50_000 }))).not.toBeNull();
     expect(junkReason(file("/Movies/X/Dunmar (2024).mkv"))).toBeNull();
   });
 
   it("never calls a real movie, episode or program junk", () => {
     const junkReason = junkFinder([]);
-    expect(junkReason(file("/Movies/Haze.1995.1080p.BluRay.x264-RIPGROVE/Haze.1995.1080p.BluRay.x264-RIPGROVE.mkv"))).toBeNull();
+    expect(junkReason(file("/Movies/Haze.1995.1080p.BluRay.x264-RARBG/Haze.1995.1080p.BluRay.x264-RARBG.mkv"))).toBeNull();
     expect(junkReason(file("/Movies/www.NoSuchIndex.org - Dunmar.2021.1080p.mkv"))).toBeNull();
     expect(junkReason(file("/Movies/Cheap Samples (2012).mkv", { size: 30 * 2 ** 20 }))).toBeNull();
     expect(junkReason(file("/Series/Trailer Lot Lads/Season 1/Trailer Lot Lads - S01E01.mkv", { size: 40 * 2 ** 20 }))).toBeNull();
     expect(junkReason(file("/Software/App/setup.exe", { size: 2 * 2 ** 30 }))).toBeNull();
     expect(junkReason(file("/Courses/Habits/notes.txt", { size: 2048 }))).toBeNull();
     expect(junkReason(file("/Courses/Lab/Sample preparation.mp4", { size: 30 * 2 ** 20 }))).toBeNull();
-    expect(junkReason(file("/Series/Show/Show.S01E01.x264-RIPGROVE.mkv", { size: 40 * 2 ** 20 }))).toBeNull();
+    expect(junkReason(file("/Series/Show/Show.S01E01.x264-RARBG.mkv", { size: 40 * 2 ** 20 }))).toBeNull();
   });
 
   it("calls a small image junk only beside a video", () => {
