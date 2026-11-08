@@ -1,5 +1,5 @@
 import { junkFinder, stemOf } from "./audit";
-import { joinPath, MAX_CHANGES, parentOf, type ProposeInput, sidecarsOf } from "./changes";
+import { joinPath, MAX_CHANGES, nameOf, parentOf, type ProposeInput, sidecarsOf } from "./changes";
 import { isExtraVideo, resolveScope } from "./layout";
 import type { WalkedFile } from "./tree";
 
@@ -16,7 +16,7 @@ type SubtitleTidy = {
 
 const isSrt = (f: WalkedFile) => f.file_type !== "FOLDER" && /\.srt$/i.test(f.name);
 
-export function planSubtitles(snapshot: ReadonlyArray<WalkedFile>, within: string): SubtitleTidy | { error: string } {
+export function planSubtitles(snapshot: ReadonlyArray<WalkedFile>, within: string, ownFolders: boolean): SubtitleTidy | { error: string } {
   const resolved = resolveScope(snapshot, within);
 
   if ("error" in resolved) return resolved;
@@ -37,8 +37,29 @@ export function planSubtitles(snapshot: ReadonlyArray<WalkedFile>, within: strin
     return here.length === 1 ? here[0] : undefined;
   };
 
-  const owners = new Map<number, WalkedFile[]>();
+  const changes: Proposed[] = [];
   const skipped: SubtitleTidy["skipped"] = [];
+  let remaining = 0;
+
+  const push = (change: Proposed) => {
+    if (changes.length >= MAX_CHANGES) remaining++;
+    else changes.push(change);
+  };
+
+  if (ownFolders)
+    for (const video of [...videosIn.values()].filter((vs) => vs.length > 1).flat().filter(inScope)) {
+      const folder = joinPath(parentOf(video.path), stemOf(video.name));
+
+      if (takenPaths.has(folder.toLowerCase())) {
+        skipped.push({ path: video.path, why: `${nameOf(folder)} already exists there` });
+        continue;
+      }
+
+      takenPaths.add(folder.toLowerCase());
+      push({ op: "move", path: video.path, to: joinPath(folder, video.name) });
+    }
+
+  const owners = new Map<number, WalkedFile[]>();
 
   for (const s of snapshot.filter((f) => isSrt(f) && inScope(f) && !claimed.has(f.id))) {
     const parent = s.parent_id === null ? undefined : byId.get(s.parent_id);
@@ -51,9 +72,6 @@ export function planSubtitles(snapshot: ReadonlyArray<WalkedFile>, within: strin
 
     owners.set(video.id, [...(owners.get(video.id) ?? []), s]);
   }
-
-  const changes: Proposed[] = [];
-  let remaining = 0;
 
   for (const [videoId, subs] of owners) {
     const video = byId.get(videoId);
@@ -78,12 +96,7 @@ export function planSubtitles(snapshot: ReadonlyArray<WalkedFile>, within: strin
       continue;
     }
 
-    if (changes.length >= MAX_CHANGES) {
-      remaining++;
-      continue;
-    }
-
-    changes.push(parentOf(s.path) === parentOf(target) ? { op: "rename", path: s.path, to: name } : { op: "move", path: s.path, to: target });
+    push(parentOf(s.path) === parentOf(target) ? { op: "rename", path: s.path, to: name } : { op: "move", path: s.path, to: target });
   }
 
   return { changes, skipped, remaining };

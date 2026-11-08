@@ -480,7 +480,7 @@ const plan = (messages: Array<Message>): Array<Step> => {
   }
 
   if (/subtitle|subs\b/.test(ask)) {
-    return [{ kind: "tool", name: "plan_subtitles", input: { within: "" } }];
+    return [{ kind: "tool", name: "plan_subtitles", input: { within: "", own_folders: false } }];
   }
 
   if (/clean/.test(ask)) {
