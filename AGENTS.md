@@ -20,7 +20,7 @@ puterminator is a chat agent for one person's put.io library, live at <https://p
 
 ## Skills
 
-- Effect code: read `node_modules/effect/AGENTS.md` first, then `node_modules/effect/src`. Effect setup: [`effect-ts`](.agents/skills/effect-ts/SKILL.md), keeping the pinned `effect` version.
+- Effect code: read `node_modules/effect/AGENTS.md` first, then `node_modules/effect/src`. Keep the pinned `effect` version.
 - Proving behaviour in the browser: [`verify-puterminator`](.agents/skills/verify-puterminator/SKILL.md) drives an isolated `dev:fake` instance and captures proof.
 - Plan runs (apply, stop, retry, undo): [`verify-plan-runs`](.agents/skills/verify-plan-runs/SKILL.md) model-checks them with TLA+.
 
