@@ -1191,10 +1191,22 @@ describe("translate with a subtitle from OpenSubtitles", () => {
 
     expect([proposed, Object.fromEntries(t.opensubtitles.searches[0] ?? []), t.opensubtitles.downloads, t.putio.uploads.map((u) => [u.name, u.text])]).toEqual([
       { downloads: [], plan: [`/Normal People/${video}`] },
-      { episode_number: "1", languages: "en", query: "normal people", season_number: "1", type: "episode" },
+      { episode_number: "1", foreign_parts_only: "exclude", languages: "en", query: "normal people", season_number: "1", type: "episode" },
       [2, 1],
       [["Normal.People.S01E01.1080p.AMZN.WEB-DL.DD5.1.H.264-Cinefeel.tur.srt", "1\n00:00:01,000 --> 00:00:02,000\nMerhaba.\n\n2\n01:44:00,000 --> 01:45:00,000\n<i>Koş!</i>\n"]],
     ]);
+  });
+
+  it("signs in to OpenSubtitles once for episodes translated in parallel, and matches a show named with its year", async () => {
+    const named = [file(60, 0, "Severance (2022)", "FOLDER"), ...[1, 2, 3].map((n) => file(60 + n, 60, `Severance (2022) - S01E0${n}.mkv`, "VIDEO", 2 ** 30))];
+    const show = [1, 2, 3].map((n) => ({ title: "Severance", season: 1, episode: n, fileId: 100 + n, release: `Severance.S01E0${n}.1080p.ATVP.WEB-DL-NTb`, srt: fits }));
+    const season = [tool("toolu_s", "scan_library"), tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Severance (2022)"], language: "tur" })), say("plan's up.")];
+    const t = await setup([...season, matches, matches, matches], { files: named, online: { subtitles: show } });
+
+    await t.receive(send("turkish subtitles for severance"));
+    await t.receive({ type: "apply", plan: t.store.plans()[0]?.record.plan.id ?? "", exclude: [] });
+
+    expect([t.opensubtitles.logins(), t.opensubtitles.downloads.toSorted()]).toEqual([1, [101, 102, 103]]);
   });
 
   it("fails the step, saying when the quota resets, once OpenSubtitles' daily downloads are used up", async () => {

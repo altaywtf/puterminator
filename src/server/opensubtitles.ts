@@ -3,11 +3,13 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import { PutioFailed } from "./putio";
 
 const OPENSUBTITLES_API = "https://api.opensubtitles.com";
 const USER_AGENT = "puterminator v1";
 const TOKEN_TTL_MS = 23 * 60 * 60 * 1000;
+const MAX_PAGES = 3;
 
 export type OpenSubtitlesCredentials = {
   readonly apiKey: Redacted.Redacted<string>;
@@ -34,11 +36,18 @@ const words = (text: string): ReadonlyArray<string> =>
 
 const titleOf = (raw: string) => raw.replace(/[._]+/g, " ").replace(/[\s([-]+$/, "").trim();
 
+const showOf = (raw: string) => {
+  const title = titleOf(raw);
+  const bare = title.replace(/[\s([-]*(?:19|20)\d{2}[)\]]?$/, "").trim();
+
+  return bare === "" ? title : bare;
+};
+
 export const parseRelease = (fileName: string): Release | null => {
   const stem = fileName.replace(/\.[^.]+$/, "");
   const episode = stem.match(/^(.+?)[\s._-]+s(\d{1,2})[\s._-]?e(\d{1,3})(?!\d)/i) ?? stem.match(/^(.+?)[\s._-]+(\d{1,2})x(\d{2,3})(?!\d)/i);
 
-  if (episode?.[1] && episode[2] && episode[3] && titleOf(episode[1])) return { title: titleOf(episode[1]), season: Number(episode[2]), episode: Number(episode[3]) };
+  if (episode?.[1] && episode[2] && episode[3] && showOf(episode[1])) return { title: showOf(episode[1]), season: Number(episode[2]), episode: Number(episode[3]) };
   const movie = stem.match(/^(.+?)[\s._([-]+((?:19|20)\d{2})(?!\d)/);
 
   if (movie?.[1] && movie[2] && titleOf(movie[1])) return { title: titleOf(movie[1]), year: Number(movie[2]) };
@@ -59,12 +68,13 @@ const Attributes = Schema.Struct({
   hearing_impaired: Schema.optional(Schema.NullOr(Schema.Boolean)),
   ai_translated: Schema.optional(Schema.NullOr(Schema.Boolean)),
   machine_translated: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  foreign_parts_only: Schema.optional(Schema.NullOr(Schema.Boolean)),
   download_count: Schema.optional(Schema.NullOr(Schema.Finite)),
   feature_details: Schema.optional(Schema.NullOr(Feature)),
   files: Schema.Array(Schema.Struct({ file_id: Schema.Finite, file_name: Schema.optional(Schema.NullOr(Schema.String)) })),
 });
 
-const decodeSearch = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ data: Schema.Array(Schema.Struct({ attributes: Attributes })) })));
+const decodeSearch = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ total_pages: Schema.optional(Schema.NullOr(Schema.Finite)), data: Schema.Array(Schema.Struct({ attributes: Attributes })) })));
 const decodeLogin = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ token: Schema.String, base_url: Schema.optional(Schema.NullOr(Schema.String)) })));
 const decodeLink = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ link: Schema.String })));
 const decodeQuota = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ reset_time: Schema.optional(Schema.NullOr(Schema.String)) })));
@@ -84,22 +94,24 @@ const isFor = (release: Release, feature: typeof Feature.Type | null | undefined
   return sameTitle(release.title, feature.title) && (feature.year == null || Math.abs(feature.year - release.year) <= 1);
 };
 
-const searchParams = (release: Release) =>
+const searchParams = (release: Release, page: number) =>
   new URLSearchParams(
-    "season" in release
-      ? [
-          ["episode_number", String(release.episode)],
-          ["languages", "en"],
-          ["query", release.title.toLowerCase()],
-          ["season_number", String(release.season)],
-          ["type", "episode"],
-        ]
-      : [
-          ["languages", "en"],
-          ["query", release.title.toLowerCase()],
-          ["type", "movie"],
-          ["year", String(release.year)],
-        ],
+    [
+      ...("season" in release
+        ? [
+            ["episode_number", String(release.episode)],
+            ["season_number", String(release.season)],
+            ["type", "episode"],
+          ]
+        : [
+            ["type", "movie"],
+            ["year", String(release.year)],
+          ]),
+      ["foreign_parts_only", "exclude"],
+      ["languages", "en"],
+      ["query", release.title.toLowerCase()],
+      ...(page > 1 ? [["page", String(page)]] : []),
+    ].toSorted(([a = ""], [b = ""]) => a.localeCompare(b)),
   );
 
 const SOURCES: ReadonlyArray<ReadonlyArray<string>> = [["web", "webdl", "webrip"], ["bluray", "bdrip", "brrip"], ["hdtv"], ["dvdrip", "dvd"]];
@@ -138,6 +150,7 @@ const failed = (message: string) => new PutioFailed({ message, refused: true });
 
 export const makeOpenSubtitles = (credentials: OpenSubtitlesCredentials, fetchImpl: typeof fetch): OpenSubtitles => {
   let session: { token: string; base: string; until: number } | null = null;
+  const signingIn = Semaphore.makeUnsafe(1);
 
   const call = (url: string, init: RequestInit) =>
     Effect.tryPromise({
@@ -149,7 +162,7 @@ export const makeOpenSubtitles = (credentials: OpenSubtitlesCredentials, fetchIm
       catch: (e) => failed(`OpenSubtitles didn’t answer: ${e instanceof Error ? e.message : String(e)}`),
     });
 
-  const login = Effect.gen(function* () {
+  const login = signingIn.withPermit(Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
 
     if (session !== null && session.until > now) return session;
@@ -166,19 +179,25 @@ export const makeOpenSubtitles = (credentials: OpenSubtitlesCredentials, fetchIm
     session = { token: body.value.token, base: body.value.base_url ? `https://${body.value.base_url.replace(/^https?:\/\//, "")}` : OPENSUBTITLES_API, until: now + TOKEN_TTL_MS };
 
     return session;
-  });
+  }));
 
   const search = (release: Release) =>
     Effect.gen(function* () {
-      const res = yield* call(`${OPENSUBTITLES_API}/api/v1/subtitles?${searchParams(release).toString()}`, { method: "GET" });
-      const body = decodeSearch(res.body);
+      const found: Array<typeof Attributes.Type> = [];
 
-      if (res.status !== 200 || Option.isNone(body)) return yield* Effect.fail(failed(`OpenSubtitles search failed (${res.status})`));
+      for (let page = 1, pages = 1; page <= Math.min(pages, MAX_PAGES); page++) {
+        const res = yield* call(`${OPENSUBTITLES_API}/api/v1/subtitles?${searchParams(release, page).toString()}`, { method: "GET" });
+        const body = decodeSearch(res.body);
 
-      return body.value.data.flatMap(({ attributes: a }): Candidate[] => {
+        if (res.status !== 200 || Option.isNone(body)) return yield* Effect.fail(failed(`OpenSubtitles search failed (${res.status})`));
+        found.push(...body.value.data.map((d) => d.attributes));
+        pages = body.value.total_pages ?? 1;
+      }
+
+      return found.flatMap((a): Candidate[] => {
         const only = a.files.length === 1 ? a.files[0] : undefined;
 
-        if (only === undefined || a.ai_translated || a.machine_translated || !isFor(release, a.feature_details)) return [];
+        if (only === undefined || a.ai_translated || a.machine_translated || a.foreign_parts_only || !isFor(release, a.feature_details)) return [];
 
         return [{ fileId: only.file_id, release: a.release ?? only.file_name ?? "", hearingImpaired: a.hearing_impaired ?? false, downloads: a.download_count ?? 0 }];
       });
