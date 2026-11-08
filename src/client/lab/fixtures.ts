@@ -26,7 +26,7 @@ add(0, "Courses", 0, F);
 
 add(0, "notes.txt", 4096);
 
-const FILMS = ["Arrival", "Heat", "Alien", "Dune", "Drive", "Fargo", "Memento", "Zodiac"];
+const FILMS = ["Arrowmere", "Haze", "Alvex", "Dunmar", "Drovel", "Farlow", "Memora", "Zorvane"];
 
 FILMS.forEach((t, i) => {
   const dir = add(movies, `${t} (${1979 + i * 4})`, 0, F);
@@ -34,16 +34,16 @@ FILMS.forEach((t, i) => {
 });
 
 FILMS.slice(0, 4).forEach((t, i) => {
-  const dir = add(downloads, `${t}.${1979 + i * 4}.1080p.BluRay.x264-RARBG`, 0, F);
-  add(dir, `${t}.${1979 + i * 4}.1080p.BluRay.x264-RARBG.mkv`, (3 + i) * GB, V | M);
-  add(dir, "RARBG.txt", 1024, J);
+  const dir = add(downloads, `${t}.${1979 + i * 4}.1080p.BluRay.x264-RIPGROVE`, 0, F);
+  add(dir, `${t}.${1979 + i * 4}.1080p.BluRay.x264-RIPGROVE.mkv`, (3 + i) * GB, V | M);
+  add(dir, "www.Ripgrove.to.txt", 1024, J);
   add(dir, `${t}.${1979 + i * 4}.nfo`, 4096, J);
   add(dir, `${t.toLowerCase()}-sample.mkv`, 30 * MB, V | J);
 });
 
 add(downloads, "The.Extremely.Long.Release.Name.Of.A.Documentary.Series.Complete.2160p.UHD.BluRay.REMUX.HDR.HEVC.Atmos-GROUP.mkv", 48 * GB, V | M);
 
-["Severance", "Andor"].forEach((show) => {
+["Sevenfold", "Anvor"].forEach((show) => {
   const s = add(series, show, 0, F);
 
   for (let season = 1; season <= 2; season++) {
@@ -56,19 +56,19 @@ add(downloads, "The.Extremely.Long.Release.Name.Of.A.Documentary.Series.Complete
 export const library: Library = { rootId: 0, rootName: "Your Files", files };
 
 const junk = [
-  { path: "/Downloads/Arrival.1979.1080p.BluRay.x264-RARBG/arrival-sample.mkv", size: 30 * MB, why: "sample clip" },
-  { path: "/Downloads/Heat.1983.1080p.BluRay.x264-RARBG/heat-sample.mkv", size: 30 * MB, why: "sample clip" },
-  { path: "/Downloads/Arrival.1979.1080p.BluRay.x264-RARBG/RARBG.txt", size: 1024, why: "tracker filler" },
-  { path: "/Downloads/Arrival.1979.1080p.BluRay.x264-RARBG/Arrival.1979.nfo", size: 4096, why: ".nfo file" },
-  { path: "/Downloads/Heat.1983.1080p.BluRay.x264-RARBG/RARBG.txt", size: 1024, why: "tracker filler" },
-  { path: "/Downloads/Alien.1987.1080p.BluRay.x264-RARBG/RARBG.txt", size: 1024, why: "tracker filler" },
-  { path: "/Downloads/Dune.1991.1080p.BluRay.x264-RARBG/dune-sample.mkv", size: 30 * MB, why: "sample clip" },
+  { path: "/Downloads/Arrowmere.1979.1080p.BluRay.x264-RIPGROVE/arrowmere-sample.mkv", size: 30 * MB, why: "sample clip" },
+  { path: "/Downloads/Haze.1983.1080p.BluRay.x264-RIPGROVE/haze-sample.mkv", size: 30 * MB, why: "sample clip" },
+  { path: "/Downloads/Arrowmere.1979.1080p.BluRay.x264-RIPGROVE/www.Ripgrove.to.txt", size: 1024, why: "tracker filler" },
+  { path: "/Downloads/Arrowmere.1979.1080p.BluRay.x264-RIPGROVE/Arrowmere.1979.nfo", size: 4096, why: ".nfo file" },
+  { path: "/Downloads/Haze.1983.1080p.BluRay.x264-RIPGROVE/www.Ripgrove.to.txt", size: 1024, why: "tracker filler" },
+  { path: "/Downloads/Alvex.1987.1080p.BluRay.x264-RIPGROVE/www.Ripgrove.to.txt", size: 1024, why: "tracker filler" },
+  { path: "/Downloads/Dunmar.1991.1080p.BluRay.x264-RIPGROVE/dunmar-sample.mkv", size: 30 * MB, why: "sample clip" },
 ];
 
 const unplayed = [
   { path: "/Downloads/The.Extremely.Long.Release.Name.Of.A.Documentary.Series.Complete.2160p.UHD.BluRay.REMUX.HDR.HEVC.Atmos-GROUP.mkv", size: 48 * GB, why: "never played" },
-  { path: "/Movies/Zodiac (2007)/Zodiac (2007).mkv", size: 9 * GB, why: "never played" },
-  { path: "/Movies/Memento (2003)/Memento (2003).mkv", size: 8 * GB, why: "never played" },
+  { path: "/Movies/Zorvane (2007)/Zorvane (2007).mkv", size: 9 * GB, why: "never played" },
+  { path: "/Movies/Memora (2003)/Memora (2003).mkv", size: 8 * GB, why: "never played" },
 ];
 
 const base: Audit = {
@@ -78,13 +78,13 @@ const base: Audit = {
   totals: { items: files.length, files: 60, folders: 21, videos: 52, bytes: 170 * GB },
   score: 62,
   scores: { naming: 71, structure: 80, junk: 48, duplicates: 90 },
-  naming: { messy: 5, examples: ["Heat.1983.1080p.BluRay.x264-RARBG.mkv"] },
+  naming: { messy: 5, examples: ["Haze.1983.1080p.BluRay.x264-RIPGROVE.mkv"] },
   structure: { rootFiles: 1, wrapperFolders: 4, emptyFolders: 1, deepest: 3, examples: ["/Courses"] },
   junk: { count: 12, bytes: 0.12 * GB, examples: junk },
   duplicates: {
     groups: 1,
     wastedBytes: 5 * GB,
-    examples: [{ keep: "/Movies/Heat (1983)/Heat (1983).mkv", drop: ["/Downloads/Heat.1983.1080p.BluRay.x264-RARBG/Heat.1983.1080p.BluRay.x264-RARBG.mkv"], size: 5 * GB }],
+    examples: [{ keep: "/Movies/Haze (1983)/Haze (1983).mkv", drop: ["/Downloads/Haze.1983.1080p.BluRay.x264-RIPGROVE/Haze.1983.1080p.BluRay.x264-RIPGROVE.mkv"], size: 5 * GB }],
   },
   neverPlayed: { count: 34, bytes: 112 * GB, examples: unplayed },
 };
@@ -143,15 +143,15 @@ export const searches: Array<[string, SearchFilesOutput]> = [
 ];
 
 const trash = (id: string, path: string, bytes: number): Change => ({ id, op: "trash", path, to: null, bytes });
-const FILMS_DL = FILMS.slice(0, 4).map((t, i) => ({ t, year: 1979 + i * 4, dir: `/Downloads/${t}.${1979 + i * 4}.1080p.BluRay.x264-RARBG` }));
+const FILMS_DL = FILMS.slice(0, 4).map((t, i) => ({ t, year: 1979 + i * 4, dir: `/Downloads/${t}.${1979 + i * 4}.1080p.BluRay.x264-RIPGROVE` }));
 
 const cleanup: Change[] = [
   ...FILMS_DL.flatMap(({ t, year, dir }, i) => [
-    trash(`t${i}a`, `${dir}/RARBG.txt`, 1024),
+    trash(`t${i}a`, `${dir}/www.Ripgrove.to.txt`, 1024),
     trash(`t${i}b`, `${dir}/${t}.${year}.nfo`, 4096),
     trash(`t${i}c`, `${dir}/${t.toLowerCase()}-sample.mkv`, 30 * MB),
   ]),
-  ...FILMS_DL.map(({ t, year, dir }, i): Change => ({ id: `r${i}`, op: "rename", path: `${dir}/${t}.${year}.1080p.BluRay.x264-RARBG.mkv`, to: `${t} (${year}).mkv`, bytes: 0 })),
+  ...FILMS_DL.map(({ t, year, dir }, i): Change => ({ id: `r${i}`, op: "rename", path: `${dir}/${t}.${year}.1080p.BluRay.x264-RIPGROVE.mkv`, to: `${t} (${year}).mkv`, bytes: 0 })),
   ...FILMS_DL.map(({ t, year, dir }, i): Change => ({ id: `m${i}`, op: "move", path: dir, to: `/Movies/${t} (${year})`, bytes: 0 })),
 ];
 
@@ -160,11 +160,11 @@ export const questions: Array<[string, Question, string[]]> = [
     "one answer",
     {
       id: "q1",
-      prompt: "which copy of Heat should I keep?",
+      prompt: "which copy of Haze should I keep?",
       multi: false,
       options: [
-        { id: "a", label: "Heat (1983).mkv", detail: "/Movies/Heat (1983) · 3.0 GB · played" },
-        { id: "b", label: "Heat.1983.1080p.BluRay.x264-RARBG.mkv", detail: "/Downloads · 4.0 GB · never played" },
+        { id: "a", label: "Haze (1983).mkv", detail: "/Movies/Haze (1983) · 3.0 GB · played" },
+        { id: "b", label: "Haze.1983.1080p.BluRay.x264-RIPGROVE.mkv", detail: "/Downloads · 4.0 GB · never played" },
       ],
     },
     [],
@@ -183,7 +183,7 @@ export const questions: Array<[string, Question, string[]]> = [
     },
     ["question.q2.b"],
   ],
-  ["answered", { id: "q3", prompt: "which copy of Heat should I keep?", multi: false, options: [{ id: "a", label: "Heat (1983).mkv", detail: null }] }, ["question.q3.a"]],
+  ["answered", { id: "q3", prompt: "which copy of Haze should I keep?", multi: false, options: [{ id: "a", label: "Haze (1983).mkv", detail: null }] }, ["question.q3.a"]],
 ];
 
 const steps = (states: Array<Run["steps"][number]["state"]>, fail: Record<number, string> = {}): Run["steps"] =>

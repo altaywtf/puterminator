@@ -13,8 +13,8 @@ describe("describeStep", () => {
   });
 
   it("names the search and lists up to six paths", () => {
-    const d = describeStep("search_files", { category: "junk", query: "rarbg" }, JSON.stringify(search));
-    expect(d.title).toBe('search junk "rarbg"');
+    const d = describeStep("search_files", { category: "junk", query: "ripgrove" }, JSON.stringify(search));
+    expect(d.title).toBe('search junk "ripgrove"');
     expect(d.detail).toBe("351 matches");
     expect(d.lines).toHaveLength(6);
   });
@@ -24,22 +24,22 @@ describe("describeStep", () => {
 
     const output = {
       files: [
-        { path: "/Movies/Heat.mkv", mime: "video/x-matroska", info, error: null },
+        { path: "/Movies/Haze.mkv", mime: "video/x-matroska", info, error: null },
         { path: "/notes.txt", mime: "text/plain", info: null, error: null },
-        { path: "/Alien.mkv", mime: null, info: null, error: "put.io /files/:id → 404" },
+        { path: "/Alvex.mkv", mime: null, info: null, error: "put.io /files/:id → 404" },
       ],
     };
 
     expect(describeStep("media_info", { paths: [] }, JSON.stringify(output))).toEqual({
       title: "read media info",
       detail: "3 files",
-      lines: ["Heat.mkv   video/x-matroska · hevc 1920×1080 · eac3 6ch · 110 min", "notes.txt   text/plain", "Alien.mkv   put.io /files/:id → 404"],
+      lines: ["Haze.mkv   video/x-matroska · hevc 1920×1080 · eac3 6ch · 110 min", "notes.txt   text/plain", "Alvex.mkv   put.io /files/:id → 404"],
     });
   });
 
   it("keeps what it can read from a partly malformed result", () => {
-    const d = describeStep("search_files", {}, '{"total":2,"items":[{"path":"/Heat.mkv"},{}]}');
-    expect([d.detail, d.lines]).toEqual(["2 matches", ["/Heat.mkv"]]);
+    const d = describeStep("search_files", {}, '{"total":2,"items":[{"path":"/Haze.mkv"},{}]}');
+    expect([d.detail, d.lines]).toEqual(["2 matches", ["/Haze.mkv"]]);
     expect(describeStep("list_folder", { path: "/Movies" }, "{}").detail).toBe("0 items");
   });
 

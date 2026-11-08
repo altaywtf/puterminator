@@ -66,7 +66,7 @@ add(0, "Courses", "FOLDER");
 
 add(0, "Audiobooks", "FOLDER");
 
-const titles = ["Arrival", "Heat", "Alien", "Dune", "Drive", "Fargo", "Memento", "Zodiac", "Sicario", "Prisoners"];
+const titles = ["Arrowmere", "Haze", "Alvex", "Dunmar", "Drovel", "Farlow", "Memora", "Zorvane", "Sicaron", "Pallisters"];
 
 titles.forEach((t, i) => {
   const year = 1979 + i * 4;
@@ -78,14 +78,14 @@ titles.forEach((t, i) => {
 
 titles.slice(0, 6).forEach((t, i) => {
   const year = 1979 + i * 4;
-  const wrapper = add(downloads, `${t}.${year}.1080p.BluRay.x264-RARBG`, "FOLDER");
-  add(wrapper, `${t}.${year}.1080p.BluRay.x264-RARBG.mkv`, "VIDEO", (2 + i) * GB);
-  add(wrapper, "RARBG.txt", "TEXT", 1024);
+  const wrapper = add(downloads, `${t}.${year}.1080p.BluRay.x264-RIPGROVE`, "FOLDER");
+  add(wrapper, `${t}.${year}.1080p.BluRay.x264-RIPGROVE.mkv`, "VIDEO", (2 + i) * GB);
+  add(wrapper, "www.Ripgrove.to.txt", "TEXT", 1024);
   add(wrapper, `${t}.${year}.nfo`, "TEXT", 4096);
   add(wrapper, `${t.toLowerCase()}-sample.mkv`, "VIDEO", 30 * MB);
 });
 
-["Severance", "Andor", "The Bear"].forEach((show, s) => {
+["Sevenfold", "Anvor", "The Badger"].forEach((show, s) => {
   const showFolder = add(series, show, "FOLDER");
 
   for (let season = 1; season <= 2; season++) {
@@ -104,13 +104,13 @@ titles.slice(0, 6).forEach((t, i) => {
   }
 });
 
-add(0, "Heat.1995.2160p.WEB-DL.mkv", "VIDEO", 14 * GB);
+add(0, "Haze.1995.2160p.WEB-DL.mkv", "VIDEO", 14 * GB);
 
-const memento = files.find((f) => f.name === "Memento (2003).mkv");
+const memora = files.find((f) => f.name === "Memora (2003).mkv");
 
-if (memento) add(downloads, "Memento (2003).mkv", "VIDEO", memento.size, false, memento.crc32);
+if (memora) add(downloads, "Memora (2003).mkv", "VIDEO", memora.size, false, memora.crc32);
 
-add(0, "www.Torrenting.com - Notes.url", "TEXT", 200);
+add(0, "www.NoSuchTracker.com - Notes.url", "TEXT", 200);
 
 add(0, "Thumbs.db", "TEXT", 12_000);
 
@@ -476,7 +476,7 @@ const plan = (messages: Array<Message>): Array<Step> => {
   }
 
   if (/translate|turkish/.test(ask)) {
-    return [{ kind: "tool", name: "propose_translation", input: { paths: ["/Movies/Heat (1983)/Heat (1983).mkv", "/Movies/Alien (1987)/Alien (1987).mkv"], language: "tur" } }];
+    return [{ kind: "tool", name: "propose_translation", input: { paths: ["/Movies/Haze (1983)/Haze (1983).mkv", "/Movies/Alvex (1987)/Alvex (1987).mkv"], language: "tur" } }];
   }
 
   if (/subtitle|subs\b/.test(ask)) {
@@ -485,7 +485,7 @@ const plan = (messages: Array<Message>): Array<Step> => {
 
   if (/clean/.test(ask)) {
     const releases = titles.slice(0, 3).map((t, i) => ({ t, year: 1979 + i * 4 }));
-    const dir = (t: string, year: number) => `/Downloads/${t}.${year}.1080p.BluRay.x264-RARBG`;
+    const dir = (t: string, year: number) => `/Downloads/${t}.${year}.1080p.BluRay.x264-RIPGROVE`;
 
     return [
       { kind: "thinking", text: "Junk out, release names cleaned, wrapper folders moved under Movies." },
@@ -496,11 +496,11 @@ const plan = (messages: Array<Message>): Array<Step> => {
           title: "clean up Downloads",
           changes: [
             ...releases.flatMap(({ t, year }) => [
-              { op: "trash", path: `${dir(t, year)}/RARBG.txt`, to: null },
+              { op: "trash", path: `${dir(t, year)}/www.Ripgrove.to.txt`, to: null },
               { op: "trash", path: `${dir(t, year)}/${t}.${year}.nfo`, to: null },
               { op: "trash", path: `${dir(t, year)}/${t.toLowerCase()}-sample.mkv`, to: null },
             ]),
-            ...releases.map(({ t, year }) => ({ op: "rename", path: `${dir(t, year)}/${t}.${year}.1080p.BluRay.x264-RARBG.mkv`, to: `${t} (${year}).mkv` })),
+            ...releases.map(({ t, year }) => ({ op: "rename", path: `${dir(t, year)}/${t}.${year}.1080p.BluRay.x264-RIPGROVE.mkv`, to: `${t} (${year}).mkv` })),
             ...releases.map(({ t, year }) => ({ op: "move", path: dir(t, year), to: `/Movies/${t} (${year}) [release]` })),
           ],
         },
@@ -514,11 +514,11 @@ const plan = (messages: Array<Message>): Array<Step> => {
         kind: "tool",
         name: "ask_user",
         input: {
-          prompt: "which copy of Heat should I keep?",
+          prompt: "which copy of Haze should I keep?",
           multi: false,
           options: [
-            { label: "Heat (1983).mkv", detail: "/Movies · played" },
-            { label: "Heat.1995.2160p.WEB-DL.mkv", detail: "/ · 14.0 GB · never played" },
+            { label: "Haze (1983).mkv", detail: "/Movies · played" },
+            { label: "Haze.1995.2160p.WEB-DL.mkv", detail: "/ · 14.0 GB · never played" },
           ],
         },
       },
@@ -538,13 +538,13 @@ const plan = (messages: Array<Message>): Array<Step> => {
       {
         kind: "tool",
         name: "make_download_links",
-        input: { paths: ["/Heat.1995.2160p.WEB-DL.mkv", "/Movies/Prisoners (2015)/Prisoners (2015).mkv", "/Movies/Sicario (2011)/Sicario (2011).mkv"] },
+        input: { paths: ["/Haze.1995.2160p.WEB-DL.mkv", "/Movies/Pallisters (2015)/Pallisters (2015).mkv", "/Movies/Sicaron (2011)/Sicaron (2011).mkv"] },
       },
     ];
   }
 
   if (/media info|codec|mime/.test(ask)) {
-    return [{ kind: "tool", name: "media_info", input: { paths: ["/Heat.1995.2160p.WEB-DL.mkv"] } }];
+    return [{ kind: "tool", name: "media_info", input: { paths: ["/Haze.1995.2160p.WEB-DL.mkv"] } }];
   }
 
   if (/largest|biggest/.test(ask)) {
