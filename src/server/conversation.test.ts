@@ -6,11 +6,13 @@ import { describe, expect, it, vi } from "vitest";
 import { type ClientEvent, CREDIT_TOKENS, FileFlag, type MessageParam, type ServerEvent } from "../shared/contract";
 import { type AgentDeps, makeAgent } from "./conversation";
 import { makeOpenSubtitles } from "./opensubtitles";
+import { makeTmdb } from "./tmdb";
 import { anthropicLayer } from "./runner";
 import { makeStore, month } from "./store";
 import { makeFakeAnthropic, type Reply, textTurn, toolUseTurn } from "./testing/fake-anthropic";
 import { type FakeOpenSubtitlesOptions, makeFakeOpenSubtitles } from "./testing/fake-opensubtitles";
 import { type FakePutioOptions, file, makeFakePutio } from "./testing/fake-putio";
+import { makeFakeTmdb } from "./testing/fake-tmdb";
 import { memorySql } from "./testing/sqlite";
 
 const library = [
@@ -31,10 +33,11 @@ type SetupOptions = Partial<Omit<FakePutioOptions, "pageSize">> & {
   history?: Array<MessageParam>;
   seed?: (store: ReturnType<typeof makeStore>) => void;
   online?: FakeOpenSubtitlesOptions;
+  tmdb?: Parameters<typeof makeFakeTmdb>[0];
 };
 
 const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
-  const { cap, budget, pool, unlimited, history, seed, files, online, ...putioOptions } = opts;
+  const { cap, budget, pool, unlimited, history, seed, files, online, tmdb, ...putioOptions } = opts;
   const sql = memorySql();
   const store = makeStore(sql);
   const poolStore = makeStore(memorySql());
@@ -44,6 +47,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
   const anthropic = makeFakeAnthropic(replies);
   const putio = makeFakePutio({ files: files ?? library, pageSize: 2, ...putioOptions });
   const opensubtitles = makeFakeOpenSubtitles(online ?? { subtitles: [] });
+  const movieDb = makeFakeTmdb(tmdb ?? {});
   const events: Array<ServerEvent> = [];
   const turns: Array<Promise<unknown>> = [];
   let disconnects = 0;
@@ -59,6 +63,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
       anthropic: anthropicLayer({ apiKey: Redacted.make("sk-test"), fetch: anthropic.fetch, maxRetries: 0 }),
       putioFetch: putio.fetch,
       openSubtitles: online ? makeOpenSubtitles({ apiKey: Redacted.make("os-key"), username: "altay", password: Redacted.make("pw") }, opensubtitles.fetch) : null,
+      tmdb: tmdb ? makeTmdb(Redacted.make("tmdb-token"), movieDb.fetch) : null,
       broadcast: (e) => events.push(e),
       disconnect: () => disconnects++,
       background: (effect) => turns.push(Effect.runPromiseExit(effect)),
@@ -84,7 +89,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
     return result?.type === "tool_result" ? String(result.content) : "";
   };
 
-  return { sql, store, agent, anthropic, putio, opensubtitles, events, settle, receive, toolOutput, disconnects: () => disconnects };
+  return { sql, store, agent, anthropic, putio, opensubtitles, movieDb, events, settle, receive, toolOutput, disconnects: () => disconnects };
 };
 
 const tool = (id: string, name: string, input = "{}", usage = { input: 10, output: 5 }): Reply => ({ kind: "sse", events: toolUseTurn({ id, name, inputJsonChunks: [input] }, usage) });
@@ -1057,7 +1062,7 @@ describe("translate subtitles", () => {
     await proposeAndApply(t);
 
     expect([t.anthropic.requests.at(-1)?.body.messages.at(-1)?.content, t.putio.uploads.map((u) => u.text)]).toEqual([
-      JSON.stringify({ sentences: [{ id: 0, text: "The tools we use are good." }] }),
+      JSON.stringify({ before: [], sentences: [{ id: 0, text: "The tools we use are good." }] }),
       ["1\n00:00:01,000 --> 00:00:02,000\nKullandığımız\n\n2\n00:00:02,000 --> 00:00:04,000\naraçlar çok iyi.\n\n3\n00:00:05,000 --> 00:00:06,000\n<i>Koş!</i>\n"],
     ]);
   });
@@ -1228,6 +1233,49 @@ describe("translate with a subtitle from OpenSubtitles", () => {
     expect(JSON.parse(t.toolOutput("toolu_t")).cant_translate).toEqual([
       { path: `/Quiet Harbor/${video}`, why: "neither put.io nor OpenSubtitles has an English subtitle for this video" },
     ]);
+  });
+});
+
+describe("translation context", () => {
+  it("gives every batch the show's TMDB facts and the translator notes, and each later batch the lines before it", async () => {
+    const video = "Quiet.Harbor.S01E01.1080p.WEB-DL-Kestrel.mkv";
+    const files = [file(70, 0, "Quiet Harbor", "FOLDER"), file(71, 70, video, "VIDEO", 2 ** 30)];
+    const lines = Array.from({ length: 61 }, (_, i) => `Line ${i}.`);
+    const srt = lines.map((l, i) => `${i + 1}\n00:00:${String(i).padStart(2, "0")},000 --> 00:00:${String(i).padStart(2, "0")},500\n${l}\n`).join("\n");
+    const everything = say(JSON.stringify({ sentences: lines.map((l, id) => ({ id, english: l, text: `Satır ${id}.` })) }));
+
+    const t = await setup(
+      [
+        tool("toolu_s", "scan_library"),
+        tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Quiet Harbor"], language: "tur" })),
+        say("plan's up."),
+        say(JSON.stringify({ notes: "Ada and Bram use informal sen." })),
+        everything,
+        everything,
+      ],
+      {
+        files,
+        subtitles: { 71: [{ key: "k1", language_code: "eng", source: "mkv", name: "English", srt }] },
+        tmdb: {
+          "/search/tv": { results: [{ id: 7, name: "Quiet Harbor" }] },
+          "/tv/7": { name: "Quiet Harbor", first_air_date: "2020-04-26", overview: "Two teenagers in a harbor town.", genres: [{ name: "Drama" }] },
+          "/tv/7/season/1/episode/1": { name: "Pilot", overview: "Ada meets Bram.", credits: { cast: [{ character: "Ada Quill", gender: 1 }, { character: "Bram Oake / Narrator", gender: 2 }], guest_stars: [] } },
+        },
+      },
+    );
+
+    await t.receive(send("turkish subtitles for quiet harbor"));
+    await t.receive({ type: "apply", plan: t.store.plans()[0]?.record.plan.id ?? "", exclude: [] });
+
+    const translator = t.anthropic.requests.slice(-2).map((r) => ({ system: String(r.body.system), input: JSON.parse(String(r.body.messages.at(-1)?.content)) }));
+    const brief = "About this video:\nTitle: Quiet Harbor (2020), Drama\nSynopsis: Two teenagers in a harbor town.\nThis episode: Pilot. Ada meets Bram.\nCharacters, with who plays them as a hint only: Ada Quill (actress), Bram Oake (actor)\nTranslator notes: Ada and Bram use informal sen.";
+
+    expect([
+      translator.map((r) => r.system.endsWith(brief)),
+      translator.map((r) => r.input.before).toSorted((a, b) => a.length - b.length),
+      t.putio.uploads.map((u) => u.text.includes("Satır 60.")),
+      String(t.anthropic.requests.at(-3)?.body.messages.at(-1)?.content).includes("Line 30."),
+    ]).toEqual([[true, true], [[], ["Line 56.", "Line 57.", "Line 58.", "Line 59."]], [true], true]);
   });
 });
 

@@ -10,6 +10,8 @@ import { upstreamFetch } from "./dev";
 import { consoleFloor } from "./credits";
 // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- composition root: the Durable Object builds the OpenSubtitles client from config
 import { makeOpenSubtitles } from "./opensubtitles";
+// oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- composition root: the Durable Object builds the TMDB client from config
+import { makeTmdb } from "./tmdb";
 import { anthropicLayer } from "./runner";
 // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- composition root: the Durable Object owns the SQLite handle it passes in
 import { makeStore, type Sql } from "./store";
@@ -49,6 +51,7 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         pool: (m, tokens) => agents.getByName(POOL_NAME).poolReport(m, raw.id.toString(), tokens),
         unlimitedUsers: config.unlimitedUsers,
         openSubtitles: config.openSubtitles ? makeOpenSubtitles(config.openSubtitles, (input, init) => fetch(input, init)) : null,
+        tmdb: config.tmdbToken ? makeTmdb(config.tmdbToken, (input, init) => fetch(input, init)) : null,
         anthropic: anthropicLayer({ apiKey: config.anthropicApiKey, maxRetries: 0, fetch: dev?.fetch }),
         broadcast: (event: ServerEvent) => {
           const frame = encodeEvent(event);

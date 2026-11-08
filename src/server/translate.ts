@@ -5,6 +5,7 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import { nameOf } from "./changes";
 import { type OpenSubtitles, parseRelease, rankCandidates } from "./opensubtitles";
+import type { Facts, Tmdb } from "./tmdb";
 import { downloadSubtitle, listSubtitles, mediaInfo, type PutioError, PutioFailed, uploadText } from "./putio";
 import { blockedText } from "../shared/contract";
 import { outOfBudget } from "./credits";
@@ -258,14 +259,14 @@ const fromOnline = (online: OpenSubtitles, videoId: number, videoPath: string, s
 
     if (ranked.length === 0) return yield* Effect.fail(new PutioFailed({ message: "neither put.io nor OpenSubtitles has an English subtitle for this video", refused: true }));
 
-    if (!fetch) return [];
+    if (!fetch) return { cues: [], imdbId: null };
     const info = yield* mediaInfo(videoId).pipe(Effect.mapError(nothingWritten));
     const duration = info.media_info?.format?.duration ?? null;
 
     for (const candidate of ranked.slice(0, ONLINE_TRIES)) {
       const cues = parseSrt(yield* online.download(candidate.fileId));
 
-      if (cues.length > 0 && fitsLength(cues, duration) && (yield* belongsTo(videoPath, cues, spend))) return cues;
+      if (cues.length > 0 && fitsLength(cues, duration) && (yield* belongsTo(videoPath, cues, spend))) return { cues, imdbId: candidate.imdbId };
     }
 
     return yield* Effect.fail(new PutioFailed({ message: "OpenSubtitles’ English subtitles don’t fit this video’s length or story", refused: true }));
@@ -275,7 +276,7 @@ const pickSource = (videoId: number, videoPath: string, spend: Spend, online: Op
   Effect.gen(function* () {
     const found = yield* fromPutio(videoId, videoPath, spend);
 
-    if (found.cues !== null) return found.cues;
+    if (found.cues !== null) return { cues: found.cues, imdbId: null };
 
     if (online === null) return yield* Effect.fail(new PutioFailed({ message: found.why, refused: true }));
 
@@ -305,11 +306,45 @@ const SENTENCES_SCHEMA: JSONOutputFormat["schema"] = {
   additionalProperties: false,
 };
 
-const translateSentences = (sentences: ReadonlyArray<Sentence>, language: string, spend: Spend) =>
+const OVERLAP = 4;
+const MAX_BRIEF_LINES = 4000;
+
+const factsText = (facts: Facts | null) => {
+  if (facts === null) return "";
+
+  const lines = [`Title: ${facts.title}${facts.year ? ` (${facts.year})` : ""}${facts.genres.length > 0 ? `, ${facts.genres.join(", ")}` : ""}`];
+
+  if (facts.overview) lines.push(`Synopsis: ${facts.overview}`);
+
+  if (facts.episode) lines.push(`This episode: ${facts.episode.title}${facts.episode.overview ? `. ${facts.episode.overview}` : ""}`);
+
+  if (facts.characters.length > 0) lines.push(`Characters, with who plays them as a hint only: ${facts.characters.map((c) => (c.played ? `${c.name} (${c.played})` : c.name)).join(", ")}`);
+
+  return lines.join("\n");
+};
+
+const decodeNotes = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Struct({ notes: Schema.String })));
+
+const NOTES_SCHEMA: JSONOutputFormat["schema"] = { type: "object", properties: { notes: { type: "string" } }, required: ["notes"], additionalProperties: false };
+
+const translatorNotes = (cues: ReadonlyArray<Cue>, facts: string, language: string, spend: Spend) =>
   Effect.gen(function* () {
     const reply = yield* askHaiku(
-      `Translate English film and TV subtitles into ${language}. Return every sentence with its id, its English text copied exactly, and its translation. Keep line breaks, italics tags and speaker dashes. Write natural spoken ${language}, as a professional subtitler would.`,
-      JSON.stringify({ sentences: sentences.map((s) => ({ id: s.id, text: sentenceText(s) })) }),
+      `You brief a subtitler who will translate English subtitles into ${language} in separate chunks. From the facts and the whole English subtitle, write short notes that keep the chunks consistent: each recurring character's gender as the dialogue shows it, not who plays them, and how others address them, who speaks formally or informally to whom in ${language}, recurring names, places and terms with how to render them, and the tone. At most 200 words.`,
+      JSON.stringify({ facts, subtitle: cues.slice(0, MAX_BRIEF_LINES).map((c) => c.text.replace(/\n/g, " ")).join("\n") }),
+      NOTES_SCHEMA,
+      spend,
+      false,
+    );
+
+    return Option.match(decodeNotes(reply.text), { onNone: () => "", onSome: (n) => n.notes.trim() });
+  });
+
+const translateSentences = (sentences: ReadonlyArray<Sentence>, language: string, spend: Spend, brief: string, before: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const reply = yield* askHaiku(
+      `Translate English film and TV subtitles into ${language}. Return every sentence with its id, its English text copied exactly, and its translation. Keep line breaks, italics tags and speaker dashes. Write natural spoken ${language}, as a professional subtitler would. Lines under "before" come just before these sentences: read them for context, never return them.${brief ? `\n\nAbout this video:\n${brief}` : ""}`,
+      JSON.stringify({ before, sentences: sentences.map((s) => ({ id: s.id, text: sentenceText(s) })) }),
       SENTENCES_SCHEMA,
       spend,
       false,
@@ -325,13 +360,13 @@ const translateSentences = (sentences: ReadonlyArray<Sentence>, language: string
 const ROUNDS = 2;
 const MAX_MISSING = 0.05;
 
-const translateBatch = (sentences: ReadonlyArray<Sentence>, language: string, spend: Spend) =>
+const translateBatch = (sentences: ReadonlyArray<Sentence>, language: string, spend: Spend, brief: string, before: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const got = new Map<number, string>();
     let missing = sentences;
 
     for (let round = 0; round < ROUNDS && missing.length > 0; round++) {
-      for (const [id, text] of yield* translateSentences(missing, language, spend)) got.set(id, text);
+      for (const [id, text] of yield* translateSentences(missing, language, spend, brief, before)) got.set(id, text);
       missing = missing.filter((s) => !got.has(s.id));
     }
 
@@ -344,17 +379,24 @@ const translateBatch = (sentences: ReadonlyArray<Sentence>, language: string, sp
     });
   });
 
-export const checkSource = (videoId: number, videoPath: string, spend: Spend, online: OpenSubtitles | null) => Effect.asVoid(pickSource(videoId, videoPath, spend, online, false));
+export type Sources = { readonly online: OpenSubtitles | null; readonly tmdb: Tmdb | null };
 
-export const translateSubtitle = (videoId: number, videoPath: string, parentId: number, name: string, language: LanguageCode, spend: Spend, online: OpenSubtitles | null) =>
+export const checkSource = (videoId: number, videoPath: string, spend: Spend, sources: Sources) => Effect.asVoid(pickSource(videoId, videoPath, spend, sources.online, false));
+
+export const translateSubtitle = (videoId: number, videoPath: string, parentId: number, name: string, language: LanguageCode, spend: Spend, sources: Sources) =>
   Effect.gen(function* () {
-    const cues = yield* pickSource(videoId, videoPath, spend, online, true);
+    const { cues, imdbId } = yield* pickSource(videoId, videoPath, spend, sources.online, true);
+    const release = parseRelease(nameOf(videoPath));
+    const facts = factsText(sources.tmdb && release ? yield* sources.tmdb.facts(release, imdbId) : null);
+    const batches = toBatches(toSentences(cues));
+    const notes = batches.length > 1 ? yield* translatorNotes(cues, facts, LANGUAGES[language], spend) : "";
+    const brief = [facts, notes && `Translator notes: ${notes}`].filter((l) => l !== "").join("\n");
 
     const translated = yield* Effect.forEach(
-      toBatches(toSentences(cues)),
-      (batch) => translateBatch(batch, LANGUAGES[language], spend),
+      batches,
+      (batch, i) => translateBatch(batch, LANGUAGES[language], spend, brief, (batches[i - 1] ?? []).slice(-OVERLAP).map(sentenceText)),
       { concurrency: PARALLEL },
-    ).pipe(Effect.map((batches) => batches.flat()));
+    ).pipe(Effect.map((done) => done.flat()));
 
     return yield* uploadText(name, parentId, toSrt(cues.map((c, id) => ({ head: c.head, text: cueText(translated[id], c.text) }))));
   });

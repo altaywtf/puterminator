@@ -19,7 +19,7 @@ export type OpenSubtitlesCredentials = {
 
 export type Release = { readonly title: string; readonly season: number; readonly episode: number } | { readonly title: string; readonly year: number };
 
-export type Candidate = { readonly fileId: number; readonly release: string; readonly hearingImpaired: boolean; readonly downloads: number };
+export type Candidate = { readonly fileId: number; readonly release: string; readonly hearingImpaired: boolean; readonly downloads: number; readonly imdbId: string | null };
 
 export type OpenSubtitles = {
   readonly search: (release: Release) => Effect.Effect<ReadonlyArray<Candidate>, PutioFailed>;
@@ -61,7 +61,11 @@ const Feature = Schema.Struct({
   season_number: Schema.optional(Schema.NullOr(Schema.Finite)),
   episode_number: Schema.optional(Schema.NullOr(Schema.Finite)),
   year: Schema.optional(Schema.NullOr(Schema.Finite)),
+  imdb_id: Schema.optional(Schema.NullOr(Schema.Finite)),
+  parent_imdb_id: Schema.optional(Schema.NullOr(Schema.Finite)),
 });
+
+const imdbOf = (id: number | null | undefined) => (id ? `tt${String(id).padStart(7, "0")}` : null);
 
 const Attributes = Schema.Struct({
   release: Schema.optional(Schema.NullOr(Schema.String)),
@@ -203,7 +207,7 @@ export const makeOpenSubtitles = (credentials: OpenSubtitlesCredentials, fetchIm
 
         if (only === undefined || a.ai_translated || a.machine_translated || a.foreign_parts_only || !isFor(release, a.feature_details)) return [];
 
-        return [{ fileId: only.file_id, release: a.release ?? only.file_name ?? "", hearingImpaired: a.hearing_impaired ?? false, downloads: a.download_count ?? 0 }];
+        return [{ fileId: only.file_id, release: a.release ?? only.file_name ?? "", hearingImpaired: a.hearing_impaired ?? false, downloads: a.download_count ?? 0, imdbId: imdbOf(a.feature_details?.parent_imdb_id ?? a.feature_details?.imdb_id) }];
       });
     });
 
