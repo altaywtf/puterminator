@@ -6,6 +6,7 @@ describe("parseRelease", () => {
     ["Quiet.Harbor.S01E01.1080p.AMZN.WEB-DL.DD5.1.H.264-Kestrel.mkv", { title: "Quiet Harbor", season: 1, episode: 1 }],
     ["Lantern Street (2022) - S01E01.mkv", { title: "Lantern Street", season: 1, episode: 1 }],
     ["1886 S02E03.mkv", { title: "1886", season: 2, episode: 3 }],
+    ["Station.1999.S01E01.mkv", { title: "Station 1999", season: 1, episode: 1 }],
     ["Orbit 2049 (2017).mkv", { title: "Orbit 2049", year: 2017 }],
     ["Orbit.2049.2017.1080p.BluRay.x264-Moth.mkv", { title: "Orbit 2049", year: 2017 }],
     ["1905.2019.1080p.WEB-DL.mkv", { title: "1905", year: 2019 }],

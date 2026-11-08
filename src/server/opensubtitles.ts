@@ -38,7 +38,7 @@ const titleOf = (raw: string) => raw.replace(/[._]+/g, " ").replace(/[\s([-]+$/,
 
 const showOf = (raw: string) => {
   const title = titleOf(raw);
-  const bare = title.replace(/[\s([-]*(?:19|20)\d{2}[)\]]?$/, "").trim();
+  const bare = title.replace(/\s*[([](?:19|20)\d{2}[)\]]$/, "").trim();
 
   return bare === "" ? title : bare;
 };
@@ -89,7 +89,11 @@ const sameTitle = (ours: string, theirs: string | null | undefined) => {
 const isFor = (release: Release, feature: typeof Feature.Type | null | undefined) => {
   if (!feature) return false;
 
-  if ("season" in release) return feature.season_number === release.season && feature.episode_number === release.episode && sameTitle(release.title, feature.parent_title);
+  if ("season" in release) {
+    const named = sameTitle(release.title, feature.parent_title) || sameTitle(release.title.replace(/\s+(?:19|20)\d{2}$/, ""), feature.parent_title);
+
+    return feature.season_number === release.season && feature.episode_number === release.episode && named;
+  }
 
   return sameTitle(release.title, feature.title) && (feature.year == null || Math.abs(feature.year - release.year) <= 1);
 };
