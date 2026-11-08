@@ -5,9 +5,11 @@ import * as Redacted from "effect/Redacted";
 import { describe, expect, it, vi } from "vitest";
 import { type ClientEvent, CREDIT_TOKENS, FileFlag, type MessageParam, type ServerEvent } from "../shared/contract";
 import { type AgentDeps, makeAgent } from "./conversation";
+import { makeOpenSubtitles } from "./opensubtitles";
 import { anthropicLayer } from "./runner";
 import { makeStore, month } from "./store";
 import { makeFakeAnthropic, type Reply, textTurn, toolUseTurn } from "./testing/fake-anthropic";
+import { type FakeOpenSubtitlesOptions, makeFakeOpenSubtitles } from "./testing/fake-opensubtitles";
 import { type FakePutioOptions, file, makeFakePutio } from "./testing/fake-putio";
 import { memorySql } from "./testing/sqlite";
 
@@ -28,10 +30,11 @@ type SetupOptions = Partial<Omit<FakePutioOptions, "pageSize">> & {
   unlimited?: ReadonlyArray<string>;
   history?: Array<MessageParam>;
   seed?: (store: ReturnType<typeof makeStore>) => void;
+  online?: FakeOpenSubtitlesOptions;
 };
 
 const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
-  const { cap, budget, pool, unlimited, history, seed, files, ...putioOptions } = opts;
+  const { cap, budget, pool, unlimited, history, seed, files, online, ...putioOptions } = opts;
   const sql = memorySql();
   const store = makeStore(sql);
   const poolStore = makeStore(memorySql());
@@ -40,6 +43,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
   seed?.(store);
   const anthropic = makeFakeAnthropic(replies);
   const putio = makeFakePutio({ files: files ?? library, pageSize: 2, ...putioOptions });
+  const opensubtitles = makeFakeOpenSubtitles(online ?? { subtitles: [] });
   const events: Array<ServerEvent> = [];
   const turns: Array<Promise<unknown>> = [];
   let disconnects = 0;
@@ -54,6 +58,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
       unlimitedUsers: unlimited ?? [],
       anthropic: anthropicLayer({ apiKey: Redacted.make("sk-test"), fetch: anthropic.fetch, maxRetries: 0 }),
       putioFetch: putio.fetch,
+      openSubtitles: online ? makeOpenSubtitles({ apiKey: Redacted.make("os-key"), username: "altay", password: Redacted.make("pw") }, opensubtitles.fetch) : null,
       broadcast: (e) => events.push(e),
       disconnect: () => disconnects++,
       background: (effect) => turns.push(Effect.runPromiseExit(effect)),
@@ -79,7 +84,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
     return result?.type === "tool_result" ? String(result.content) : "";
   };
 
-  return { sql, store, agent, anthropic, putio, events, settle, receive, toolOutput, disconnects: () => disconnects };
+  return { sql, store, agent, anthropic, putio, opensubtitles, events, settle, receive, toolOutput, disconnects: () => disconnects };
 };
 
 const tool = (id: string, name: string, input = "{}", usage = { input: 10, output: 5 }): Reply => ({ kind: "sse", events: toolUseTurn({ id, name, inputJsonChunks: [input] }, usage) });
@@ -1148,6 +1153,80 @@ describe("translate subtitles", () => {
       ],
       ["/Movies/Ronin (1998).mkv"],
       [],
+    ]);
+  });
+});
+
+describe("translate with a subtitle from OpenSubtitles", () => {
+  const video = "Quiet.Harbor.S01E01.1080p.AMZN.WEB-DL.DD5.1.H.264-Kestrel.mkv";
+  const files = [file(50, 0, "Quiet Harbor", "FOLDER"), file(51, 50, video, "VIDEO", 2 ** 30)];
+  const srt = (end: string) => `1\n00:00:01,000 --> 00:00:02,000\nHello.\n\n2\n01:44:00,000 --> ${end}\n<i>Run!</i>\n`;
+  const fits = srt("01:45:00,000");
+  const episode = { title: "Quiet Harbor", season: 1, episode: 1 };
+
+  const subtitles = [
+    { ...episode, fileId: 1, release: "Quiet.Harbor.S01E01.720p.HULU.WEBRip.DDP5.1.x264-Wren", srt: fits, downloads: 176_839 },
+    { ...episode, fileId: 2, release: "Quiet.Harbor.S01E01.1080p.AMZN.WEB-DL.DDP5.1.H.264-Kestrel", srt: srt("01:55:00,000"), downloads: 10 },
+    { ...episode, fileId: 3, release: "Quiet.Harbor.S01E01.720p.HDTV.x264-Moth", srt: fits, downloads: 49_850 },
+    { ...episode, episode: 2, fileId: 4, release: "Quiet.Harbor.S01E02.1080p.AMZN.WEB-DL.DDP5.1.H.264-Kestrel", srt: fits, downloads: 9 },
+  ];
+
+  const propose = [tool("toolu_s", "scan_library"), tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Quiet Harbor"], language: "tur" })), say("plan's up.")];
+  const matches = say(JSON.stringify({ matches: true }), { input: 1, output: 1 });
+  const translated = say(JSON.stringify({ sentences: [{ id: 0, english: "Hello.", text: "Merhaba." }, { id: 1, english: "<i>Run!</i>", text: "<i>Koş!</i>" }] }));
+
+  const proposeAndApply = async (t: Awaited<ReturnType<typeof setup>>) => {
+    await t.receive(send("turkish subtitles for quiet harbor"));
+    const proposed = { downloads: [...t.opensubtitles.downloads], plan: t.store.plans()[0]?.record.plan.changes.map((c) => c.path) };
+
+    await t.receive({ type: "apply", plan: t.store.plans()[0]?.record.plan.id ?? "", exclude: [] });
+
+    return proposed;
+  };
+
+  it("searches by show, season and episode when proposing, then downloads the closest release that fits the video's length and translates it", async () => {
+    const t = await setup([...propose, matches, translated], { files, online: { subtitles } });
+
+    const proposed = await proposeAndApply(t);
+
+    expect([proposed, Object.fromEntries(t.opensubtitles.searches[0] ?? []), t.opensubtitles.downloads, t.putio.uploads.map((u) => [u.name, u.text])]).toEqual([
+      { downloads: [], plan: [`/Quiet Harbor/${video}`] },
+      { episode_number: "1", foreign_parts_only: "exclude", languages: "en", query: "quiet harbor", season_number: "1", type: "episode" },
+      [2, 1],
+      [["Quiet.Harbor.S01E01.1080p.AMZN.WEB-DL.DD5.1.H.264-Kestrel.tur.srt", "1\n00:00:01,000 --> 00:00:02,000\nMerhaba.\n\n2\n01:44:00,000 --> 01:45:00,000\n<i>Koş!</i>\n"]],
+    ]);
+  });
+
+  it("signs in to OpenSubtitles once for episodes translated in parallel, and matches a show named with its year", async () => {
+    const named = [file(60, 0, "Lantern Street (2022)", "FOLDER"), ...[1, 2, 3].map((n) => file(60 + n, 60, `Lantern Street (2022) - S01E0${n}.mkv`, "VIDEO", 2 ** 30))];
+    const show = [1, 2, 3].map((n) => ({ title: "Lantern Street", season: 1, episode: n, fileId: 100 + n, release: `Lantern.Street.S01E0${n}.1080p.ATVP.WEB-DL-Wren`, srt: fits }));
+    const season = [tool("toolu_s", "scan_library"), tool("toolu_t", "propose_translation", JSON.stringify({ paths: ["/Lantern Street (2022)"], language: "tur" })), say("plan's up.")];
+    const t = await setup([...season, matches, matches, matches], { files: named, online: { subtitles: show } });
+
+    await t.receive(send("turkish subtitles for lantern street"));
+    await t.receive({ type: "apply", plan: t.store.plans()[0]?.record.plan.id ?? "", exclude: [] });
+
+    expect([t.opensubtitles.logins(), t.opensubtitles.downloads.toSorted()]).toEqual([1, [101, 102, 103]]);
+  });
+
+  it("fails the step, saying when the quota resets, once OpenSubtitles' daily downloads are used up", async () => {
+    const t = await setup([...propose], { files, online: { subtitles, quota: 0 } });
+
+    await proposeAndApply(t);
+
+    expect([t.store.plans()[0]?.record.run?.steps.map((s) => [s.state, s.error]), t.putio.uploads]).toEqual([
+      [["failed", "OpenSubtitles’ daily download limit is used up; it resets in 11 hours and 4 minutes"]],
+      [],
+    ]);
+  });
+
+  it("leaves out, when proposing, an episode no one has an English subtitle for", async () => {
+    const t = await setup([...propose], { files, online: { subtitles: subtitles.filter((s) => s.episode === 2) } });
+
+    await t.receive(send("turkish subtitles for quiet harbor"));
+
+    expect(JSON.parse(t.toolOutput("toolu_t")).cant_translate).toEqual([
+      { path: `/Quiet Harbor/${video}`, why: "neither put.io nor OpenSubtitles has an English subtitle for this video" },
     ]);
   });
 });

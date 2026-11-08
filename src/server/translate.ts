@@ -3,7 +3,9 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import { downloadSubtitle, listSubtitles, type PutioError, PutioFailed, uploadText } from "./putio";
+import { nameOf } from "./changes";
+import { type OpenSubtitles, parseRelease, rankCandidates } from "./opensubtitles";
+import { downloadSubtitle, listSubtitles, mediaInfo, type PutioError, PutioFailed, uploadText } from "./putio";
 import { blockedText } from "../shared/contract";
 import { outOfBudget } from "./credits";
 import { AnthropicClient, isSpendLimit, usageMeter } from "./runner";
@@ -212,21 +214,72 @@ const belongsTo = (videoPath: string, cues: ReadonlyArray<Cue>, spend: Spend) =>
   });
 
 const MAX_CANDIDATES = 3;
+const ONLINE_TRIES = 2;
+const LATE_SLACK_SECONDS = 10;
+const MIN_COVERAGE = 0.7;
 
-const pickSource = (videoId: number, videoPath: string, spend: Spend) =>
+const seconds = (stamp: string) => {
+  const [h = "0", m = "0", s = "0", ms = "0"] = stamp.split(/[:,.]/);
+
+  return Number(h) * 3600 + Number(m) * 60 + Number(s) + Number(ms) / 1000;
+};
+
+const lastEnd = (cues: ReadonlyArray<Cue>) => Math.max(0, ...cues.map((c) => seconds(c.head.match(/-->\s*([\d:,.]+)/)?.[1] ?? "0")));
+
+const fitsLength = (cues: ReadonlyArray<Cue>, duration: number | null) => {
+  if (duration === null) return true;
+  const end = lastEnd(cues);
+
+  return end <= duration + LATE_SLACK_SECONDS && end >= duration * MIN_COVERAGE;
+};
+
+const fromPutio = (videoId: number, videoPath: string, spend: Spend) =>
   Effect.gen(function* () {
     const subs = yield* listSubtitles(videoId).pipe(Effect.mapError(nothingWritten));
     const english = subs.filter((x) => x.language_code === "eng" && sourceRank(x.source) < 2).toSorted((a, b) => sourceRank(a.source) - sourceRank(b.source));
 
-    if (english.length === 0) return yield* Effect.fail(new PutioFailed({ message: "put.io has no English subtitle for this video", refused: true }));
+    if (english.length === 0) return { cues: null, why: "put.io has no English subtitle for this video" };
 
     for (const sub of english.slice(0, MAX_CANDIDATES)) {
       const cues = parseSrt(yield* downloadSubtitle(videoId, sub.key).pipe(Effect.mapError(nothingWritten)));
 
-      if (cues.length > 0 && (sub.source === "mkv" || (yield* belongsTo(videoPath, cues, spend)))) return cues;
+      if (cues.length > 0 && (sub.source === "mkv" || (yield* belongsTo(videoPath, cues, spend)))) return { cues, why: null };
     }
 
-    return yield* Effect.fail(new PutioFailed({ message: "put.io’s English subtitles are for a different video", refused: true }));
+    return { cues: null, why: "put.io’s English subtitles are for a different video" };
+  });
+
+const fromOnline = (online: OpenSubtitles, videoId: number, videoPath: string, spend: Spend, fetch: boolean) =>
+  Effect.gen(function* () {
+    const release = parseRelease(nameOf(videoPath));
+
+    if (release === null) return yield* Effect.fail(new PutioFailed({ message: "put.io has no English subtitle for this video, and its name doesn’t say which film or episode it is", refused: true }));
+    const ranked = rankCandidates(nameOf(videoPath), yield* online.search(release));
+
+    if (ranked.length === 0) return yield* Effect.fail(new PutioFailed({ message: "neither put.io nor OpenSubtitles has an English subtitle for this video", refused: true }));
+
+    if (!fetch) return [];
+    const info = yield* mediaInfo(videoId).pipe(Effect.mapError(nothingWritten));
+    const duration = info.media_info?.format?.duration ?? null;
+
+    for (const candidate of ranked.slice(0, ONLINE_TRIES)) {
+      const cues = parseSrt(yield* online.download(candidate.fileId));
+
+      if (cues.length > 0 && fitsLength(cues, duration) && (yield* belongsTo(videoPath, cues, spend))) return cues;
+    }
+
+    return yield* Effect.fail(new PutioFailed({ message: "OpenSubtitles’ English subtitles don’t fit this video’s length or story", refused: true }));
+  });
+
+const pickSource = (videoId: number, videoPath: string, spend: Spend, online: OpenSubtitles | null, fetch: boolean) =>
+  Effect.gen(function* () {
+    const found = yield* fromPutio(videoId, videoPath, spend);
+
+    if (found.cues !== null) return found.cues;
+
+    if (online === null) return yield* Effect.fail(new PutioFailed({ message: found.why, refused: true }));
+
+    return yield* fromOnline(online, videoId, videoPath, spend, fetch);
   });
 
 const letters = (text: string) => text.replace(/<[^>]*>/g, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
@@ -291,11 +344,11 @@ const translateBatch = (sentences: ReadonlyArray<Sentence>, language: string, sp
     });
   });
 
-export const checkSource = (videoId: number, videoPath: string, spend: Spend) => Effect.asVoid(pickSource(videoId, videoPath, spend));
+export const checkSource = (videoId: number, videoPath: string, spend: Spend, online: OpenSubtitles | null) => Effect.asVoid(pickSource(videoId, videoPath, spend, online, false));
 
-export const translateSubtitle = (videoId: number, videoPath: string, parentId: number, name: string, language: LanguageCode, spend: Spend) =>
+export const translateSubtitle = (videoId: number, videoPath: string, parentId: number, name: string, language: LanguageCode, spend: Spend, online: OpenSubtitles | null) =>
   Effect.gen(function* () {
-    const cues = yield* pickSource(videoId, videoPath, spend);
+    const cues = yield* pickSource(videoId, videoPath, spend, online, true);
 
     const translated = yield* Effect.forEach(
       toBatches(toSentences(cues)),

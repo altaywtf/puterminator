@@ -5,6 +5,7 @@ import * as Record from "effect/Record";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import { DevUpstream } from "./dev";
+import type { OpenSubtitlesCredentials } from "./opensubtitles";
 
 const Secret = Schema.String.check(
   Schema.makeFilter((s: string) => {
@@ -39,6 +40,8 @@ export type AppConfig = {
   readonly consoleSpend: string;
   /** put.io usernames whose credits never run out. */
   readonly unlimitedUsers: ReadonlyArray<string>;
+  /** null when any of the three OpenSubtitles keys is unset: translations then use put.io's subtitles only. */
+  readonly openSubtitles: OpenSubtitlesCredentials | null;
   /** Local dev only: base URL of the fake put.io and Anthropic. */
   readonly devUpstream: string | null;
 };
@@ -80,6 +83,14 @@ export const readConfig = Effect.gen(function* () {
   const poolBudgetCredits = yield* Config.Int("POOL_BUDGET_CREDITS").pipe(Config.withDefault(19_000));
   const consoleSpend = yield* Config.String("CONSOLE_SPEND").pipe(Config.withDefault(""));
   const unlimitedUsers = (yield* Config.String("UNLIMITED_USERS").pipe(Config.withDefault(""))).split(",").map((u) => u.trim()).filter((u) => u.length > 0);
+  const openSubtitlesKey = yield* Config.option(Config.Redacted("OPENSUBTITLES_API_KEY"));
+  const openSubtitlesUser = yield* Config.option(Config.String("OPENSUBTITLES_USERNAME"));
+  const openSubtitlesPassword = yield* Config.option(Config.Redacted("OPENSUBTITLES_PASSWORD"));
+
+  const openSubtitles = Option.getOrNull(
+    Option.all({ apiKey: openSubtitlesKey, username: openSubtitlesUser, password: openSubtitlesPassword }).pipe(Option.filter(({ username }) => username.trim() !== "")),
+  );
+
   const devUpstream = Option.getOrNull(yield* Config.schema(DevUpstream, "DEV_FAKE_UPSTREAM").pipe(Config.option));
 
   const auth = yield* validateAuth({
@@ -88,7 +99,7 @@ export const readConfig = Effect.gen(function* () {
     SESSION_SECRET: Redacted.value(SESSION_SECRET),
   });
 
-  const config: AppConfig = { auth, anthropicApiKey, model, monthlyCredits, poolBudgetCredits, consoleSpend, unlimitedUsers, devUpstream };
+  const config: AppConfig = { auth, anthropicApiKey, model, monthlyCredits, poolBudgetCredits, consoleSpend, unlimitedUsers, openSubtitles, devUpstream };
 
   return config;
 });

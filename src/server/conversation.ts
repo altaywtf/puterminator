@@ -24,6 +24,7 @@ import type { DownloadLinksOutput, DownloadLinksResponse, FreeSpaceOutput, Layou
 import { planLayout } from "./layout";
 import { planFreeSpace } from "./space";
 import { planSubtitles } from "./subtitles";
+import type { OpenSubtitles } from "./opensubtitles";
 import { checkSource, LanguageCode, LANGUAGES, translateSubtitle } from "./translate";
 
 const SYSTEM = `You are puterminator, an agent that helps one person understand and tidy their put.io library.
@@ -37,7 +38,7 @@ Who you are:
 You can scan, score, list folders, search files (by name, category or MIME type), read a file's media info and make download links; every file you name links to put.io and videos play in the app. You can also change the library, but only through a plan the user approves:
 - To make the library work with Plex, Infuse, Jellyfin or Kodi, call plan_layout: it builds the whole plan itself. If the snapshot doesn't show which folders hold movies and shows, ask with ask_user, offering existing top-level folders or new 'Movies' and 'TV Shows'. Afterwards, one line on what it did and how many files it left alone.
 - To fix subtitles put.io or a media server doesn't show, call plan_subtitles: it renames each stray .srt to its video's name and moves it next to the video. One line afterwards; say how many it left alone and why.
-- To translate subtitles, call propose_translation with the videos or folders and the language; a folder covers every video under it, so pass a show or season folder as is. It needs put.io to have an English subtitle for each video; at most 30 videos at a time. It leaves out videos it can't translate; name them and say why in one line.
+- To translate subtitles, call propose_translation with the videos or folders and the language; a folder covers every video under it, so pass a show or season folder as is. It starts from put.io's English subtitle, or one from OpenSubtitles when put.io has none; at most 30 videos at a time. It leaves out videos it can't translate; name them and say why in one line.
 - To find what lacks subtitles in a language, call find_untranslated, then offer to translate the folders with the most missing.
 - To free up space, call plan_free_space with the amount the user wants back (0 if they gave none). It trashes exact copies and junk itself. For each choice it returns (one title in two versions), ask with ask_user which copy to keep, then propose_changes for the rest. Hints (big never-played files) are only suggestions; name them, never trash them unasked.
 - To trash, rename or move anything else, call propose_changes with every change. The app shows it as a diff; the user applies, edits or discards it. You never apply anything yourself, and nothing changes until they click apply.
@@ -149,6 +150,8 @@ export interface AgentDeps {
   /** Keeps the host alive until the effect settles. */
   readonly background: (effect: Effect.Effect<void>) => void;
   readonly putioFetch?: typeof fetch;
+  /** Where translations find an English subtitle put.io lacks; null leaves those videos out. */
+  readonly openSubtitles?: OpenSubtitles | null;
   /** put.io's API origin for URLs handed to the browser; the dev fake overrides it. */
   readonly putioBase?: string;
   readonly partialEveryMs?: number;
@@ -491,7 +494,7 @@ export const makeAgent = (deps: AgentDeps) =>
             setStep(step.change, "running");
             const parentId = first.parents?.[step.change] ?? state.folder.id;
             const spend = spendFor(m);
-            const done = yield* Effect.exit(translateSubtitle(fileId, change.path, parentId, nameOf(change.to), lang, spend).pipe(Effect.provide(deps.anthropic)));
+            const done = yield* Effect.exit(translateSubtitle(fileId, change.path, parentId, nameOf(change.to), lang, spend, deps.openSubtitles ?? null).pipe(Effect.provide(deps.anthropic)));
             yield* refreshCredits;
 
             if (Exit.isSuccess(done)) {
@@ -860,7 +863,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
             const checks = yield* Effect.forEach(
               out.plan.changes,
-              (c) => checkSource(out.ids[c.id] ?? 0, c.path, spend).pipe(Effect.as(null), Effect.catch((e) => Effect.succeed({ path: c.path, why: stepMessage(e) }))),
+              (c) => checkSource(out.ids[c.id] ?? 0, c.path, spend, deps.openSubtitles ?? null).pipe(Effect.as(null), Effect.catch((e) => Effect.succeed({ path: c.path, why: stepMessage(e) }))),
               { concurrency: SOURCE_CHECKS },
             ).pipe(Effect.provide(Layer.merge(deps.anthropic, putioLayer(store.token() ?? undefined, deps.putioFetch))));
 
