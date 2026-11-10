@@ -47,7 +47,7 @@
     "@uinaf/oxlint-plugin-no-comments": "1.0.1",
     "knip": "6.44.2",
     "oxlint": "1.92.0",
-    "portless": "0.16.0",
+    "portless": "0.17.0",
     "tailwindcss": "4.3.5",
     "typescript": "7.0.2",
     "vite": "8.3.6",
