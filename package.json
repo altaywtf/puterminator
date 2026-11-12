@@ -45,7 +45,7 @@
     "@types/mdast": "4.0.4",
     "@types/node": "26.6.6",
     "@uinaf/oxlint-plugin-no-comments": "1.1.0",
-    "knip": "6.45.0",
+    "knip": "6.45.1",
     "oxlint": "1.93.0",
     "portless": "0.17.0",
     "tailwindcss": "4.3.5",
