@@ -1,11 +1,9 @@
-# One effect for the whole graph: @putdotio/sdk pins effect exactly, and the @effect/* caret ranges
-# alchemy pulls in float past it. The catalog holds the version; package.json and the overrides read it.
 catalog:
-  effect: 4.1.2
-  "@effect/platform-browser": 4.1.2
-  "@effect/platform-node": 4.1.2
-  "@effect/platform-node-shared": 4.1.2
-  "@effect/sql-d1": 4.1.2
+  effect: 4.1.4
+  "@effect/platform-browser": 4.1.4
+  "@effect/platform-node": 4.1.4
+  "@effect/platform-node-shared": 4.1.4
+  "@effect/sql-d1": 4.1.4
 overrides:
   effect: "catalog:"
   "@effect/platform-browser": "catalog:"
