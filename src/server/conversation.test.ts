@@ -639,6 +639,36 @@ describe("plans", () => {
     expect(planOf(t).run?.steps.map((s) => s.error)).toEqual(Array(3).fill("put.io signed you out; sign in again"));
   });
 
+  it("checks the folder a run started in, and keeps its scans out of the snapshot of the folder a turn switched to", async () => {
+    let release = () => {};
+    const slow = new Promise<void>((resolve) => (release = resolve));
+    const rename = JSON.stringify({ title: "tidy", changes: [{ op: "rename", path: haze, to: "Haze (1995).mkv" }] });
+    const row = (id: number, parent: number, name: string, path: string, type: string) => ({ id, parent_id: parent, name, path, depth: path.split("/").length - 1, size: 1, file_type: type, content_type: null, extension: null, crc32: null, created_at: "2026-01-01T00:00:00", first_accessed_at: null });
+
+    const seed = (store: ReturnType<typeof makeStore>) => {
+      scanned("2026-01-01T00:00:00.000Z")(store);
+      store.saveSnapshot([row(1, 0, "Movies", "/Movies", "FOLDER"), row(2, 1, "Haze.1995.1080p.BluRay.x264-GRP.mkv", haze, "VIDEO"), row(4, 0, "Alvex (1979).mkv", "/Alvex (1979).mkv", "VIDEO")], 0);
+    };
+
+    const t = await setup([tool("toolu_r", "propose_changes", rename), say("plan's up."), tool("toolu_m", "scan_library"), say("scanned.")], { seed, holdFirstListing: slow });
+
+    t.agent.connected();
+    await Effect.runPromise(t.agent.receive(send("rename it")));
+    await vi.waitFor(() => expect(t.events.some((e) => e.type === "plan")).toBe(true));
+    await vi.waitFor(() => expect(t.agent.state().busy).toBe(false));
+    const id = planOf(t).plan.id;
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
+    await Effect.runPromise(t.agent.receive(frame({ type: "send", text: "scan movies", folder: { id: 1, name: "Movies" } })));
+    release();
+    await t.settle();
+    expect([recordOf(t, id)?.run?.steps.map((s) => [s.state, s.error]), writes(t), t.store.secret("snapshot_root")]).toEqual([
+      [["done", null]],
+      [["/v2/files/rename", { file_id: "2", name: "Haze (1995).mkv" }]],
+      "1",
+    ]);
+    expect(t.store.snapshot().map((f) => f.name)).toContain("Haze (1995).mkv");
+  });
+
   it("refuses to apply a plan in another target folder than the one it was made in", async () => {
     const t = await setup([...proposeTurn(), say("ok.")]);
     await t.receive(send("go"));

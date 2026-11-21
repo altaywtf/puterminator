@@ -18,15 +18,15 @@ description: Model-check the plan run engine (apply, stop, retry, undo, eviction
 
 ## Does a change touch it?
 
-Covered code, last confirmed against commit `b6fb0c4`:
+Covered code, last confirmed against commit `6b1ce1f`:
 
 | Model | Code |
 | --- | --- |
 | `Apply`, `Retry`, `Undo` | `APPLY`, `RETRY`, `UNDO` in [`plan-machine.ts`](../../../src/server/plan-machine.ts); `startRun`, `apply`, `retry`, `undo` and their `receive` cases (`apply`, `retry`, `undo`, `stopRun`) in [`conversation.ts`](../../../src/server/conversation.ts) |
 | `InUndo` | `undoChanges` in [`changes.ts`](../../../src/server/changes.ts) |
-| `PrecheckPass`, `PrecheckFail` | `runPlan`: `refused`, the opening `scan`, `trashed`, `staleChanges`, `trashEnabled`, `finish(error)` |
+| `PrecheckPass`, `PrecheckFail` | `runPlan`: `refused`, the opening `scanFolder(folder)` and its listing, `trashed`, `staleChanges`, `trashEnabled`, `finish(error)` |
 | `StartStep`, `WriteOk`, `WriteRefused`, `WriteLost` | `runPlan` loop: `setStep(…, "running")` (a `STEP` the plan's actor acknowledges before the write), `applyChange`, `failStep`; `maybeApplied` and the 4xx-means-refused rule in [`putio.ts`](../../../src/server/putio.ts) |
-| `LoopDone`, `Finish` | the closing `scan`, the restore rechecks, `finish(null)` (`FINISH`) |
+| `LoopDone`, `Finish` | the closing `rescan` of the run's folder, the restore rechecks against its listing, `finish(null)` (`FINISH`) |
 | `Halt` | `STOP`, the runner's `onDone` and `onError` (stop, crash), and `INTERRUPTED` through `settleAfterRestart` (eviction) in `plan-machine.ts`; any `STEP` acknowledgement is a point where a stop lands |
 | `FailUnfinished`, `FailUnfinishedMaybe`, `SetCur` | `failUnfinished`, `setStep` in `plan-machine.ts` |
 
@@ -35,7 +35,7 @@ Covered code, last confirmed against commit `b6fb0c4`:
 See what changed since the sync commit:
 
 ```bash
-git diff b6fb0c4 -- src/server/conversation.ts src/server/plan-machine.ts src/server/changes.ts src/server/putio.ts
+git diff 6b1ce1f -- src/server/conversation.ts src/server/plan-machine.ts src/server/changes.ts src/server/putio.ts
 ```
 
 The change touches the verification when a hunk lands in a function in the table.
