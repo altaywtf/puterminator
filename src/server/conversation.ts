@@ -1130,7 +1130,7 @@ export const makeAgent = (deps: AgentDeps) =>
             closeDanglingTools();
             keepStreamedText();
             broadcast({ type: "partial", content: null });
-          }).pipe(Effect.andThen(refreshCredits), Effect.andThen(tellActivity({ type: "TURN_SETTLED" }))),
+          }).pipe(Effect.andThen(refreshCredits), Effect.ensuring(tellActivity({ type: "TURN_SETTLED" }))),
         ),
       );
 
@@ -1223,11 +1223,12 @@ export const makeAgent = (deps: AgentDeps) =>
       deleteData: frames.withPermits(1)(Effect.gen(function* () {
         if (!isIdle(activity.getSnapshot())) return false;
         epoch++;
+        store.deleteUserData(month(yield* Clock.currentTimeMillis));
 
         for (const actor of planActors.values()) actor.stop();
         planActors.clear();
         snapshots.clear();
-        store.deleteUserData(month(yield* Clock.currentTimeMillis));
+        runIds.clear();
         store.setSecret("session_gen", String(sessionGen() + 1));
         plans.clear();
         thumbs.clear();

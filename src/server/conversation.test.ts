@@ -959,7 +959,7 @@ describe("plans", () => {
       const persisted = JSON.parse(old.machine ?? "{}");
       const applying = { ...persisted, snapshot: { ...persisted.snapshot, value: "applying", context: { ...persisted.snapshot?.context, run: cut } } };
       const record = { ...old.record, status: "applying" as const, run: cut };
-      t.store.savePlan(legacy ? { ...old, record } : { ...old, record, machine: JSON.stringify(applying) });
+      t.store.savePlan(legacy ? { ...old, record } : { ...old, machine: JSON.stringify(applying) });
 
       const before = writes(t).length;
       const evicted = await t.restart();
