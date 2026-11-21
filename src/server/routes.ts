@@ -31,7 +31,7 @@ export interface UserAgent {
   readonly thumbnail: (id: number) => Effect.Effect<string | null>;
   readonly stream: (id: number) => Effect.Effect<string | null>;
   readonly downloadLinks: (id: number) => Effect.Effect<DownloadLinksResponse | null>;
-  readonly takeFeedbackSlot: () => Effect.Effect<string | null>;
+  readonly takeFeedbackSlot: () => Effect.Effect<FeedbackSender | null>;
   readonly returnFeedbackSlot: () => Effect.Effect<void>;
   readonly fetch: (request: HttpServerRequest) => Effect.Effect<HttpServerResponse.HttpServerResponse, HttpServerError>;
 }
@@ -40,8 +40,10 @@ export interface RouteDeps<R = never> {
   readonly config: AppConfig;
   readonly agentFor: (uid: string) => UserAgent;
   readonly putioFetch?: typeof fetch;
-  readonly sendFeedback?: (feedback: Feedback, from: { readonly uid: string; readonly username: string }) => Effect.Effect<unknown, unknown, R>;
+  readonly sendFeedback?: (feedback: Feedback, from: FeedbackSender & { readonly uid: string }) => Effect.Effect<unknown, unknown, R>;
 }
+
+type FeedbackSender = { readonly username: string; readonly email: string | null };
 
 const decodeFeedback = Schema.decodeUnknownOption(Feedback);
 const FEEDBACK_MAX_BODY = FEEDBACK_MAX_CHARS * 4 + 1024;
@@ -158,10 +160,10 @@ export const makeHandler = <R = never>(deps: RouteDeps<R>) => (request: HttpServ
       if (Option.isNone(feedback)) return json({ error: "bad feedback" }, 400);
 
       if (!deps.sendFeedback) return json({ error: "feedback is off" }, 503);
-      const username = yield* agent.takeFeedbackSlot();
+      const sender = yield* agent.takeFeedbackSlot();
 
-      if (username === null) return json({ error: "too many today" }, 429);
-      const sent = yield* deps.sendFeedback(feedback.value, { uid: session.value.uid, username }).pipe(Effect.result);
+      if (sender === null) return json({ error: "too many today" }, 429);
+      const sent = yield* deps.sendFeedback(feedback.value, { ...sender, uid: session.value.uid }).pipe(Effect.result);
 
       if (Result.isFailure(sent)) {
         yield* agent.returnFeedbackSlot();

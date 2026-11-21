@@ -393,6 +393,14 @@ describe("previews", () => {
   });
 });
 
+describe("feedback sender", () => {
+  it("reads the put.io email for a reply-to, and drops one that could break the header", async () => {
+    expect(await Effect.runPromise((await setup([])).agent.contactEmail)).toBe("altay@example.com");
+    expect(await Effect.runPromise((await setup([], { mail: "a@b.co\r\nBcc: x@y.z" })).agent.contactEmail)).toBeNull();
+    expect(await Effect.runPromise((await setup([], { mail: null })).agent.contactEmail)).toBeNull();
+  });
+});
+
 describe("plans", () => {
   const haze = "/Movies/Haze.1995.1080p.BluRay.x264-GRP.mkv";
   const WRITES = ["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/files/create-folder", "/v2/trash/restore"];

@@ -50,6 +50,7 @@ export type FakePutioOptions = {
   pageSize: number;
   rateLimitContinue?: { times: number; resetAt: number };
   unauthorized?: boolean;
+  mail?: string | null;
   unauthorizedAfter?: number;
   swapAfter?: { listings: number; files: ReadonlyArray<ReturnType<typeof file>> };
   trashEnabled?: boolean;
@@ -133,7 +134,7 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
       return json(200, { info: { user_id: 1, username: "altay", download_token: "dl-token" }, status: "OK" });
     }
 
-    if (url.pathname === "/v2/account/info") return json(200, { info: { user_id: 1, username: "altay", disk: { avail: 5e9, used: 995e9, size: 1e12 } }, status: "OK" });
+    if (url.pathname === "/v2/account/info") return json(200, { info: { user_id: 1, username: "altay", mail: opts.mail === undefined ? "altay@example.com" : opts.mail, disk: { avail: 5e9, used: 995e9, size: 1e12 } }, status: "OK" });
 
     if (url.pathname === "/v2/account/settings") return json(200, { settings: { trash_enabled: opts.trashEnabled ?? true }, status: "OK" });
 

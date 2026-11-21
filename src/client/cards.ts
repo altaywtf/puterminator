@@ -356,6 +356,7 @@ const feedbackCard = (h: H, ctx: Ctx, key: string, f: Feedback, live: boolean): 
   return panel(h, "feedback draft", live, [
     cardHead(h, f.kind === "bug" ? "bug report" : "feature request", entry?.state === "sent" ? "sent" : "draft"),
     h.p([h.Class("m-0 line-clamp-6 whitespace-pre-wrap text-[13px] leading-[1.6] text-fg-2")], [f.text]),
+    ...(entry?.state === "sent" ? [] : [h.p([h.Class("m-0 text-meta leading-[1.6] text-fg-3")], ["sending shares your put.io username and email with the maintainer, so they can write back."])]),
     ...(entry === undefined
       ? [actions]
       : Match.value(entry).pipe(
