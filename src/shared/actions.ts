@@ -59,3 +59,42 @@ export const PlanRecord = Schema.Struct({
 });
 
 export type PlanRecord = typeof PlanRecord.Type;
+
+/** What a standing rule trashes: videos in `within`, outside `protect`, first opened at least `openedDaysAgo` days ago,
+    at most `cap` a run, once a day or a week. */
+export const RuleCriteria = Schema.Struct({
+  title: Schema.String,
+  within: Schema.Array(Schema.String),
+  openedDaysAgo: Schema.Finite,
+  protect: Schema.Array(Schema.String),
+  cap: Schema.Finite,
+  every: Schema.Literals(["day", "week"]),
+});
+
+export type RuleCriteria = typeof RuleCriteria.Type;
+
+/** What a rule would trash at `at`: the count, bytes, a few names, and the put.io ids its first run must still match. */
+export const RulePreview = Schema.Struct({
+  at: Schema.String,
+  count: Schema.Finite,
+  bytes: Schema.Finite,
+  sample: Schema.Array(Schema.String),
+  ids: Schema.Array(Schema.Finite),
+});
+
+export type RulePreview = typeof RulePreview.Type;
+
+/** A standing rule and where it stands. Only browser frames approve, pause, resume or delete it; `runs` are the plans
+    its latest runs made, newest first, `why` says what paused it. */
+export const RuleRecord = Schema.Struct({
+  ...RuleCriteria.fields,
+  id: Schema.String,
+  folder: Schema.String,
+  status: Schema.Literals(["previewed", "active", "running", "paused"]),
+  why: Schema.NullOr(Schema.String),
+  preview: RulePreview,
+  nextAt: Schema.NullOr(Schema.String),
+  runs: Schema.Array(Schema.String),
+});
+
+export type RuleRecord = typeof RuleRecord.Type;

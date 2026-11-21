@@ -50,6 +50,8 @@ export type FakePutioOptions = {
   pageSize: number;
   rateLimitContinue?: { times: number; resetAt: number };
   unauthorized?: boolean;
+  unauthorizedAfter?: number;
+  swapAfter?: { listings: number; files: ReadonlyArray<ReturnType<typeof file>> };
   trashEnabled?: boolean;
   failWrites?: ReadonlyArray<number>;
   failRenames?: ReadonlyArray<number>;
@@ -82,12 +84,18 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     return { files: listing.slice(offset, next), cursor: next < listing.length ? `c${next}` : null };
   };
 
+  let listings = 0;
+
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = new URL(Predicate.isString(input) ? input : input instanceof URL ? input.href : input.url);
     const body = new URLSearchParams(init?.body == null ? "" : String(init.body));
     log.push({ method: init?.method ?? "GET", url, body });
 
-    if (opts.unauthorized) return json(401, { status: "ERROR", error_type: "invalid_grant", status_code: 401 });
+    if (url.pathname === "/v2/files/list") listings++;
+
+    if (opts.swapAfter && url.pathname === "/v2/files/list" && listings === opts.swapAfter.listings + 1) tree = [...opts.swapAfter.files];
+
+    if (opts.unauthorized || (opts.unauthorizedAfter !== undefined && listings > opts.unauthorizedAfter)) return json(401, { status: "ERROR", error_type: "invalid_grant", status_code: 401 });
 
     if (url.pathname === "/v2/files/list") {
       const snapshot = tree.filter((f) => !lagging.has(f.id));

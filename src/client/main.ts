@@ -18,7 +18,7 @@ import {
   ServerFrame,
   type ServerEvent,
 } from "../shared/contract";
-import { PlanRecord } from "../shared/actions";
+import { PlanRecord, RuleRecord } from "../shared/actions";
 import { DownloadLinksResponse } from "../shared/tools";
 import { emptyClock, onMessage, onPartial, ThinkingClock } from "./thinking";
 
@@ -65,6 +65,7 @@ export const Model = Schema.Struct({
   wait: Schema.NullOr(Schema.Struct({ since: Schema.Finite, now: Schema.Finite })),
   library: Schema.NullOr(Library),
   plans: Schema.Record(Schema.String, PlanRecord),
+  rules: Schema.Record(Schema.String, RuleRecord),
   treeOpen: Schema.Boolean,
   treeExpanded: Schema.Array(Schema.Finite),
   treeFocus: Schema.NullOr(Schema.Finite),
@@ -125,6 +126,10 @@ export const Message = defineMessageUnion({
   ReceivedError: { message: Schema.String },
   ReceivedLibrary: { library: Library },
   ReceivedPlan: { record: PlanRecord },
+  ReceivedRule: { rule: RuleRecord },
+  ReceivedRules: { rules: Schema.Array(RuleRecord) },
+  ReceivedRuleDeleted: { id: Schema.String },
+  ClickedRule: { rule: Schema.String, action: Schema.Literals(["approve", "pause", "resume", "delete"]), preview: Schema.String },
   ClickedApply: { plan: Schema.String, exclude: Schema.Array(Schema.String) },
   ClickedDiscard: { plan: Schema.String },
   ClickedStopRun: { plan: Schema.String },
@@ -652,6 +657,10 @@ export const update = (model: Model, message: Message): UpdateReturn =>
     }),
     ReceivedLibrary: ({ library }) => ({ model: modifyFields(model, { library: () => library }) }),
     ReceivedPlan: ({ record }) => ({ model: modifyFields(model, { plans: (ps) => ({ ...ps, [record.plan.id]: record }) }) }),
+    ReceivedRule: ({ rule }) => ({ model: modifyFields(model, { rules: (rs) => ({ ...rs, [rule.id]: rule }) }) }),
+    ReceivedRuleDeleted: ({ id }) => ({ model: modifyFields(model, { rules: (rs) => Object.fromEntries(Object.entries(rs).filter(([key]) => key !== id)) }) }),
+    ReceivedRules: ({ rules }) => ({ model: modifyFields(model, { rules: () => Object.fromEntries(rules.map((r) => [r.id, r])) }) }),
+    ClickedRule: ({ rule, action, preview }) => ({ model, commands: [SendFrame({ event: { type: "rule", rule, action, preview } })] }),
     ClickedApply: ({ plan, exclude }) => ({ model, commands: [SendFrame({ event: { type: "apply", plan, exclude } })] }),
     ClickedDiscard: ({ plan }) => ({ model, commands: [SendFrame({ event: { type: "discard", plan } })] }),
     ClickedStopRun: ({ plan }) => ({ model, commands: [SendFrame({ event: { type: "stopRun", plan } })] }),
@@ -775,6 +784,7 @@ export const init: Runtime.ApplicationInit<Model, Message, void, never, AgentSoc
     wait: null,
     library: null,
     plans: {},
+    rules: {},
     treeOpen: false,
     treeExpanded: [],
     treeFocus: null,
@@ -800,6 +810,9 @@ const toMessage = (event: ServerEvent, at: number): Message =>
       error: ({ message }) => Message.ReceivedError({ message }),
       library: ({ library }) => Message.ReceivedLibrary({ library }),
       plan: ({ record }) => Message.ReceivedPlan({ record }),
+      rule: ({ rule }) => Message.ReceivedRule({ rule }),
+      rules: ({ rules }) => Message.ReceivedRules({ rules }),
+      ruleDeleted: ({ id }) => Message.ReceivedRuleDeleted({ id }),
     }),
   );
 

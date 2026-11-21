@@ -74,6 +74,26 @@ stateDiagram-v2
 - A run applies the changes one at a time, in order (a move may also create folders and rename), then rescans. Writes are never retried automatically: a lost response could mean put.io already applied it, so the step is marked "may have happened" and undo reverses it too.
 - Trash goes to put.io's trash. With trash off in the account, trash steps fail instead of deleting for good.
 
+## Standing rules
+
+```mermaid
+stateDiagram-v2
+  [*] --> previewed: propose_rule
+  previewed --> active: approve
+  state active {
+    [*] --> waiting
+    waiting --> checking: alarm at the due time
+    checking --> waiting: nothing to do, or busy
+    checking --> applying: matches within limits, plan applied
+    applying --> waiting: run done
+  }
+  active --> paused: pause, a failed step, over the cap or share, drift, trash off, signed out
+  paused --> previewed: preview again
+```
+
+- [`rule-machine.ts`](../src/server/rule-machine.ts) owns these states; each run is an ordinary plan, so stop, retry, undo and the receipt work as above. Only a fresh preview, approved again, restarts a paused rule.
+- One durable alarm per rule (`Alchemy.makeCallback` on the Durable Object's native alarm) wakes it at the due time. Delivery is at least once, so `DUE` for any time but the next due one is ignored.
+
 ## Durable Object storage
 
 ```mermaid

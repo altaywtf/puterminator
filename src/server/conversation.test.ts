@@ -34,10 +34,11 @@ type SetupOptions = Partial<Omit<FakePutioOptions, "pageSize">> & {
   seed?: (store: ReturnType<typeof makeStore>) => void;
   online?: FakeOpenSubtitlesOptions;
   tmdb?: Parameters<typeof makeFakeTmdb>[0];
+  failSchedule?: boolean;
 };
 
 const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
-  const { cap, budget, pool, unlimited, history, seed, files, online, tmdb, ...putioOptions } = opts;
+  const { cap, budget, pool, unlimited, history, seed, files, online, tmdb, failSchedule, ...putioOptions } = opts;
   const sql = memorySql();
   const store = makeStore(sql);
   const poolStore = makeStore(memorySql());
@@ -50,6 +51,8 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
   const movieDb = makeFakeTmdb(tmdb ?? {});
   const events: Array<ServerEvent> = [];
   const turns: Array<Promise<unknown>> = [];
+  const jobs = new Map<string, number>();
+  const wakes = new Map<string, number>();
   let disconnects = 0;
 
   const deps: AgentDeps = {
@@ -68,9 +71,18 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
       background: (effect) => turns.push(Effect.runPromiseExit(effect)),
       partialEveryMs: 0,
       restoreRecheckMs: 0,
+      schedule: {
+        set: (rule, at, due) => (failSchedule ? Effect.die(new Error("alarm storage failed")) : Effect.sync(() => void (jobs.set(rule, due), wakes.set(rule, at)))),
+        cancel: (rule) => Effect.sync(() => void (jobs.delete(rule), wakes.delete(rule))),
+      },
   };
 
-  const settle = () => Promise.all(turns);
+  const settle = async (): Promise<void> => {
+    const seen = turns.length;
+    await Promise.all(turns);
+
+    if (turns.length !== seen) await settle();
+  };
 
   const boot = async () => {
     const agent = await Effect.runPromise(makeAgent(deps));
@@ -95,7 +107,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
     return result?.type === "tool_result" ? String(result.content) : "";
   };
 
-  return { sql, store, agent, anthropic, putio, opensubtitles, movieDb, events, settle, receive, restart: boot, toolOutput, disconnects: () => disconnects };
+  return { sql, store, agent, anthropic, putio, opensubtitles, movieDb, events, settle, receive, restart: boot, toolOutput, jobs, wakes, disconnects: () => disconnects };
 };
 
 const tool = (id: string, name: string, input = "{}", usage = { input: 10, output: 5 }): Reply => ({ kind: "sse", events: toolUseTurn({ id, name, inputJsonChunks: [input] }, usage) });
@@ -132,6 +144,7 @@ describe("a turn", () => {
       ["search_files", true],
       ["media_info", true],
       ["propose_changes", true],
+      ["propose_rule", true],
       ["plan_layout", true],
       ["propose_translation", true],
       ["find_untranslated", true],
@@ -157,7 +170,7 @@ describe("a turn", () => {
     expect(lib?.type === "library" && lib.library.rootId).toBe(0);
     const flags = new Map(lib?.type === "library" ? lib.library.files.map((f) => [f[0], f[4]]) : []);
     expect([flags.get(1), flags.get(2), flags.get(3)]).toEqual([FileFlag.folder, FileFlag.video | FileFlag.messy, FileFlag.junk]);
-    expect(t.agent.greeting().map((e) => e.type)).toEqual(["state", "history", "library"]);
+    expect(t.agent.greeting().map((e) => e.type)).toEqual(["state", "history", "library", "rules"]);
 
     const sent = t.events.flatMap((e) => (e.type === "message" ? [e.message] : []));
     expect(sent).toEqual(history);
@@ -330,6 +343,7 @@ describe("a turn", () => {
         background: () => {
           throw new Error("no turn may start");
         },
+        schedule: { set: () => Effect.void, cancel: () => Effect.void },
       }),
     );
 
@@ -339,7 +353,7 @@ describe("a turn", () => {
       await Effect.runPromise(agent.receive(bad));
     }
 
-    expect(agent.greeting().map((e) => e.type)).toEqual(["state", "history"]);
+    expect(agent.greeting().map((e) => e.type)).toEqual(["state", "history", "rules"]);
   });
 });
 
@@ -1652,7 +1666,7 @@ describe("delete data", () => {
     expect(tables).toEqual(["messages", "archived_messages", "files", "plans", "cf_agents_state"].map((table) => [table, 0]));
     expect(t.sql.exec("SELECT key FROM secrets").map((r) => r.key)).toEqual(["session_gen"]);
     expect([used > 0, t.store.used(m), t.store.used("2020-01")]).toEqual([true, used, 0]);
-    expect(t.agent.greeting()).toEqual([{ type: "state", state: { ...t.agent.state(), username: null, avatarUrl: null, lastAudit: null } }, { type: "history", messages: [] }]);
+    expect(t.agent.greeting()).toEqual([{ type: "state", state: { ...t.agent.state(), username: null, avatarUrl: null, lastAudit: null } }, { type: "history", messages: [] }, { type: "rules", rules: [] }]);
   });
 
   it("lets a rescan that was already listing finish without bringing the snapshot back", async () => {
@@ -1728,5 +1742,201 @@ describe("repeated calls", () => {
     await t.receive(send("find haze"));
     expect(t.toolOutput("toolu_s1")).toContain('"total":1');
     expect(t.toolOutput("toolu_s2")).toContain("already made this exact call");
+  });
+});
+
+describe("standing rules", () => {
+  const OLD = "2020-01-01T00:00:00";
+
+  const rulesLibrary = [
+    file(1, 0, "Movies", "FOLDER"),
+    file(2, 1, "Keep", "FOLDER"),
+    file(10, 1, "Old A.mkv", "VIDEO", 2 ** 30, { playedAt: OLD }),
+    file(11, 1, "Old B.mkv", "VIDEO", 2 ** 30, { playedAt: "2020-02-01T00:00:00" }),
+    file(12, 1, "Fresh.mkv", "VIDEO", 2 ** 30, { playedAt: "2099-01-01T00:00:00" }),
+    file(13, 2, "Kept.mkv", "VIDEO", 2 ** 30, { playedAt: OLD }),
+    file(14, 1, "Never.mkv", "VIDEO", 2 ** 30),
+  ];
+
+  const ruleInput = JSON.stringify({ title: "trash old films", within: ["/Movies"], openedDaysAgo: 30, protect: ["/Movies/Keep"], cap: 10, every: "week" });
+  const proposeRule = (): Array<Reply> => [tool("toolu_r1", "scan_library"), tool("toolu_r2", "propose_rule", ruleInput), say("rule's up.")];
+  const deletes = (t: Awaited<ReturnType<typeof setup>>) => t.putio.log.filter((r) => r.url.pathname === "/v2/files/delete").map((r) => r.body.get("file_ids"));
+
+  const ruleOf = (t: Awaited<ReturnType<typeof setup>>) => {
+    const last = t.events.filter((e) => e.type === "rule").at(-1);
+
+    if (last?.type !== "rule") throw new Error("no rule event");
+
+    return last.rule;
+  };
+
+  const ruleFrame = (t: Awaited<ReturnType<typeof setup>>, rule: string, action: "approve" | "pause" | "resume" | "delete"): ClientEvent => ({
+    type: "rule",
+    rule,
+    action,
+    preview: ruleOf(t).preview.at,
+  });
+
+  const fire = async (t: Awaited<ReturnType<typeof setup>>, id: string, due = t.jobs.get(id), settle = true) => {
+    if (due === undefined) throw new Error("no alarm set");
+
+    if (t.jobs.get(id) === due) t.jobs.delete(id);
+    await Effect.runPromise(t.agent.ruleDue(id, due));
+
+    if (settle) await t.settle();
+  };
+
+  const approved = async (replies: Array<Reply> = proposeRule(), opts: SetupOptions = {}) => {
+    const t = await setup(replies, { files: rulesLibrary, ...opts });
+    await t.receive(send("trash films I watched over a month ago, every week"));
+    const rule = ruleOf(t);
+    await t.receive(ruleFrame(t, rule.id, "approve"));
+
+    return { t, id: rule.id };
+  };
+
+  it("previews what it would trash today and sets no alarm until approved", async () => {
+    const t = await setup(proposeRule(), { files: rulesLibrary });
+    await t.receive(send("trash films I watched over a month ago, every week"));
+    const rule = ruleOf(t);
+    expect(rule).toMatchObject({ status: "previewed", folder: "Your Files", nextAt: null, preview: { count: 2, bytes: 2 * 2 ** 30, sample: ["Old A.mkv", "Old B.mkv"], ids: [10, 11] } });
+    expect(t.jobs.size).toBe(0);
+    expect(deletes(t)).toEqual([]);
+  });
+
+  it("runs once per due time as an ordinary plan, then waits a week", async () => {
+    const { t, id } = await approved();
+    const due = t.jobs.get(id);
+    expect(due).toBeDefined();
+    await fire(t, id);
+    expect(deletes(t)).toEqual(["10", "11"]);
+    const rule = ruleOf(t);
+    expect(rule.status).toBe("active");
+    expect(t.jobs.get(id)).toBe((due ?? 0) + 7 * 86_400_000);
+    const run = t.events.flatMap((e) => (e.type === "plan" && e.record.plan.id === rule.runs[0] ? [e.record] : [])).at(-1);
+    expect(run?.status).toBe("done");
+    expect(run?.run?.steps.map((s) => s.state)).toEqual(["done", "done"]);
+
+    const calls = t.putio.log.length;
+    await fire(t, id, due);
+    expect(t.putio.log.length).toBe(calls);
+
+    await t.receive({ type: "undo", plan: rule.runs[0] ?? "" });
+    expect(deletes(t)).toEqual(["10", "11"]);
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "you undid its last run" });
+    expect(t.jobs.has(id)).toBe(false);
+    expect(deletes(t)).toEqual(["10", "11"]);
+  });
+
+  it("pauses on a failed step, cancels its alarm, and runs again only after a fresh preview is approved", async () => {
+    const { t, id } = await approved(proposeRule(), { failWrites: [11] });
+    await fire(t, id);
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "its last run had failed steps; check the receipt", nextAt: null });
+    expect(t.jobs.has(id)).toBe(false);
+
+    await t.receive(ruleFrame(t, id, "approve"));
+    expect(t.jobs.has(id)).toBe(false);
+    await t.receive(ruleFrame(t, id, "resume"));
+    expect(ruleOf(t)).toMatchObject({ status: "previewed", why: null, preview: { ids: [11] } });
+    await t.receive(ruleFrame(t, id, "approve"));
+    expect(t.jobs.has(id)).toBe(true);
+
+    await t.receive(ruleFrame(t, id, "delete"));
+    expect(t.jobs.has(id)).toBe(false);
+    expect(t.events.at(-1)).toEqual({ type: "ruleDeleted", id });
+  });
+
+  it("waits five minutes instead of running during a reply", async () => {
+    const { t, id } = await approved([...proposeRule(), { kind: "hang" }]);
+    const due = t.jobs.get(id) ?? 0;
+    const turn = Effect.runPromise(t.agent.receive(send("anything else?")));
+    await t.anthropic.hanging;
+    await fire(t, id, due, false);
+    expect(deletes(t)).toEqual([]);
+    expect(t.jobs.get(id)).toBeGreaterThanOrEqual(due + 5 * 60_000);
+    expect(t.wakes.get(id)).toBe(t.jobs.get(id));
+    expect(ruleOf(t).status).toBe("active");
+    await t.receive({ type: "stop" });
+    await turn;
+  });
+
+  it("pauses instead of trashing when the library changed since the approved preview", async () => {
+    const trashOldA = JSON.stringify({ title: "one", changes: [{ op: "trash", path: "/Movies/Old A.mkv", to: null }] });
+    const t = await setup([...proposeRule(), tool("toolu_c1", "propose_changes", trashOldA), say("ok.")], { files: rulesLibrary });
+    await t.receive(send("trash films I watched over a month ago, every week"));
+    const { id } = ruleOf(t);
+    await t.receive(send("trash old a now"));
+    const plan = t.events.flatMap((e) => (e.type === "plan" ? [e.record.plan.id] : [])).at(-1) ?? "";
+    await t.receive({ type: "apply", plan, exclude: [] });
+    await t.receive(ruleFrame(t, id, "approve"));
+    await fire(t, id);
+    expect(deletes(t)).toEqual(["10"]);
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "the library changed since you approved its preview" });
+  });
+
+  it("pauses on sign-out and cancels the alarm, so signing back in runs nothing unapproved", async () => {
+    const { t, id } = await approved();
+    await Effect.runPromise(t.agent.signOut);
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "you signed out" });
+    expect(t.jobs.has(id)).toBe(false);
+  });
+
+  it("ignores an approval for a preview the browser no longer shows", async () => {
+    const t = await setup(proposeRule(), { files: rulesLibrary });
+    await t.receive(send("trash films I watched over a month ago, every week"));
+    const { id } = ruleOf(t);
+    await t.receive({ type: "rule", rule: id, action: "approve", preview: "2020-01-01T00:00:00.000Z" });
+    expect(ruleOf(t).status).toBe("previewed");
+    expect(t.jobs.has(id)).toBe(false);
+  });
+
+  it("stays unapproved when its first alarm can't be stored", async () => {
+    const { t, id } = await approved(proposeRule(), { failSchedule: true });
+    expect(ruleOf(t).status).toBe("previewed");
+    expect(t.jobs.has(id)).toBe(false);
+  });
+
+  it("re-arms the due time it is waiting for when a stale or early alarm arrives", async () => {
+    const { t, id } = await approved();
+    const due = t.jobs.get(id) ?? 0;
+    t.jobs.delete(id);
+    await fire(t, id, due - 1);
+    expect(t.jobs.get(id)).toBe(due);
+    expect(deletes(t)).toEqual([]);
+  });
+
+  it("pauses a reapproved rule when a retry of its failed run fails after a restart", async () => {
+    const { t, id } = await approved(proposeRule(), { failWrites: [11] });
+    await fire(t, id);
+    const failedRun = ruleOf(t).runs[0] ?? "";
+    await t.receive(ruleFrame(t, id, "resume"));
+    await t.receive(ruleFrame(t, id, "approve"));
+    expect(ruleOf(t).status).toBe("active");
+
+    const cold = await t.restart();
+    await cold.receive({ type: "retry", plan: failedRun });
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "a run of it had failed steps; check the receipt" });
+  });
+
+  it("stops when a protected folder was replaced by another of the same name", async () => {
+    const swapped = rulesLibrary.map((f) => (f.id === 2 ? { ...f, id: 3 } : f.parent_id === 2 ? { ...f, parent_id: 3 } : f));
+    const { t, id } = await approved(proposeRule(), { files: rulesLibrary, swapAfter: { listings: 1, files: swapped } });
+    await fire(t, id);
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "/Movies/Keep isn’t the folder you protected any more" });
+    expect(deletes(t)).toEqual([]);
+  });
+
+  it("pauses every rule and forgets the token when an alarm finds put.io signed out", async () => {
+    const { t, id } = await approved(proposeRule(), { unauthorizedAfter: 1 });
+    await fire(t, id);
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "put.io signed you out; sign in again" });
+    expect(t.store.token()).toBeNull();
+  });
+
+  it("refuses a rule while trash is off, since a run would delete for good", async () => {
+    const t = await setup(proposeRule(), { files: rulesLibrary, trashEnabled: false });
+    await t.receive(send("trash films I watched over a month ago, every week"));
+    expect(t.toolOutput("toolu_r2")).toContain("Trash is off");
+    expect(t.events.some((e) => e.type === "rule")).toBe(false);
   });
 });

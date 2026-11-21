@@ -10,6 +10,8 @@ puterminator is a chat agent for one person's put.io library, live at <https://p
 | Conversation, tools, system prompt, plan run steps | [`conversation.ts`](src/server/conversation.ts) |
 | Plan lifecycle: states, stop, retry, undo, restart | [`plan-machine.ts`](src/server/plan-machine.ts) |
 | What the Durable Object is doing: turn, rescan, plan run | [`activity-machine.ts`](src/server/activity-machine.ts) |
+| Standing rules: matching, cap and share checks (pure) | [`rules.ts`](src/server/rules.ts) |
+| Rule lifecycle: preview, approve, due, pause, restart | [`rule-machine.ts`](src/server/rule-machine.ts); its alarm is registered in [`agent.ts`](src/server/agent.ts) |
 | Tool loop on the Anthropic SDK | [`runner.ts`](src/server/runner.ts) |
 | put.io calls and error mapping | [`putio.ts`](src/server/putio.ts) |
 | Scoring rules (pure) | [`audit.ts`](src/server/audit.ts) |
@@ -64,7 +66,8 @@ Add a test only when it catches something existing coverage misses, and prove it
 - XState `after` timers live in memory and die with the Durable Object. Anything that must outlive eviction uses a Durable Object alarm.
 - A plan snapshot never resumes a run: a run cut off by eviction settles as interrupted on the next activation, and plans saved before the machine load from `record.status`.
 - History is append-only; editing a stored message breaks thinking signatures and the prompt cache.
-- The model only proposes library changes: trash, rename, move, restore and subtitle uploads start from browser frames (`apply`, `retry`, `undo`) and are never retried automatically. The one write a tool makes is asking put.io for download links.
+- The model only proposes library changes: trash, rename, move, restore and subtitle uploads start from browser frames (`apply`, `retry`, `undo`) or from the alarm of a rule the person approved, once per due time, and are never retried automatically. The one write a tool makes is asking put.io for download links.
+- The `rule-due` callback name in [`agent.ts`](src/server/agent.ts) keys pending alarms; renaming it strands them.
 - A deploy deletes any live secret that [`config.ts`](src/server/config.ts) doesn't read through `Config`.
 - Roll back by redeploying an earlier commit; `wrangler rollback` fails on this script.
 - No code comments: the `uinaf/no-comments` lint rule enforces it. Names, types and tests carry intent; the commit message carries the why.

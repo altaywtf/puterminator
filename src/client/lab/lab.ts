@@ -1,14 +1,15 @@
 import { Match, Schema } from "effect";
 import { Runtime } from "foldkit";
 import type { Document, Html, HtmlBuilder } from "foldkit/html";
-import { PlanRecord } from "../../shared/actions";
+import { PlanRecord, RuleRecord } from "../../shared/actions";
 import { Library } from "../../shared/contract";
 import { planCard, questionCard, runCard } from "../actions";
 import { toolCard } from "../cards";
 import { Message } from "../main";
-import { audits, downloadLinks, feedbackDrafts, folders, library, plans, questions, runs, searches, undos } from "./fixtures";
+import { ruleCard } from "../rules";
+import { audits, downloadLinks, feedbackDrafts, folders, library, plans, questions, rulePlans, rules, runs, searches, undos } from "./fixtures";
 
-const Model = Schema.Struct({ expanded: Schema.Array(Schema.String), library: Library, plans: Schema.Record(Schema.String, PlanRecord) });
+const Model = Schema.Struct({ expanded: Schema.Array(Schema.String), library: Library, plans: Schema.Record(Schema.String, PlanRecord), rules: Schema.Record(Schema.String, RuleRecord) });
 
 type Model = typeof Model.Type;
 
@@ -46,6 +47,7 @@ const actionSections = (h: H, model: Model) => [
   section(h, "question", questions.map(([name, q]) => labelled(h, `ask_user · ${name}`, questionCard(h, model, q)))),
   section(h, "run", runs.map(([name, r]) => labelled(h, `apply · ${name}`, runCard(h, model, r, false, { undoable: true })))),
   section(h, "undo", undos.map(([name, r]) => labelled(h, `undo · ${name}`, runCard(h, model, r, false, { undo: true })))),
+  section(h, "rule", rules.map(([name, r]) => labelled(h, `propose_rule · ${name}`, ruleCard(h, model, r)))),
 ];
 
 const view = (model: Model, h: H): Document => ({
@@ -70,7 +72,7 @@ const view = (model: Model, h: H): Document => ({
 Runtime.run(
   Runtime.makeApplication({
     Model,
-    init: () => ({ model: { expanded: [...plans, ...questions, ...runs].flatMap(([, , keys]) => keys), library, plans: {} } }),
+    init: () => ({ model: { expanded: [...plans, ...questions, ...runs].flatMap(([, , keys]) => keys), library, plans: rulePlans, rules: {} } }),
     update,
     view,
     container: document.getElementById("root"),

@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { PlanRecord } from "./actions";
+import { PlanRecord, RuleRecord } from "./actions";
 
 /** Wire contract between the Worker, the Puterminator Durable Object and the browser. */
 
@@ -90,6 +90,7 @@ export const ClientEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("retry"), plan: Schema.String }),
   Schema.Struct({ type: Schema.Literal("undo"), plan: Schema.String }),
   Schema.Struct({ type: Schema.Literal("newThread") }),
+  Schema.Struct({ type: Schema.Literal("rule"), rule: Schema.String, action: Schema.Literals(["approve", "pause", "resume", "delete"]), preview: Schema.String }),
 ]);
 
 export type ClientEvent = typeof ClientEvent.Type;
@@ -136,6 +137,9 @@ export const ServerEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("error"), message: Schema.String }),
   Schema.Struct({ type: Schema.Literal("library"), library: Library }),
   Schema.Struct({ type: Schema.Literal("plan"), record: PlanRecord }),
+  Schema.Struct({ type: Schema.Literal("rule"), rule: RuleRecord }),
+  Schema.Struct({ type: Schema.Literal("rules"), rules: Schema.Array(RuleRecord) }),
+  Schema.Struct({ type: Schema.Literal("ruleDeleted"), id: Schema.String }),
 ]);
 
 export type ServerEvent = typeof ServerEvent.Type;

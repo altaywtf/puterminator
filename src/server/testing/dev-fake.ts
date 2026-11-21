@@ -409,6 +409,12 @@ const plan = (messages: Array<Message>): Array<Step> => {
       return [{ kind: "text", delayMs: 40, text: p.error ? `couldn't build that plan: ${p.error}` : "plan's up. untick anything you want to keep." }];
     }
 
+    if (call?.name === "propose_rule") {
+      const p = JSON.parse(raw);
+
+      return [{ kind: "text", delayMs: 40, text: p.error ? `couldn't set that rule: ${p.error}` : "rule's up. approve it and it runs now, then every week." }];
+    }
+
     if (call?.name === "ask_user") return [{ kind: "text", delayMs: 40, text: "your call." }];
 
     if (call?.name === "draft_feedback") return [{ kind: "text", delayMs: 40, text: "drafted. review it and send." }];
@@ -481,6 +487,16 @@ const plan = (messages: Array<Message>): Array<Step> => {
 
   if (/subtitle|subs\b/.test(ask)) {
     return [{ kind: "tool", name: "plan_subtitles", input: { within: "", own_folders: false } }];
+  }
+
+  if (/every week|standing rule|old films/.test(ask)) {
+    return [
+      {
+        kind: "tool",
+        name: "propose_rule",
+        input: { title: "trash old films", within: ["/Movies"], openedDaysAgo: 30, protect: ["/Movies/Pallisters (2015)"], cap: 20, every: "week" },
+      },
+    ];
   }
 
   if (/clean/.test(ask)) {

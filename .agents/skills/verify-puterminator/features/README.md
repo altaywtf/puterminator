@@ -32,6 +32,7 @@ Each feature file has an H1, one paragraph on the user-visible behaviour, then f
 ## Features
 
 - [Plans](./plans.md): propose, untick, apply, undo, discard and retry library changes.
+- [Standing rules](./rules.md): propose, approve, run, undo, pause and preview again a scheduled cleanup rule.
 - [Library audit](./audit.md): scan the library and show the score card and tree.
 - [Download links](./download-links.md): ask put.io for links and show them in a card.
 - [Chat turns](./chat.md): send, stream, stop a reply, start a new thread.
