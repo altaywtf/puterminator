@@ -18,7 +18,7 @@ description: Model-check the plan run engine (apply, stop, retry, undo, eviction
 
 ## Does a change touch it?
 
-Covered code, last confirmed against commit `f8216b2`:
+Covered code, last confirmed against commit `b6fb0c4`:
 
 | Model | Code |
 | --- | --- |
@@ -35,7 +35,7 @@ Covered code, last confirmed against commit `f8216b2`:
 See what changed since the sync commit:
 
 ```bash
-git diff f8216b2 -- src/server/conversation.ts src/server/plan-machine.ts src/server/changes.ts src/server/putio.ts
+git diff b6fb0c4 -- src/server/conversation.ts src/server/plan-machine.ts src/server/changes.ts src/server/putio.ts
 ```
 
 The change touches the verification when a hunk lands in a function in the table.
