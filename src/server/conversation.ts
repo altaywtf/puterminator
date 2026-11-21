@@ -345,13 +345,13 @@ export const makeAgent = (deps: AgentDeps) =>
 
     let epoch = 0;
 
-    const scanFolder = (folder: Folder) => scanLock.withPermits(1)(Effect.gen(function* () {
+    const scanIn = (target: () => Folder) => scanLock.withPermits(1)(Effect.gen(function* () {
       const started = epoch;
-      const { id, name } = folder;
+      const { id, name } = target();
       const tree = buildTree(yield* listAll, id);
       const a = audit(tree.files, id === 0 ? name : tree.rootName, false, new Date(yield* Clock.currentTimeMillis), id === 0 ? "" : tree.rootName);
 
-      if (started !== epoch) return { audit: a, files: tree.files };
+      if (started !== epoch || id !== state.folder.id) return { audit: a, files: tree.files };
       store.saveSnapshot(tree.files, id);
       setState({ ...state, lastAudit: { at: a.at, rootName: a.rootName, score: a.score, items: a.totals.items } });
       const lib = library();
@@ -361,7 +361,8 @@ export const makeAgent = (deps: AgentDeps) =>
       return { audit: a, files: tree.files };
     }));
 
-    const scan = Effect.suspend(() => scanFolder(state.folder)).pipe(Effect.map((s) => s.audit));
+    const scan = scanIn(() => state.folder).pipe(Effect.map((s) => s.audit));
+    const scanFolder = (folder: Folder) => scanIn(() => folder);
 
     const STALE_AFTER_MS = 10 * MINUTE_MS;
     const scanAgeMs = (now: number) => (state.lastAudit ? now - Date.parse(state.lastAudit.at) : Number.POSITIVE_INFINITY);

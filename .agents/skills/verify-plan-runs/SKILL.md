@@ -26,7 +26,7 @@ Covered code, last confirmed against commit `8473ac7`:
 | `InUndo` | `undoChanges` in [`changes.ts`](../../../src/server/changes.ts) |
 | `PrecheckPass`, `PrecheckFail` | `runPlan`: `refused`, the opening `scanFolder(folder)` and its listing, `trashed`, `staleChanges`, `trashEnabled`, `finish(error)` |
 | `StartStep`, `WriteOk`, `WriteRefused`, `WriteLost` | `runPlan` loop: `setStep(…, "running")` (a `STEP` the plan's actor acknowledges before the write), `applyChange`, `failStep`; `maybeApplied` and the 4xx-means-refused rule in [`putio.ts`](../../../src/server/putio.ts) |
-| `LoopDone`, `Finish` | the closing `scan`, the restore rechecks, `finish(null)` (`FINISH`) |
+| `LoopDone`, `Finish` | the closing `rescan` of the run's folder, the restore rechecks against its listing, `finish(null)` (`FINISH`) |
 | `Halt` | `STOP`, the runner's `onDone` and `onError` (stop, crash), and `INTERRUPTED` through `settleAfterRestart` (eviction) in `plan-machine.ts`; any `STEP` acknowledgement is a point where a stop lands |
 | `FailUnfinished`, `FailUnfinishedMaybe`, `SetCur` | `failUnfinished`, `setStep` in `plan-machine.ts` |
 
