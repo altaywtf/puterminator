@@ -1,5 +1,6 @@
 import type { ProposeInput } from "./changes";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Predicate from "effect/Predicate";
 import * as Redacted from "effect/Redacted";
 import { describe, expect, it, vi } from "vitest";
@@ -659,6 +660,34 @@ describe("plans", () => {
     expect(writes(t)).toEqual([]);
     expect(planOf(t).status).toBe("done");
     expect(planOf(t).run?.steps.map((s) => s.error)).toEqual(Array(3).fill("put.io signed you out; sign in again"));
+  });
+
+  it("frees the run slot only after a run whose setup crashed is saved as finished", async () => {
+    const t = await setup(proposeTurn());
+    await t.receive(send("go"));
+    vi.spyOn(t.store, "token").mockImplementationOnce(() => {
+      throw new Error("SQLite is gone");
+    });
+    await t.receive({ type: "apply", plan: planOf(t).plan.id, exclude: [] });
+    expect([t.store.plans().map((p) => p.record.status), writes(t)]).toEqual([["done"], []]);
+  });
+
+  it("keeps a discard whose save failed retryable, so a second click sticks across a restart", async () => {
+    const t = await setup(proposeTurn());
+    await t.receive(send("go"));
+    const id = planOf(t).plan.id;
+
+    const gone = () => {
+      throw new Error("SQLite is gone");
+    };
+
+    vi.spyOn(t.store, "savePlan").mockImplementationOnce(gone).mockImplementationOnce(gone);
+    const first = await Effect.runPromiseExit(t.agent.receive(frame({ type: "discard", plan: id })));
+    await t.settle();
+    expect([Exit.isFailure(first), t.store.plans().map((p) => p.record.status)]).toEqual([true, ["proposed"]]);
+    await t.receive({ type: "discard", plan: id });
+    const restarted = await t.restart();
+    expect(restarted.agent.greeting().flatMap((e) => (e.type === "plan" ? [e.record.status] : []))).toEqual(["discarded"]);
   });
 
   it("checks the folder a run started in, and keeps its scans out of the snapshot of the folder a turn switched to", async () => {
