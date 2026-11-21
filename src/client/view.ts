@@ -240,7 +240,7 @@ const feedbackDialog = (h: H, model: Model) => {
     f.status === "sent"
       ? [
           h.h2([h.Id("feedback-title"), h.Class("m-0 text-[15px] font-medium text-fg-strong")], ["thanks. it’s on its way."]),
-          h.p([h.Class("m-0 text-[13px] leading-[1.6] text-fg-2")], ["it went to the maintainer’s inbox with your put.io username."]),
+          h.p([h.Class("m-0 text-[13px] leading-[1.6] text-fg-2")], ["it went to the maintainer’s inbox with your put.io username and email, so they can write back."]),
           h.div([h.Class("mt-2 flex justify-end")], [
             h.button([h.Type("button"), h.Id(FEEDBACK_CLOSE_ID), h.Class("btn btn-sm"), h.OnClick(Message.ClosedFeedback())], ["close"]),
           ]),
@@ -275,7 +275,7 @@ const feedbackDialog = (h: H, model: Model) => {
             ),
             h.OnInput((text) => Message.UpdatedFeedback({ text })),
           ]),
-          h.p([h.Class("m-0 text-meta leading-[1.6] text-fg-3")], ["it goes to the maintainer with your put.io username. add an email if you want a reply."]),
+          h.p([h.Class("m-0 text-meta leading-[1.6] text-fg-3")], ["it goes to the maintainer with your put.io username and email, so they can write back."]),
           ...(f.error ? [h.p([h.Role("alert"), h.Class("m-0 text-[13px] text-danger")], [f.error])] : []),
           h.div([h.Class("mt-1 flex justify-end gap-2")], [
             h.button([h.Type("button"), h.Class("btn btn-sm border-transparent text-fg-2"), h.OnClick(Message.ClosedFeedback())], ["cancel"]),

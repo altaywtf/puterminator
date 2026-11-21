@@ -110,7 +110,12 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         thumbnail: (id: number) => agent.thumbnail(id),
         stream: (id: number) => agent.stream(id),
         downloadLinks: (id: number) => agent.downloadLinks(id),
-        takeFeedbackSlot: () => Effect.sync(() => (store.takeFeedbackSlot(today(), FEEDBACK_PER_DAY) ? (store.loadState(Date.now()).username ?? "unknown") : null)),
+        takeFeedbackSlot: () =>
+          Effect.gen(function* () {
+            if (!store.takeFeedbackSlot(today(), FEEDBACK_PER_DAY)) return null;
+
+            return { username: store.loadState(Date.now()).username ?? "unknown", email: yield* agent.contactEmail };
+          }),
         returnFeedbackSlot: () => Effect.sync(() => store.returnFeedbackSlot(today())),
         poolReport: (m: string, user: string, tokens: number) => Effect.sync(() => Math.max(store.poolReport(m, user, tokens), consoleFloor(config.consoleSpend, m))),
       };

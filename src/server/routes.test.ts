@@ -101,7 +101,7 @@ describe("OAuth callback", () => {
     return Response.json({ status: "ERROR" }, { status: 401 });
   };
 
-  const callback = async (code: string, avatar = gravatar, sendFeedback: (f: Feedback, from: { uid: string; username: string }) => Effect.Effect<void, unknown> = () => Effect.void) => {
+  const callback = async (code: string, avatar = gravatar, sendFeedback: (f: Feedback, from: { uid: string; username: string; email: string | null }) => Effect.Effect<void, unknown> = () => Effect.void) => {
     const config = await configFrom(valid);
 
     if (!Exit.isSuccess(config)) throw new Error("config failed");
@@ -121,7 +121,7 @@ describe("OAuth callback", () => {
       thumbnail: () => Effect.succeed(null),
       stream: () => Effect.succeed(null),
       downloadLinks: () => Effect.succeed(null),
-      takeFeedbackSlot: () => Effect.sync(() => (store.takeFeedbackSlot("2026-11-05", 2) ? "altay" : null)),
+      takeFeedbackSlot: () => Effect.sync(() => (store.takeFeedbackSlot("2026-11-05", 2) ? { username: "altay", email: "altay@example.com" } : null)),
       returnFeedbackSlot: () => Effect.sync(() => store.returnFeedbackSlot("2026-11-05")),
       fetch: () => Effect.die("unused"),
     });

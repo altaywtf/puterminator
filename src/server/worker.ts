@@ -42,13 +42,16 @@ export default Cloudflare.Worker(
     const deps: RouteDeps<RuntimeContext> = {
       config,
       agentFor: (uid) => agents.getByName(uid),
-      sendFeedback: (feedback, from) =>
-        email.send({
+      sendFeedback: (feedback, from) => {
+        const message = {
           from: { name: "puterminator", email: FEEDBACK_FROM },
           to: FEEDBACK_TO,
           subject: `[${feedback.kind}] ${oneLine(from.username)}: ${oneLine(feedback.text).slice(0, 60)}`,
-          text: `${feedback.text}\n\n-- \nput.io user ${from.username} (${from.uid})`,
-        }),
+          text: `${feedback.text}\n\n-- \nput.io user ${from.username} (${from.uid})${from.email ? `, ${from.email}` : ", no email on file"}`,
+        };
+
+        return email.send(from.email === null ? message : { ...message, replyTo: from.email });
+      },
     };
 
     const handle = makeHandler(config.devUpstream ? { ...deps, putioFetch: upstreamFetch(config.devUpstream) } : deps);

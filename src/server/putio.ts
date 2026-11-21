@@ -109,8 +109,17 @@ export const exchangeCode = (input: { clientId: string; clientSecret: string; re
   );
 
 const AccountInfo = Schema.Struct({
-  info: Schema.Struct({ user_id: Schema.Finite, username: Schema.String, avatar_url: Schema.optional(Schema.NullOr(Schema.String)) }),
+  info: Schema.Struct({
+    user_id: Schema.Finite,
+    username: Schema.String,
+    avatar_url: Schema.optional(Schema.NullOr(Schema.String)),
+    mail: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
 });
+
+const MAIL = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
+
+const replyAddress = (raw: string | null | undefined): string | null => (raw && raw.length <= 254 && MAIL.test(raw) ? raw : null);
 
 const httpsUrl = (raw: string | null | undefined): string | null => {
   if (!raw) return null;
@@ -123,7 +132,7 @@ const httpsUrl = (raw: string | null | undefined): string | null => {
 };
 
 export const accountInfo = read("/account/info", requestJson(AccountInfo, { method: "GET", path: "/v2/account/info" })).pipe(
-  Effect.map(({ info }) => ({ userId: info.user_id, username: info.username, avatarUrl: httpsUrl(info.avatar_url) })),
+  Effect.map(({ info }) => ({ userId: info.user_id, username: info.username, avatarUrl: httpsUrl(info.avatar_url), email: replyAddress(info.mail) })),
 );
 
 const Disk = Schema.Struct({ info: Schema.Struct({ disk: Schema.Struct({ avail: Schema.Finite, size: Schema.Finite }) }) });

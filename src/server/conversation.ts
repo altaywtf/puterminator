@@ -21,7 +21,7 @@ import { type CheckOutcome, encodeRuleSnapshot, isApplying, isDeleted, isWaiting
 import { checkRule, intervalMs, RuleInput, validateRule } from "./rules";
 import { accepts, fromRecord, isRunning, type PlanEvent, encodeSnapshot, planCodec, planMachine, PlanSteps, type PlanSnapshot, recordOf, settleAfterRestart } from "./plan-machine";
 import { AskInput, applyChange, cleanPath, type StoredPlan, uploadedKey, validateTranslation, untranslated, folderIds, nameOf, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion, videoOf } from "./changes";
-import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, mediaInfo, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
+import { accountInfo, createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, mediaInfo, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
 import { blockedBy, outOfBudget } from "./credits";
 import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
 import { month, type Store, type StoredRecord } from "./store";
@@ -1578,6 +1578,17 @@ export const makeAgent = (deps: AgentDeps) =>
         return true;
       })),
       sessionGen: Effect.sync(() => sessionGen()),
+      contactEmail: Effect.suspend(() => {
+        const token = store.token();
+
+        return token
+          ? accountInfo.pipe(
+              Effect.map((info) => info.email),
+              Effect.catch(() => Effect.succeed<string | null>(null)),
+              Effect.provide(putioLayer(token, deps.putioFetch)),
+            )
+          : Effect.succeed<string | null>(null);
+      }),
       ruleDue,
       thumbnail: (id: number) =>
         Effect.suspend(() => {
