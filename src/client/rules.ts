@@ -31,16 +31,19 @@ const meta = (rule: RuleRecord) => {
   }
 };
 
-const ruleButton = (h: H, rule: RuleRecord, label: string, action: "approve" | "pause" | "resume" | "delete", primary = false) =>
+const ruleButton = (h: H, rule: RuleRecord, label: string, action: "approve" | "pause" | "resume" | "delete", primary = false, wait: string | null = null) =>
   h.button(
-    [h.Type("button"), h.Class(`btn btn-sm${primary ? " btn-primary" : action === "delete" ? " border-transparent text-fg-2" : ""}`), h.OnClick(Message.ClickedRule({ rule: rule.id, action }))],
+    [h.Type("button"), h.Disabled(wait !== null), ...(wait ? [h.Title(wait)] : []), h.Class(`btn btn-sm${primary ? " btn-primary" : action === "delete" ? " border-transparent text-fg-2" : ""}`), h.OnClick(Message.ClickedRule({ rule: rule.id, action, preview: rule.preview.at }))],
     [label],
   );
 
-const actionsOf = (h: H, rule: RuleRecord) => {
+const actionsOf = (h: H, ctx: Ctx, rule: RuleRecord) => {
+  const last = rule.runs[0] === undefined ? undefined : ctx.plans[rule.runs[0]];
+  const wait = last?.status === "applying" || last?.status === "undoing" ? "wait for its last run to finish" : null;
+
   switch (rule.status) {
     case "previewed":
-      return [ruleButton(h, rule, "delete", "delete"), ruleButton(h, rule, "approve", "approve", true)];
+      return [ruleButton(h, rule, "delete", "delete"), ruleButton(h, rule, "approve", "approve", true, wait)];
     case "active":
     case "running":
       return [ruleButton(h, rule, "delete", "delete"), ruleButton(h, rule, "pause", "pause")];
@@ -49,10 +52,17 @@ const actionsOf = (h: H, rule: RuleRecord) => {
   }
 };
 
+const receipt = (h: H, ctx: Ctx, planId: string): Html[] => {
+  const record = ctx.plans[planId];
+
+  if (!record?.run) return [];
+
+  return [record.undo ? runCard(h, ctx, record.undo, false, { undo: true }) : runCard(h, ctx, record.run, false, { undoable: record.status === "done" })];
+};
+
 /** A standing rule as a terminal block: what it trashes and how often, today's preview while it waits for approval,
-    why it paused, and its latest run's receipt, where undo lives. */
+    why it paused, and its latest runs' receipts, newest first, where undo lives. */
 export const ruleCard = (h: H, ctx: Ctx, rule: RuleRecord, live = false): Html => {
-  const last = rule.run === null ? undefined : ctx.plans[rule.run];
   const { preview } = rule;
 
   const card = panel(h, "rule", live, [
@@ -72,12 +82,12 @@ export const ruleCard = (h: H, ctx: Ctx, rule: RuleRecord, live = false): Html =
     ...(rule.status === "previewed"
       ? [h.p([h.Class("m-0 text-meta text-fg-3")], ["put.io records only the first play, so a film you rewatched still counts as old. each run goes to put.io’s trash and shows a receipt you can undo."])]
       : []),
-    h.div([h.Class("flex items-center justify-end gap-2")], actionsOf(h, rule)),
+    h.div([h.Class("flex items-center justify-end gap-2")], actionsOf(h, ctx, rule)),
   ]);
 
-  if (!last?.run) return card;
+  const receipts = rule.runs.flatMap((id) => receipt(h, ctx, id));
 
-  return h.div([h.Class("grid gap-3")], [card, last.undo ? runCard(h, ctx, last.undo, false, { undo: true }) : runCard(h, ctx, last.run, false, { undoable: last.status === "done" })]);
+  return receipts.length === 0 ? card : h.div([h.Class("grid gap-3")], [card, ...receipts]);
 };
 
 const proposedIn = (history: ReadonlyArray<MessageParam>) =>

@@ -84,8 +84,8 @@ export const RulePreview = Schema.Struct({
 
 export type RulePreview = typeof RulePreview.Type;
 
-/** A standing rule and where it stands. Only browser frames approve, pause, resume or delete it; `run` is the plan its
-    latest run made, `why` says what paused it. */
+/** A standing rule and where it stands. Only browser frames approve, pause, resume or delete it; `runs` are the plans
+    its latest runs made, newest first, `why` says what paused it. */
 export const RuleRecord = Schema.Struct({
   ...RuleCriteria.fields,
   id: Schema.String,
@@ -94,7 +94,7 @@ export const RuleRecord = Schema.Struct({
   why: Schema.NullOr(Schema.String),
   preview: RulePreview,
   nextAt: Schema.NullOr(Schema.String),
-  run: Schema.NullOr(Schema.String),
+  runs: Schema.Array(Schema.String),
 });
 
 export type RuleRecord = typeof RuleRecord.Type;

@@ -168,7 +168,7 @@ describe("a turn", () => {
     expect(lib?.type === "library" && lib.library.rootId).toBe(0);
     const flags = new Map(lib?.type === "library" ? lib.library.files.map((f) => [f[0], f[4]]) : []);
     expect([flags.get(1), flags.get(2), flags.get(3)]).toEqual([FileFlag.folder, FileFlag.video | FileFlag.messy, FileFlag.junk]);
-    expect(t.agent.greeting().map((e) => e.type)).toEqual(["state", "history", "library"]);
+    expect(t.agent.greeting().map((e) => e.type)).toEqual(["state", "history", "library", "rules"]);
 
     const sent = t.events.flatMap((e) => (e.type === "message" ? [e.message] : []));
     expect(sent).toEqual(history);
@@ -351,7 +351,7 @@ describe("a turn", () => {
       await Effect.runPromise(agent.receive(bad));
     }
 
-    expect(agent.greeting().map((e) => e.type)).toEqual(["state", "history"]);
+    expect(agent.greeting().map((e) => e.type)).toEqual(["state", "history", "rules"]);
   });
 });
 
@@ -1664,7 +1664,7 @@ describe("delete data", () => {
     expect(tables).toEqual(["messages", "archived_messages", "files", "plans", "cf_agents_state"].map((table) => [table, 0]));
     expect(t.sql.exec("SELECT key FROM secrets").map((r) => r.key)).toEqual(["session_gen"]);
     expect([used > 0, t.store.used(m), t.store.used("2020-01")]).toEqual([true, used, 0]);
-    expect(t.agent.greeting()).toEqual([{ type: "state", state: { ...t.agent.state(), username: null, avatarUrl: null, lastAudit: null } }, { type: "history", messages: [] }]);
+    expect(t.agent.greeting()).toEqual([{ type: "state", state: { ...t.agent.state(), username: null, avatarUrl: null, lastAudit: null } }, { type: "history", messages: [] }, { type: "rules", rules: [] }]);
   });
 
   it("lets a rescan that was already listing finish without bringing the snapshot back", async () => {
@@ -1768,6 +1768,13 @@ describe("standing rules", () => {
     return last.rule;
   };
 
+  const ruleFrame = (t: Awaited<ReturnType<typeof setup>>, rule: string, action: "approve" | "pause" | "resume" | "delete"): ClientEvent => ({
+    type: "rule",
+    rule,
+    action,
+    preview: ruleOf(t).preview.at,
+  });
+
   const fire = async (t: Awaited<ReturnType<typeof setup>>, id: string, due = t.jobs.get(id), settle = true) => {
     if (due === undefined) throw new Error("no alarm set");
 
@@ -1781,7 +1788,7 @@ describe("standing rules", () => {
     const t = await setup(replies, { files: rulesLibrary, ...opts });
     await t.receive(send("trash films I watched over a month ago, every week"));
     const rule = ruleOf(t);
-    await t.receive({ type: "rule", rule: rule.id, action: "approve" });
+    await t.receive(ruleFrame(t, rule.id, "approve"));
 
     return { t, id: rule.id };
   };
@@ -1804,7 +1811,7 @@ describe("standing rules", () => {
     const rule = ruleOf(t);
     expect(rule.status).toBe("active");
     expect(t.jobs.get(id)).toBe((due ?? 0) + 7 * 86_400_000);
-    const run = t.events.flatMap((e) => (e.type === "plan" && e.record.plan.id === rule.run ? [e.record] : [])).at(-1);
+    const run = t.events.flatMap((e) => (e.type === "plan" && e.record.plan.id === rule.runs[0] ? [e.record] : [])).at(-1);
     expect(run?.status).toBe("done");
     expect(run?.run?.steps.map((s) => s.state)).toEqual(["done", "done"]);
 
@@ -1820,14 +1827,14 @@ describe("standing rules", () => {
     expect(ruleOf(t)).toMatchObject({ status: "paused", why: "its last run had failed steps; check the receipt", nextAt: null });
     expect(t.jobs.has(id)).toBe(false);
 
-    await t.receive({ type: "rule", rule: id, action: "approve" });
+    await t.receive(ruleFrame(t, id, "approve"));
     expect(t.jobs.has(id)).toBe(false);
-    await t.receive({ type: "rule", rule: id, action: "resume" });
+    await t.receive(ruleFrame(t, id, "resume"));
     expect(ruleOf(t)).toMatchObject({ status: "previewed", why: null, preview: { ids: [11] } });
-    await t.receive({ type: "rule", rule: id, action: "approve" });
+    await t.receive(ruleFrame(t, id, "approve"));
     expect(t.jobs.has(id)).toBe(true);
 
-    await t.receive({ type: "rule", rule: id, action: "delete" });
+    await t.receive(ruleFrame(t, id, "delete"));
     expect(t.jobs.has(id)).toBe(false);
     expect(t.events.at(-1)).toEqual({ type: "ruleDeleted", id });
   });
@@ -1853,10 +1860,26 @@ describe("standing rules", () => {
     await t.receive(send("trash old a now"));
     const plan = t.events.flatMap((e) => (e.type === "plan" ? [e.record.plan.id] : [])).at(-1) ?? "";
     await t.receive({ type: "apply", plan, exclude: [] });
-    await t.receive({ type: "rule", rule: id, action: "approve" });
+    await t.receive(ruleFrame(t, id, "approve"));
     await fire(t, id);
     expect(deletes(t)).toEqual(["10"]);
     expect(ruleOf(t)).toMatchObject({ status: "paused", why: "the library changed since you approved its preview" });
+  });
+
+  it("pauses on sign-out and cancels the alarm, so signing back in runs nothing unapproved", async () => {
+    const { t, id } = await approved();
+    await Effect.runPromise(t.agent.signOut);
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "you signed out" });
+    expect(t.jobs.has(id)).toBe(false);
+  });
+
+  it("ignores an approval for a preview the browser no longer shows", async () => {
+    const t = await setup(proposeRule(), { files: rulesLibrary });
+    await t.receive(send("trash films I watched over a month ago, every week"));
+    const { id } = ruleOf(t);
+    await t.receive({ type: "rule", rule: id, action: "approve", preview: "2020-01-01T00:00:00.000Z" });
+    expect(ruleOf(t).status).toBe("previewed");
+    expect(t.jobs.has(id)).toBe(false);
   });
 
   it("refuses a rule while trash is off, since a run would delete for good", async () => {

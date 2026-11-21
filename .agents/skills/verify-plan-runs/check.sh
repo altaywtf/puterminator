@@ -15,4 +15,7 @@ if [[ ! -f "$JAR" ]]; then
 fi
 echo "$SHA256  $JAR" | shasum -a 256 -c --quiet
 
-java -XX:+UseParallelGC -cp "$JAR" tlc2.TLC -deadlock -workers 4 -metadir "$OUT" -config "$HERE/PlanRuns.cfg" "$HERE/PlanRuns.tla"
+for SPEC in PlanRuns RuleRuns; do
+  echo "== $SPEC"
+  java -XX:+UseParallelGC -cp "$JAR" tlc2.TLC -deadlock -workers 4 -metadir "$OUT/$SPEC" -config "$HERE/$SPEC.cfg" "$HERE/$SPEC.tla"
+done

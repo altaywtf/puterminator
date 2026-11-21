@@ -1,7 +1,8 @@
 import * as Effect from "effect/Effect";
+import { createEffectActor, sendAndAwait, waitFor } from "@xstate/effect";
 import { describe, expect, it } from "vitest";
 import { initialTransition, transition } from "xstate";
-import { encodeRuleSnapshot, ruleCodec, ruleMachine, ruleRecordOf, settleRuleAfterRestart } from "./rule-machine";
+import { type CheckOutcome, encodeRuleSnapshot, RuleChecks, ruleCodec, ruleMachine, ruleRecordOf, settleRuleAfterRestart } from "./rule-machine";
 
 const input = {
   id: "r1",
@@ -11,9 +12,18 @@ const input = {
 };
 
 const [previewed] = initialTransition(ruleMachine, input);
-const active = transition(ruleMachine, previewed, { type: "APPROVE", now: 1000 })[0];
+const active = transition(ruleMachine, previewed, { type: "APPROVE", now: 1000, preview: input.preview.at })[0];
 const checking = transition(ruleMachine, active, { type: "DUE", due: 1000 })[0];
-const applying = ruleMachine.resolveState({ value: { active: "applying" }, context: { ...checking.context, run: "p1" } });
+const starting = transition(ruleMachine, checking, { type: "STARTING", plan: "p1" })[0];
+const applying = ruleMachine.resolveState({ value: { active: "applying" }, context: { ...checking.context, runs: ["p1"] } });
+
+const checkWith = (outcome: CheckOutcome) =>
+  Effect.gen(function* () {
+    const actor = yield* createEffectActor(ruleMachine, { snapshot: ruleMachine.getPersistedSnapshot(active) });
+    yield* sendAndAwait(actor, { type: "DUE", due: 1000 });
+
+    return yield* waitFor(actor, (s) => !s.matches({ active: "checking" }));
+  }).pipe(Effect.provideService(RuleChecks, { check: () => Effect.succeed(outcome) }), Effect.scoped, Effect.runPromise);
 
 const reloaded = async (snapshot: typeof previewed) => {
   const decoded = await Effect.runPromise(encodeRuleSnapshot(snapshot).pipe(Effect.flatMap(ruleCodec.decode)));
@@ -28,16 +38,26 @@ describe("rule machine", () => {
     expect(checking.context.nextAt).toBe(1000 + 86_400_000);
   });
 
-  it("settles a check cut off by eviction back to waiting, and a cut-off run to paused", async () => {
+  it("settles a check cut off by eviction back to waiting, and a run cut off at or after its start to paused", async () => {
     expect((await reloaded(checking)).value).toEqual({ active: "waiting" });
-    const paused = await reloaded(applying);
-    expect(ruleRecordOf(paused)).toMatchObject({ status: "paused", why: "a restart cut off its last run; check the receipt", nextAt: null, run: "p1" });
+    expect(ruleRecordOf(await reloaded(starting))).toMatchObject({ status: "paused", why: "a restart cut off its last run; check the receipt", runs: ["p1"] });
+    expect(ruleRecordOf(await reloaded(applying))).toMatchObject({ status: "paused", why: "a restart cut off its last run; check the receipt", nextAt: null, runs: ["p1"] });
+  });
+
+  it("keeps the first run's drift check when a check has to try again later", async () => {
+    const later = await checkWith({ kind: "later", retryAt: 5000 });
+    expect(later.value).toEqual({ active: "waiting" });
+    expect(later.context).toMatchObject({ fresh: true, nextAt: 5000 });
+  });
+
+  it("ignores an approval of any preview but the one it holds", () => {
+    expect(transition(ruleMachine, previewed, { type: "APPROVE", now: 1000, preview: "stale" })[0].value).toBe("previewed");
   });
 
   it("runs again only after a fresh preview is approved", () => {
     const paused = transition(ruleMachine, active, { type: "PAUSE", why: "paused by you" })[0];
-    expect(transition(ruleMachine, paused, { type: "APPROVE", now: 2000 })[0].value).toBe("paused");
-    const fresh = transition(ruleMachine, paused, { type: "PREVIEWED", preview: { ...input.preview, ids: [] } })[0];
-    expect(transition(ruleMachine, fresh, { type: "APPROVE", now: 2000 })[0].context).toMatchObject({ nextAt: 2000, fresh: true, why: null });
+    expect(transition(ruleMachine, paused, { type: "APPROVE", now: 2000, preview: input.preview.at })[0].value).toBe("paused");
+    const fresh = transition(ruleMachine, paused, { type: "PREVIEWED", preview: { ...input.preview, at: "later", ids: [] } })[0];
+    expect(transition(ruleMachine, fresh, { type: "APPROVE", now: 2000, preview: "later" })[0].context).toMatchObject({ nextAt: 2000, fresh: true, why: null });
   });
 });

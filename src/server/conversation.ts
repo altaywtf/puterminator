@@ -178,6 +178,7 @@ export interface AgentDeps {
 
 const MINUTE_MS = 60_000;
 const BUSY_RETRY_MS = 5 * MINUTE_MS;
+const FAILED_LISTING_RETRY_MS = 60 * MINUTE_MS;
 const PARALLEL_TRANSLATIONS = 3;
 const SOURCE_CHECKS = 6;
 const MAX_THUMBS = 500;
@@ -699,10 +700,10 @@ export const makeAgent = (deps: AgentDeps) =>
         const steps = (p.record.undo ?? p.record.run)?.steps ?? [];
         const failed = steps.filter((s) => s.state === "failed");
         const verb = status === "undone" ? "undid" : "applied";
-        const who = p.rule && status === "done" ? `Standing rule "${p.record.plan.title}" ran on schedule and` : "The user";
+        const who = p.rule ? `Standing-rule plan "${p.record.plan.title}" was ${status === "undone" ? "undone" : "applied"}` : `The user ${verb} plan "${p.record.plan.title}"`;
 
         return [
-          `${who} ${verb} plan "${p.record.plan.title}": ${steps.length - failed.length} done, ${failed.length} failed${failed[0]?.error ? ` (${failed[0].error})` : ""}. The snapshot was rescanned.`,
+          `${who}: ${steps.length - failed.length} done, ${failed.length} failed${failed[0]?.error ? ` (${failed[0].error})` : ""}. The snapshot was rescanned.`,
         ];
       });
 
@@ -725,7 +726,8 @@ export const makeAgent = (deps: AgentDeps) =>
 
       if (want === null) scheduled.delete(id);
       else scheduled.set(id, want);
-      deps.background(want === null ? deps.schedule.cancel(id) : deps.schedule.set(id, want));
+      const forget = Effect.sync(() => (want === null ? scheduled.set(id, -1) : scheduled.get(id) === want && scheduled.delete(id)));
+      deps.background((want === null ? deps.schedule.cancel(id) : deps.schedule.set(id, want)).pipe(Effect.onError(() => forget), Effect.ignore));
     };
 
     const saveRule = (snapshot: RuleSnapshot) => {
@@ -750,7 +752,7 @@ export const makeAgent = (deps: AgentDeps) =>
     const runFailed = (planId: string) => {
       const plan = snapshots.get(planId);
 
-      if (!plan || isRunning(plan) || !plan.matches("done")) return null;
+      if (!plan || isRunning(plan) || plan.context.run === null) return null;
 
       return (plan.context.run?.steps ?? []).some((step) => step.state === "failed");
     };
@@ -759,10 +761,12 @@ export const makeAgent = (deps: AgentDeps) =>
       const actor = ruleActors.get(id);
       const rule = actor?.getSnapshot();
 
-      if (!actor || !rule || !isApplying(rule) || rule.context.run === null) return;
-      const failed = runFailed(rule.context.run);
+      const run = rule?.context.runs[0];
 
-      if (failed !== null) deps.background(sendAndAwait(actor, { type: "RUN_SETTLED", plan: rule.context.run, failed }).pipe(Effect.ignore));
+      if (!actor || !rule || !isApplying(rule) || run === undefined) return;
+      const failed = runFailed(run);
+
+      if (failed !== null) deps.background(sendAndAwait(actor, { type: "RUN_SETTLED", plan: run, failed }).pipe(Effect.ignore));
     }
 
     for (const raw of store.rules()) {
@@ -786,14 +790,15 @@ export const makeAgent = (deps: AgentDeps) =>
         if (!rule) return { kind: "none" } satisfies CheckOutcome;
         const { criteria, folder, preview } = rule.context;
         const now = yield* Clock.currentTimeMillis;
-        const busy: CheckOutcome = { kind: "busy", retryAt: now + BUSY_RETRY_MS };
+        const busy: CheckOutcome = { kind: "later", retryAt: now + BUSY_RETRY_MS };
 
         if (!store.token()) return stopCheck("put.io signed you out; sign in again");
 
         if (!isIdle(activity.getSnapshot())) return busy;
         const listed = yield* Effect.result(scanFolder(folder));
 
-        if (Result.isFailure(listed)) return Predicate.isTagged(listed.failure, "PutioUnauthorized") ? stopCheck("put.io signed you out; sign in again") : ({ kind: "none" } satisfies CheckOutcome);
+        if (Result.isFailure(listed))
+          return Predicate.isTagged(listed.failure, "PutioUnauthorized") ? stopCheck("put.io signed you out; sign in again") : ({ kind: "later", retryAt: now + FAILED_LISTING_RETRY_MS } satisfies CheckOutcome);
 
         if (!(yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)))) return stopCheck("trash is off in your put.io settings, so a run would delete for good");
         const check = checkRule(listed.success.files, criteria, now);
@@ -807,9 +812,15 @@ export const makeAgent = (deps: AgentDeps) =>
         const out = validatePlan(listed.success.files, check.input, newId());
 
         if ("error" in out) return stopCheck(out.error);
+        const planned = new Set(Object.values(out.ids));
+
+        if (!check.ids.every((fid) => planned.has(fid)) || out.plan.changes.filter((c) => videoOf(c.id) === c.id).length !== check.ids.length) return stopCheck("its plan didn’t match the files it found");
 
         return yield* frames.withPermits(1)(Effect.gen(function* () {
-          if (!ruleActors.get(id)?.getSnapshot().matches({ active: "checking" })) return { kind: "none" } satisfies CheckOutcome;
+          const actor = ruleActors.get(id);
+
+          if (!actor?.getSnapshot().matches({ active: "checking" })) return { kind: "none" } satisfies CheckOutcome;
+          yield* sendAndAwait(actor, { type: "STARTING", plan: out.plan.id }).pipe(Effect.orDie);
           storePlan(out, { id, folder });
 
           if (yield* applyAll(out.plan.id)) return { kind: "started", plan: out.plan.id } satisfies CheckOutcome;
@@ -871,7 +882,7 @@ export const makeAgent = (deps: AgentDeps) =>
         if (!rule?.matches("paused") || !store.token()) return;
         const listed = yield* Effect.result(scanFolder(rule.context.folder));
 
-        if (Result.isFailure(listed)) return;
+        if (Result.isFailure(listed)) return yield* tellRule(id, { type: "PAUSE", why: `couldn’t read put.io for a fresh preview (${stepMessage(listed.failure)}); try again` });
         const now = yield* Clock.currentTimeMillis;
         const check = checkRule(listed.success.files, rule.context.criteria, now);
 
@@ -879,9 +890,17 @@ export const makeAgent = (deps: AgentDeps) =>
         yield* tellRule(id, { type: "PREVIEWED", preview: previewOf(listed.success.files, check, now) });
       }).pipe(Effect.provide(putioLayer(store.token() ?? undefined, deps.putioFetch)));
 
-    const ruleFrame = (id: string, action: "approve" | "pause" | "resume" | "delete") =>
+    const ruleFrame = (id: string, action: "approve" | "pause" | "resume" | "delete", preview: string) =>
       Match.value(action).pipe(
-        Match.when("approve", () => Clock.currentTimeMillis.pipe(Effect.flatMap((now) => tellRule(id, { type: "APPROVE", now })))),
+        Match.when("approve", () =>
+          Effect.gen(function* () {
+            const last = ruleSnapshots.get(id)?.context.runs[0];
+            const lastRun = last === undefined ? undefined : snapshots.get(last);
+
+            if (lastRun && isRunning(lastRun)) return;
+            yield* tellRule(id, { type: "APPROVE", now: yield* Clock.currentTimeMillis, preview });
+          }),
+        ),
         Match.when("pause", () => tellRule(id, { type: "PAUSE", why: "paused by you" })),
         Match.when("resume", () => resumeRule(id)),
         Match.when("delete", () => tellRule(id, { type: "DELETE" })),
@@ -1407,7 +1426,7 @@ export const makeAgent = (deps: AgentDeps) =>
           { type: "history", messages: store.history() },
           ...(lib ? [{ type: "library" as const, library: lib }] : []),
           ...[...plans.values()].map((p) => ({ type: "plan" as const, record: p.record })),
-          ...[...ruleSnapshots.values()].map((r) => ({ type: "rule" as const, rule: ruleRecordOf(r) })),
+          { type: "rules", rules: [...ruleSnapshots.values()].map(ruleRecordOf) },
         ];
       },
       receive: (raw: string) =>
@@ -1432,7 +1451,7 @@ export const makeAgent = (deps: AgentDeps) =>
             case "discard":
               return yield* discard(e.plan);
             case "rule":
-              return yield* ruleFrame(e.rule, e.action);
+              return yield* ruleFrame(e.rule, e.action, e.preview);
             case "newThread":
               if (!isIdle(activity.getSnapshot())) return;
               store.archiveHistory();
@@ -1470,9 +1489,11 @@ export const makeAgent = (deps: AgentDeps) =>
 
           return sessionGen();
         }),
-      signOut: Effect.sync(() => {
+      signOut: Effect.gen(function* () {
         store.deleteToken();
         store.setSecret("session_gen", String(sessionGen() + 1));
+
+        for (const [id, rule] of ruleSnapshots) if (rule.matches("active")) yield* tellRule(id, { type: "PAUSE", why: "you signed out" });
         deps.disconnect();
       }),
       deleteData: frames.withPermits(1)(Effect.gen(function* () {

@@ -97,6 +97,13 @@ describe("rules", () => {
     expect(checkRule(files, { title: "old", within: ["/"], protect: [], openedDaysAgo: 30, cap: 50, every: "week" }, NOW)).toEqual({ kind: "stop", why: "it matched 12 of the 12 videos it looks at" });
   });
 
+  it("stops when a folder it looks in or protects is gone or renamed", () => {
+    const files = walked({ files: [{ dir: "/Movies", name: "a.mkv", openedDaysAgo: 400, size: 700 }], within: 0, protect: 0, openedDaysAgo: 30, cap: 50, shuffle: 0 });
+    const folders: WalkedFile[] = ["/Movies"].map((path, i) => ({ ...files[0]!, id: 100 + i, path, name: path.slice(1), file_type: "FOLDER" }));
+
+    expect(checkRule([...files, ...folders], { title: "old", within: ["/Movies"], protect: ["/Movies/Keep"], openedDaysAgo: 30, cap: 50, every: "week" }, NOW)).toEqual({ kind: "stop", why: "/Movies/Keep is gone or was renamed" });
+  });
+
   it("refuses folders the snapshot lacks and out-of-range numbers", () => {
     const snapshot = walked({ files: [], within: 0, protect: 0, openedDaysAgo: 30, cap: 50, shuffle: 0 });
 

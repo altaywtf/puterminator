@@ -12,7 +12,7 @@ const CheckInput = Schema.Struct({ rule: Schema.String, fresh: Schema.Boolean })
 export const CheckOutcome = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("none") }),
   Schema.Struct({ kind: Schema.Literal("stop"), why: Schema.String }),
-  Schema.Struct({ kind: Schema.Literal("busy"), retryAt: Schema.Finite }),
+  Schema.Struct({ kind: Schema.Literal("later"), retryAt: Schema.Finite }),
   Schema.Struct({ kind: Schema.Literal("started"), plan: Schema.String }),
 ]);
 
@@ -36,20 +36,26 @@ const RuleContext = Schema.Struct({
   why: Schema.NullOr(Schema.String),
   nextAt: Schema.NullOr(Schema.Finite),
   fresh: Schema.Boolean,
-  run: Schema.NullOr(Schema.String),
+  starting: Schema.NullOr(Schema.String),
+  runs: Schema.Array(Schema.String),
 });
 
 type RuleContext = typeof RuleContext.Type;
 
-const pause = (context: RuleContext, why: string): RuleContext => ({ ...context, why, nextAt: null, fresh: false });
+const pause = (context: RuleContext, why: string): RuleContext => ({ ...context, why, nextAt: null, fresh: false, starting: null });
+
+const KEPT_RUNS = 5;
+
+const CUT_OFF = "a restart cut off its last run; check the receipt";
 
 const RULE_MACHINE_VERSION = "1";
 
 /**
- * A standing cleanup rule. It runs only after the person approves its preview, once per due time: `DUE` for any other
- * time is ignored, so a redelivered alarm does nothing. Each run is a plan the plan machine drives; a run with any
- * failed step, a check over the rule's limits, a pause or a restart mid-run all move it to `paused`, and only a fresh
- * preview approved again makes it run again.
+ * A standing cleanup rule. It runs only after the person approves the preview they saw, once per due time: `DUE` for
+ * any other time is ignored, so a redelivered alarm does nothing. The check records the plan it is about to start
+ * (`STARTING`) before starting it, so a restart can tell a cut-off run from a cut-off check. Each run is a plan the
+ * plan machine drives; a run with any failed step, a check over the rule's limits, a pause or a restart mid-run all
+ * move it to `paused`, and only a fresh preview approved again makes it run again.
  */
 export const ruleMachine = setupEffect({
   schemas: {
@@ -57,7 +63,8 @@ export const ruleMachine = setupEffect({
     input: Schema.Struct({ id: Schema.String, criteria: Criteria, folder: Folder, preview: RulePreview }),
     events: {
       PREVIEWED: Schema.Struct({ preview: RulePreview }),
-      APPROVE: Schema.Struct({ now: Schema.Finite }),
+      APPROVE: Schema.Struct({ now: Schema.Finite, preview: Schema.String }),
+      STARTING: Schema.Struct({ plan: Schema.String }),
       DUE: Schema.Struct({ due: Schema.Finite }),
       RUN_SETTLED: Schema.Struct({ plan: Schema.String, failed: Schema.Boolean }),
       PAUSE: Schema.Struct({ why: Schema.String }),
@@ -68,13 +75,14 @@ export const ruleMachine = setupEffect({
 }).createMachine({
   id: "rule",
   version: RULE_MACHINE_VERSION,
-  context: ({ input }) => ({ ...input, why: null, nextAt: null, fresh: false, run: null }),
+  context: ({ input }) => ({ ...input, why: null, nextAt: null, fresh: false, starting: null, runs: [] }),
   initial: "previewed",
   states: {
     previewed: {
       on: {
         PREVIEWED: ({ context, event }) => ({ context: { ...context, preview: event.preview } }),
-        APPROVE: ({ context, event }) => ({ target: "active", context: { ...context, why: null, nextAt: event.now, fresh: true } }),
+        APPROVE: ({ context, event }) =>
+          event.preview === context.preview.at ? { target: "active", context: { ...context, why: null, nextAt: event.now, fresh: true } } : undefined,
       },
     },
     active: {
@@ -95,22 +103,25 @@ export const ruleMachine = setupEffect({
 
               switch (out.kind) {
                 case "none":
-                  return { target: "waiting", context: { ...context, fresh: false } };
-                case "busy":
-                  return { target: "waiting", context: { ...context, nextAt: out.retryAt } };
+                  return { target: "waiting", context: { ...context, fresh: false, starting: null } };
+                case "later":
+                  return { target: "waiting", context: { ...context, nextAt: out.retryAt, starting: null } };
                 case "stop":
                   return { target: "#rule.paused", context: pause(context, out.why) };
                 case "started":
-                  return { target: "applying", context: { ...context, fresh: false, run: out.plan } };
+                  return out.plan === context.starting ? { target: "applying", context: { ...context, fresh: false, starting: null } } : { target: "#rule.paused", context: pause(context, "its check crashed") };
               }
             },
             onError: ({ context }) => ({ target: "#rule.paused", context: pause(context, "its check crashed") }),
+          },
+          on: {
+            STARTING: ({ context, event }) => ({ context: { ...context, starting: event.plan, runs: [event.plan, ...context.runs].slice(0, KEPT_RUNS) } }),
           },
         },
         applying: {
           on: {
             RUN_SETTLED: ({ context, event }) =>
-              event.plan !== context.run ? undefined
+              event.plan !== context.runs[0] ? undefined
               : event.failed ? { target: "#rule.paused", context: pause(context, "its last run had failed steps; check the receipt") }
               : { target: "waiting" },
           },
@@ -123,6 +134,7 @@ export const ruleMachine = setupEffect({
     paused: {
       on: {
         PREVIEWED: ({ context, event }) => ({ target: "previewed", context: { ...context, preview: event.preview, why: null } }),
+        PAUSE: ({ context, event }) => ({ context: { ...context, why: event.why } }),
       },
     },
     deleted: { type: "final" },
@@ -149,19 +161,20 @@ const statusOf = (snapshot: RuleSnapshot): RuleRecord["status"] =>
 
 /** The rule as the browser sees it. */
 export const ruleRecordOf = (snapshot: RuleSnapshot): RuleRecord => {
-  const { id, criteria, folder, preview, why, nextAt, run } = snapshot.context;
+  const { id, criteria, folder, preview, why, nextAt, runs } = snapshot.context;
 
-  return { id, ...criteria, folder: folder.name, status: statusOf(snapshot), why, preview, nextAt: nextAt === null ? null : new Date(nextAt).toISOString(), run };
+  return { id, ...criteria, folder: folder.name, status: statusOf(snapshot), why, preview, nextAt: nextAt === null ? null : new Date(nextAt).toISOString(), runs };
 };
 
-/** A check or run the Durable Object lost to eviction never resumes: a cut-off check waits for the next due time, and
-    a cut-off run (its plan settles as interrupted) pauses the rule. */
+/** A check or run the Durable Object lost to eviction never resumes: a check cut off before `STARTING` waits for the
+    next due time, and a cut-off run (its plan settles as interrupted) pauses the rule. */
 export const settleRuleAfterRestart = (snapshot: RuleSnapshot): RuleSnapshot => {
   const resolved = ruleMachine.resolveState({ value: snapshot.value, context: snapshot.context });
+  const cutOffCheck = snapshot.matches({ active: "checking" }) && snapshot.context.starting === null;
 
-  if (snapshot.matches({ active: "checking" })) return ruleMachine.resolveState({ value: { active: "waiting" }, context: snapshot.context });
+  if (cutOffCheck) return ruleMachine.resolveState({ value: { active: "waiting" }, context: snapshot.context });
 
-  return isApplying(snapshot) ? transition(ruleMachine, resolved, { type: "PAUSE", why: "a restart cut off its last run; check the receipt" })[0] : snapshot;
+  return snapshot.matches("active") && !isWaiting(snapshot) ? transition(ruleMachine, resolved, { type: "PAUSE", why: CUT_OFF })[0] : snapshot;
 };
 
 const PersistedRule = Schema.Struct({

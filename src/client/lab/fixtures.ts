@@ -264,13 +264,13 @@ const baseRule: RuleRecord = {
   why: null,
   preview: { at: "2026-11-21T12:00:00.000Z", count: 7, bytes: 31_000_000_000, sample: ["Haze (1995).mkv", "Alvex (1979).mkv", "Dunmar (2021).mkv", "Bekir (2003).mkv", "Ostra (2014).mkv"], ids: [1, 2, 3, 4, 5, 6, 7] },
   nextAt: null,
-  run: null,
+  runs: [],
 };
 
 export const rulePlans = { rp1: { plan: { id: "rp1", title: "trash old films", changes: trashRun.changes }, status: "done", run: trashRun } } satisfies Record<string, PlanRecord>;
 
 export const rules: Array<[string, RuleRecord]> = [
   ["previewed", baseRule],
-  ["active, with its last run", { ...baseRule, status: "active", nextAt: "2026-11-28T12:00:00.000Z", run: "rp1" }],
-  ["paused", { ...baseRule, status: "paused", why: "it matched 64 files, over its cap of 50", run: "rp1" }],
+  ["active, with its last run", { ...baseRule, status: "active", nextAt: "2026-11-28T12:00:00.000Z", runs: ["rp1"] }],
+  ["paused", { ...baseRule, status: "paused", why: "it matched 64 files, over its cap of 50", runs: ["rp1"] }],
 ];

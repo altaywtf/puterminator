@@ -51,6 +51,10 @@ export const matchRule = (files: ReadonlyArray<WalkedFile>, rule: Criteria, now:
 
 /** What one run of the rule would do now: nothing, a plan of trash changes, or a stop that pauses the rule. */
 export const checkRule = (files: ReadonlyArray<WalkedFile>, rule: Criteria, now: number): Check => {
+  const folders = new Set(files.flatMap((f) => (f.file_type === "FOLDER" ? [f.path] : [])));
+  const gone = [...rule.within, ...rule.protect].find((p) => p !== "/" && !folders.has(p));
+
+  if (gone !== undefined) return { kind: "stop", why: `${gone} is gone or was renamed` };
   const matched = matchRule(files, rule, now);
 
   if (matched.length === 0) return { kind: "none" };

@@ -1,18 +1,14 @@
 ---- MODULE PlanRuns ----
 EXTENDS Naturals, FiniteSets
 
-CONSTANTS Steps, Trash, MaxRetries, MaxDue
+CONSTANTS Steps, Trash, MaxRetries
 
 States == {"none", "queued", "running", "done", "failed"}
-Dues == 1..MaxDue
 InUndo(st, mb) == st = "done" \/ (st = "failed" /\ mb)
 
-VARIABLES status, step, maybe, ustep, umaybe, lib, fiber, inflight, skip, eitherEnd, writes, grants, retries,
-          source, rule, due, ran, runs
+VARIABLES status, step, maybe, ustep, umaybe, lib, fiber, inflight, skip, eitherEnd, writes, grants, retries
 
-plan == <<status, step, maybe, ustep, umaybe, lib, fiber, inflight, skip, eitherEnd, writes, grants, retries>>
-ruleVars == <<source, rule, due, ran, runs>>
-vars == <<plan, ruleVars>>
+vars == <<status, step, maybe, ustep, umaybe, lib, fiber, inflight, skip, eitherEnd, writes, grants, retries>>
 
 Undoing == status \in {"undoing", "undone"}
 Cur == IF Undoing THEN ustep ELSE step
@@ -42,47 +38,14 @@ Init ==
   /\ writes = [i \in Steps |-> 0]
   /\ grants = [i \in Steps |-> 0]
   /\ retries = 0
-  /\ source = "chat"
-  /\ rule = "active"
-  /\ due = 1
-  /\ ran = {}
-  /\ runs = [d \in Dues |-> 0]
 
 Apply ==
-  /\ status = "proposed" /\ fiber = "idle" /\ source = "chat"
+  /\ status = "proposed" /\ fiber = "idle"
   /\ status' = "applying"
   /\ step' = [i \in Steps |-> "queued"]
   /\ grants' = [i \in Steps |-> grants[i] + 1]
   /\ fiber' = "precheck" /\ eitherEnd' = FALSE
   /\ UNCHANGED <<maybe, ustep, umaybe, lib, inflight, skip, writes, retries>>
-  /\ UNCHANGED ruleVars
-
-Due ==
-  /\ rule = "active" /\ due \notin ran
-  /\ fiber = "idle" /\ status \in {"proposed", "done", "undone"}
-  /\ status' = "applying"
-  /\ step' = [i \in Steps |-> "queued"] /\ maybe' = [i \in Steps |-> FALSE]
-  /\ ustep' = [i \in Steps |-> "none"] /\ umaybe' = [i \in Steps |-> FALSE]
-  /\ lib' = [i \in Steps |-> "orig"]
-  /\ writes' = [i \in Steps |-> 0] /\ grants' = [i \in Steps |-> 1] /\ retries' = 0
-  /\ fiber' = "precheck" /\ eitherEnd' = FALSE /\ inflight' = 0 /\ skip' = {}
-  /\ source' = "rule" /\ ran' = ran \cup {due} /\ runs' = [runs EXCEPT ![due] = @ + 1]
-  /\ UNCHANGED <<rule, due>>
-
-Reschedule ==
-  /\ due \in ran /\ due < MaxDue
-  /\ due' = due + 1
-  /\ UNCHANGED <<plan, source, rule, ran, runs>>
-
-Pause ==
-  /\ rule = "active"
-  /\ rule' = "paused"
-  /\ UNCHANGED <<plan, source, due, ran, runs>>
-
-Approve ==
-  /\ rule = "paused"
-  /\ rule' = "active"
-  /\ UNCHANGED <<plan, source, due, ran, runs>>
 
 Retry ==
   /\ status \in {"done", "undone"} /\ fiber = "idle" /\ retries < MaxRetries
@@ -92,7 +55,6 @@ Retry ==
   /\ retries' = retries + 1
   /\ fiber' = "precheck" /\ eitherEnd' = TRUE
   /\ UNCHANGED <<lib, inflight, skip, writes>>
-  /\ UNCHANGED ruleVars
 
 Undo ==
   /\ status = "done" /\ fiber = "idle"
@@ -103,7 +65,6 @@ Undo ==
   /\ grants' = [i \in Steps |-> IF InUndo(step[i], maybe[i]) THEN grants[i] + 1 ELSE grants[i]]
   /\ fiber' = "precheck" /\ eitherEnd' = TRUE
   /\ UNCHANGED <<step, maybe, lib, inflight, skip, writes, retries>>
-  /\ UNCHANGED ruleVars
 
 PrecheckPass ==
   /\ fiber = "precheck"
@@ -111,14 +72,12 @@ PrecheckPass ==
              {i \in Steps : eitherEnd /\ Cur[i] = "queued" /\ CurMaybe[i] /\ i \in Trash /\ lib[i] = "changed"}
   /\ fiber' = "writing"
   /\ UNCHANGED <<status, step, maybe, ustep, umaybe, lib, inflight, eitherEnd, writes, grants, retries>>
-  /\ UNCHANGED ruleVars
 
 PrecheckFail ==
   /\ fiber = "precheck"
   /\ SetCur(FailUnfinished(Cur), CurMaybe)
   /\ status' = Finished /\ fiber' = "idle"
   /\ UNCHANGED <<lib, inflight, skip, eitherEnd, writes, grants, retries>>
-  /\ UNCHANGED ruleVars
 
 Queued == {i \in Steps : Cur[i] = "queued"}
 Next1 == IF Undoing
@@ -135,7 +94,6 @@ StartStep ==
           /\ writes' = [writes EXCEPT ![i] = @ + 1]
           /\ inflight' = i /\ fiber' = "awaiting"
   /\ UNCHANGED <<status, lib, skip, eitherEnd, grants, retries>>
-  /\ UNCHANGED ruleVars
 
 WriteOk ==
   /\ fiber = "awaiting"
@@ -143,14 +101,12 @@ WriteOk ==
   /\ SetCur([Cur EXCEPT ![inflight] = "done"], CurMaybe)
   /\ inflight' = 0 /\ fiber' = "writing"
   /\ UNCHANGED <<status, skip, eitherEnd, writes, grants, retries>>
-  /\ UNCHANGED ruleVars
 
 WriteRefused ==
   /\ fiber = "awaiting"
   /\ SetCur([Cur EXCEPT ![inflight] = "failed"], CurMaybe)
   /\ inflight' = 0 /\ fiber' = "writing"
   /\ UNCHANGED <<status, lib, skip, eitherEnd, writes, grants, retries>>
-  /\ UNCHANGED ruleVars
 
 WriteLost ==
   /\ fiber = "awaiting"
@@ -158,19 +114,16 @@ WriteLost ==
   /\ SetCur([Cur EXCEPT ![inflight] = "failed"], [CurMaybe EXCEPT ![inflight] = TRUE])
   /\ inflight' = 0 /\ fiber' = "writing"
   /\ UNCHANGED <<status, skip, eitherEnd, writes, grants, retries>>
-  /\ UNCHANGED ruleVars
 
 LoopDone ==
   /\ fiber = "writing" /\ Queued = {}
   /\ fiber' = "final"
   /\ UNCHANGED <<status, step, maybe, ustep, umaybe, lib, inflight, skip, eitherEnd, writes, grants, retries>>
-  /\ UNCHANGED ruleVars
 
 Finish ==
   /\ fiber = "final"
   /\ status' = Finished /\ fiber' = "idle"
   /\ UNCHANGED <<step, maybe, ustep, umaybe, lib, inflight, skip, eitherEnd, writes, grants, retries>>
-  /\ UNCHANGED ruleVars
 
 Halt ==
   /\ fiber \in {"precheck", "writing", "awaiting", "final"}
@@ -179,11 +132,9 @@ Halt ==
   /\ SetCur(FailUnfinished(Cur), FailUnfinishedMaybe(Cur, CurMaybe))
   /\ status' = Finished /\ fiber' = "idle" /\ inflight' = 0
   /\ UNCHANGED <<skip, eitherEnd, writes, grants, retries>>
-  /\ UNCHANGED ruleVars
 
 Next ==
   \/ Apply \/ Retry \/ Undo
-  \/ Due \/ Reschedule \/ Pause \/ Approve
   \/ PrecheckPass \/ PrecheckFail
   \/ StartStep \/ WriteOk \/ WriteRefused \/ WriteLost
   \/ LoopDone \/ Finish \/ Halt
@@ -196,12 +147,8 @@ TypeOK ==
   /\ maybe \in [Steps -> BOOLEAN] /\ umaybe \in [Steps -> BOOLEAN]
   /\ lib \in [Steps -> {"orig", "changed"}]
   /\ fiber \in {"idle", "precheck", "writing", "awaiting", "final"}
-  /\ source \in {"chat", "rule"} /\ rule \in {"active", "paused"}
-  /\ due \in Dues /\ ran \subseteq Dues /\ runs \in [Dues -> Nat]
 
 NoSilentWrite == \A i \in Steps : writes[i] <= grants[i]
-
-OneRunPerDue == \A d \in Dues : runs[d] <= 1
 
 NoOrphanRunning == fiber = "idle" => \A i \in Steps : step[i] # "running" /\ ustep[i] # "running"
 
@@ -212,6 +159,4 @@ UndoSeesEveryWrite ==
 UndoLeavesNothing ==
   (status = "undone" /\ fiber = "idle" /\ \A i \in Steps : ustep[i] \in {"none", "done"})
     => \A i \in Steps : lib[i] = "orig"
-
-PausedRuleStartsNothing == [][runs' # runs => rule = "active"]_vars
 ====
