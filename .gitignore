@@ -6,3 +6,4 @@ dist
 !.env.example
 .wrangler
 .verify
+workshop

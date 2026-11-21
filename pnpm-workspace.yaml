@@ -18,6 +18,7 @@ allowBuilds:
   esbuild: true
   workerd: true
   sharp: false
+  lefthook: true
 minimumReleaseAgeExclude:
   - "@alchemy.run/acme@2.0.0-beta.85"
   - "@alchemy.run/cloudflare-runtime@2.0.0-beta.85"

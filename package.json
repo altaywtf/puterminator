@@ -8,6 +8,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "prepare": "lefthook install",
     "dev": "vite build && DO_NOT_TRACK=1 alchemy dev --stage dev",
     "dev:fake": "vite build && PORTLESS_PORT=1355 portless run node src/server/testing/dev-fake.ts",
     "dev:client": "vite",
@@ -19,7 +20,9 @@
     "deploy": "pnpm verify && DO_NOT_TRACK=1 alchemy deploy --stage prod",
     "lint": "oxlint",
     "knip": "knip",
-    "verify": "pnpm typecheck && pnpm lint && pnpm knip && pnpm test && pnpm build"
+    "verify": "pnpm typecheck && pnpm lint && pnpm knip && pnpm test && pnpm build",
+    "ex": "node workshop/scripts/ex.ts",
+    "pi": "node workshop/scripts/pi.ts"
   },
   "dependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.87",
@@ -46,6 +49,7 @@
     "@types/node": "26.6.6",
     "@uinaf/oxlint-plugin-no-comments": "1.1.0",
     "knip": "6.46.1",
+    "lefthook": "2.2.2",
     "oxlint": "1.94.0",
     "portless": "0.18.1",
     "tailwindcss": "4.3.5",
