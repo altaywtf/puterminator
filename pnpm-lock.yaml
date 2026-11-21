@@ -186,8 +186,8 @@ importers:
         specifier: 2.0.0-beta.87
         version: 2.0.0-beta.87(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.10.0)))(@types/node@26.6.6)(alchemy@2.0.0-beta.87(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.10.0)))(effect@4.1.4)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))(ws@8.22.1))(effect@4.1.4)(typescript@7.0.2)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))
       '@anthropic-ai/sdk':
-        specifier: 1.9.0
-        version: 1.9.0(zod@4.6.7)
+        specifier: 1.11.0
+        version: 1.11.0(zod@4.6.7)
       '@effect/platform-browser':
         specifier: 4.1.4
         version: 4.1.4(effect@4.1.4)
@@ -232,8 +232,8 @@ importers:
         specifier: 1.94.0
         version: 1.94.0
       '@playwright/cli':
-        specifier: 0.1.24
-        version: 0.1.24
+        specifier: 0.1.25
+        version: 0.1.25
       '@tailwindcss/vite':
         specifier: 4.3.5
         version: 4.3.5(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))
@@ -247,14 +247,14 @@ importers:
         specifier: 1.1.0
         version: 1.1.0
       knip:
-        specifier: 6.45.1
-        version: 6.45.1
+        specifier: 6.46.1
+        version: 6.46.1
       oxlint:
         specifier: 1.94.0
         version: 1.94.0
       portless:
-        specifier: 0.18.0
-        version: 0.18.0
+        specifier: 0.18.1
+        version: 0.18.1
       tailwindcss:
         specifier: 4.3.5
         version: 4.3.5
@@ -265,8 +265,8 @@ importers:
         specifier: 8.3.8
         version: 8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1)
       vitest:
-        specifier: 5.1.0
-        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))
+        specifier: 5.1.1
+        version: 5.1.1(@opentelemetry/api@1.10.0)(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))
 
 packages:
 
@@ -361,8 +361,8 @@ packages:
       pg:
         optional: true
 
-  '@anthropic-ai/sdk@1.9.0':
-    resolution: {integrity: sha512-xDu4za3B+rK+5ZI8wLLoosiIuwi1ktZk/3L3KKNahwO50O34H+622hly8JdXzaEerLQDhsqwVzp81Nrw80BYHg==}
+  '@anthropic-ai/sdk@1.11.0':
+    resolution: {integrity: sha512-lW16YCGJ7ItUy92hehGjuMIxvhCeW8pYi4w4jzzfo8UtRbEamagUJAzAEh1VxS6wHfDh6yB+/KE/Rqp2i6elIw==}
     hasBin: true
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -1043,9 +1043,9 @@ packages:
     resolution: {integrity: sha512-YT6htikBOBQ00XDxZpRZLZ0anEDo7h9s4+YvjRU0/Ng/cLd0D6SZQ3tsms4g/GDer/z8UKlegC5iptEfyRXJcw==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
 
-  '@playwright/cli@0.1.24':
-    resolution: {integrity: sha512-AIO0AiPHh1ZB9e+i+ZiRwSTfqlkJtWcojgtPnW/BbBCgr96OojlL15dc1jWWclfbjdwPv5900qxuDyEHghjSqw==}
-    engines: {node: '>=18'}
+  '@playwright/cli@0.1.25':
+    resolution: {integrity: sha512-v1qjq3/ssK2lf9z/+Cu0gHGXm2uDgAQwq5fWPCBM1SxkJqcB0FOyvbbsTrpPn4j4WJey8bLTYT4tEB8o4FbwBw==}
+    engines: {node: '>=20'}
     hasBin: true
 
   '@puppeteer/browsers@3.2.6':
@@ -1546,8 +1546,8 @@ packages:
     resolution: {integrity: sha512-Jc1LomQyspHZCKNRX+5OLXqzWgz+Z1Jey1JxpbBITSxTrQ7RLR3JmWsSpbReyP8p6Xa/Bzx1+tVJJ67tD57kPw==}
     engines: {node: '>=20.19.0'}
 
-  '@vitest/mocker@5.1.0':
-    resolution: {integrity: sha512-5umB9/jlWcqVS6fsrFmv5Gdnpu6wAUio/lEOwAmvB7v+lFo/IW2B9FhAD0p19GCULTgMzLCdUmuCDCnAzWgppQ==}
+  '@vitest/mocker@5.1.1':
+    resolution: {integrity: sha512-b2OgTB4+3ImWIVafXKazJXwLKwQxUNnix6b3xUvUTMh7RyXlrtzoxfZr8aEz9zkHOMAS4K5lu3TvFWoiVeVTQg==}
     peerDependencies:
       msw: ^2.4.9 || ^3.0.0
       vite: ^6.0.0 || ^7.0.0 || ^8.0.0
@@ -1557,8 +1557,8 @@ packages:
       vite:
         optional: true
 
-  '@vitest/spy@5.1.0':
-    resolution: {integrity: sha512-2DPO5OMHWKrBngC+fCmTQqemNF0gidRhp3lxbBmRhW+M1XJrfgPpqNqWVevXtn2f2ufD5ZaR1B6B641aAlcX5A==}
+  '@vitest/spy@5.1.1':
+    resolution: {integrity: sha512-6K8C6alQG1/Yc8/ZI22iJS7JEsxPdVzqtqDq+/xM4Z0mGVykemMVjLhqMy/q6/IHYG3kKD8hKSwRen/ZdyI9vQ==}
 
   alchemy@2.0.0-beta.87:
     resolution: {integrity: sha512-6UOKPvqIZnycx916MDVlmwcrVJVPlI1Tcpk6Azn4uyvokXaA6fccVdRpRmDHsVkpjRxJrL8/Zqtjl0ZVAI2opQ==}
@@ -1749,8 +1749,8 @@ packages:
     resolution: {integrity: sha512-+DWg8jCJG2TEnpy7kOm/7/AxaYoaRbjVB4LFZLySZlWn8exGs3A4OLJR966cVvU26N7X9TWxl+Jsw7dzAqKT6g==}
     engines: {node: '>=16'}
 
-  knip@6.45.1:
-    resolution: {integrity: sha512-zp3zXKy2cZWiIttdlWU5fisKxVQaLSU6471ej0KGz1GdHdaHxpzTAO/LIyFNc3gU3v1W7LJaqvYumoO3l/u+6A==}
+  knip@6.46.1:
+    resolution: {integrity: sha512-5/ajqjZfmuv8O74+McrKBOSArKG6tsUgy6yJird36VZh9HiUq75qY4U39uqf9wjchEUOLrStuOZpFP057CZFRw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
@@ -2020,18 +2020,18 @@ packages:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
 
-  playwright-core@1.66.0-alpha-1794252756000:
-    resolution: {integrity: sha512-AiVQEDLnkpZfEhfXOpqzZA06guT1drbfdcDbV5gePzcr/GdB/9RXnc8FrvV2YNgju0w4JERJllO24n5PmZDQ+A==}
+  playwright-core@1.66.0-alpha-2026-11-18:
+    resolution: {integrity: sha512-VQ60tKPjqhf/3tHJGKuQ8Qn6e28Ziorhpmh4DGBZThgQp5geZeyKmuoJF2o/OwQBs5K7LNkhxNbOclBoAicqPg==}
     engines: {node: '>=20'}
     hasBin: true
 
-  playwright@1.66.0-alpha-1794252756000:
-    resolution: {integrity: sha512-/9xFhtBUua3Qu3ZIwg1ZoR+bNj+laHp6GxZXvc4gUN5TngCaKbIUPGTTIofnss0mRAkGfY7zUiF/xu/H2CqTFQ==}
+  playwright@1.66.0-alpha-2026-11-18:
+    resolution: {integrity: sha512-otQ+PFujQwUSpcLjoZ1zocwpEEF/5WhsBKaOuZeRhJ3ifjyRJJskKeosaw55WYdJzwlmfugK7OMX/tey1ExhWQ==}
     engines: {node: '>=20'}
     hasBin: true
 
-  portless@0.18.0:
-    resolution: {integrity: sha512-SHUBQsapPFReC01RQ2cn0tUXgO/IT1PucpsRv4P1aFhQGMKWo5Pc7poUgCa5gh09Z7aeNNqEoozVSBW7uee58A==}
+  portless@0.18.1:
+    resolution: {integrity: sha512-3gfeicAvS5kwFUbZrsZpt1oU1MUBvfiy2S0MT/n8mwWEp/ZjQsWI0mC353GEi/q8JUVgdx7lBGDzCcMI9O1MXg==}
     engines: {node: '>=24'}
     os: [darwin, linux, win32]
     hasBin: true
@@ -2233,20 +2233,20 @@ packages:
       vite:
         optional: true
 
-  vitest@5.1.0:
-    resolution: {integrity: sha512-MzmNFnrwa8v8lF1bLxw3UJ4EREwVOVb75VqJZmUDRjJ6EluK/x9th7qTbaeDk41WxE1GxWqmTXcdsfobfH5sOA==}
+  vitest@5.1.1:
+    resolution: {integrity: sha512-trVmzUFOSraCZcI3uZIMD5FqBh4atFkC/XuJP/IU7qtyQay0FCs3Ia+0QiQ2JJwGyWG/xrcBoJNel2+O7kEZ0g==}
     engines: {node: ^22.12.0 || ^24.0.0 || >=26.0.0}
     hasBin: true
     peerDependencies:
       '@edge-runtime/vm': '*'
       '@opentelemetry/api': ^1.9.0
       '@types/node': ^22.0.0 || >=24.0.0
-      '@vitest/browser-playwright': 5.1.0
-      '@vitest/browser-preview': 5.1.0
+      '@vitest/browser-playwright': 5.1.1
+      '@vitest/browser-preview': 5.1.1
       '@vitest/browser-webdriverio': ^5.0.0-beta.5 || >=5.0.0
-      '@vitest/coverage-istanbul': 5.1.0
-      '@vitest/coverage-v8': 5.1.0
-      '@vitest/ui': 5.1.0
+      '@vitest/coverage-istanbul': 5.1.1
+      '@vitest/coverage-v8': 5.1.1
+      '@vitest/ui': 5.1.1
       happy-dom: '*'
       jsdom: '*'
       vite: ^6.4.0 || ^7.0.0 || ^8.0.0
@@ -2411,7 +2411,7 @@ snapshots:
       alchemy: 2.0.0-beta.87(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.10.0)))(effect@4.1.4)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))(ws@8.22.1)
       effect: 4.1.4
 
-  '@anthropic-ai/sdk@1.9.0(zod@4.6.7)':
+  '@anthropic-ai/sdk@1.11.0(zod@4.6.7)':
     dependencies:
       '@opentelemetry/api': 1.10.0
       json-schema-to-ts: 3.1.1
@@ -2862,10 +2862,10 @@ snapshots:
 
   '@oxlint/plugins@1.94.0': {}
 
-  '@playwright/cli@0.1.24':
+  '@playwright/cli@0.1.25':
     dependencies:
-      playwright: 1.66.0-alpha-1794252756000
-      playwright-core: 1.66.0-alpha-1794252756000
+      playwright: 1.66.0-alpha-2026-11-18
+      playwright-core: 1.66.0-alpha-2026-11-18
 
   '@puppeteer/browsers@3.2.6(yauzl@3.4.0)':
     dependencies:
@@ -3156,16 +3156,16 @@ snapshots:
 
   '@uinaf/oxlint-plugin-no-comments@1.1.0': {}
 
-  '@vitest/mocker@5.1.0(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))':
+  '@vitest/mocker@5.1.1(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
-      '@vitest/spy': 5.1.0
+      '@vitest/spy': 5.1.1
       estree-walker: 3.0.3
       magic-string: 1.4.5
     optionalDependencies:
       vite: 8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1)
 
-  '@vitest/spy@5.1.0': {}
+  '@vitest/spy@5.1.1': {}
 
   alchemy@2.0.0-beta.87(@effect/platform-node@4.1.4(effect@4.1.4)(redis@6.3.1(@opentelemetry/api@1.10.0)))(effect@4.1.4)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))(ws@8.22.1):
     dependencies:
@@ -3305,7 +3305,7 @@ snapshots:
       '@babel/runtime': 7.29.13
       ts-algebra: 2.0.0
 
-  knip@6.45.1:
+  knip@6.46.1:
     dependencies:
       formatly: 0.11.4
       get-tsconfig: 4.14.3
@@ -3775,13 +3775,13 @@ snapshots:
 
   picomatch@4.0.7: {}
 
-  playwright-core@1.66.0-alpha-1794252756000: {}
+  playwright-core@1.66.0-alpha-2026-11-18: {}
 
-  playwright@1.66.0-alpha-1794252756000:
+  playwright@1.66.0-alpha-2026-11-18:
     dependencies:
-      playwright-core: 1.66.0-alpha-1794252756000
+      playwright-core: 1.66.0-alpha-2026-11-18
 
-  portless@0.18.0: {}
+  portless@0.18.1: {}
 
   postcss@8.5.32:
     dependencies:
@@ -4044,10 +4044,10 @@ snapshots:
     optionalDependencies:
       vite: 8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1)
 
-  vitest@5.1.0(@opentelemetry/api@1.10.0)(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1)):
+  vitest@5.1.1(@opentelemetry/api@1.10.0)(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.1.0(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))
+      '@vitest/mocker': 5.1.1(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))
       chai: 6.3.0
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
