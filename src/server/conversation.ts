@@ -345,21 +345,23 @@ export const makeAgent = (deps: AgentDeps) =>
 
     let epoch = 0;
 
-    const scan = scanLock.withPermits(1)(Effect.gen(function* () {
+    const scanFolder = (folder: Folder) => scanLock.withPermits(1)(Effect.gen(function* () {
       const started = epoch;
-      const { id, name } = state.folder;
+      const { id, name } = folder;
       const tree = buildTree(yield* listAll, id);
       const a = audit(tree.files, id === 0 ? name : tree.rootName, false, new Date(yield* Clock.currentTimeMillis), id === 0 ? "" : tree.rootName);
 
-      if (started !== epoch) return a;
+      if (started !== epoch) return { audit: a, files: tree.files };
       store.saveSnapshot(tree.files, id);
       setState({ ...state, lastAudit: { at: a.at, rootName: a.rootName, score: a.score, items: a.totals.items } });
       const lib = library();
 
       if (lib) broadcast({ type: "library", library: lib });
 
-      return a;
+      return { audit: a, files: tree.files };
     }));
+
+    const scan = Effect.suspend(() => scanFolder(state.folder)).pipe(Effect.map((s) => s.audit));
 
     const STALE_AFTER_MS = 10 * MINUTE_MS;
     const scanAgeMs = (now: number) => (state.lastAudit ? now - Date.parse(state.lastAudit.at) : Number.POSITIVE_INFINITY);
@@ -457,7 +459,7 @@ export const makeAgent = (deps: AgentDeps) =>
             Effect.flatMap((s) => (!isRunning(s) ? Effect.interrupt : snapshots.get(planId) === s ? Effect.void : Effect.die(new Error(`plan ${planId} step not saved`)))),
           );
 
-        const rescanLater = () => deps.background(scan.pipe(Effect.ignore, Effect.provide(putioLayer(token ?? undefined, deps.putioFetch))));
+        const rescanLater = () => deps.background(scanFolder(folder).pipe(Effect.ignore, Effect.provide(putioLayer(token ?? undefined, deps.putioFetch))));
 
         const refused =
           !token ? "put.io signed you out; sign in again"
@@ -486,10 +488,11 @@ export const makeAgent = (deps: AgentDeps) =>
         const work = Effect.gen(function* () {
           if (refused) return yield* finish(refused);
           const queued = run.steps.filter((s) => s.state === "queued");
-          const checked = yield* Effect.result(scan);
+          const checked = yield* Effect.result(scanFolder(folder));
 
           if (Result.isFailure(checked)) return yield* finish(`couldn’t check put.io first: ${stepMessage(checked.failure)}`);
-          const present = new Set(store.snapshot().map((f) => f.id));
+          const listed = checked.success.files;
+          const present = new Set(listed.map((f) => f.id));
 
           const trashed = new Set(
             queued.flatMap((s) => {
@@ -500,10 +503,10 @@ export const makeAgent = (deps: AgentDeps) =>
           );
 
           const queuedIds = new Set(queued.flatMap((s) => (trashed.has(s.change) ? [] : [s.change])));
-          const stale = staleChanges(store.snapshot(), run.changes.filter((c) => queuedIds.has(c.id)), first.ids, eitherEnd, run.changes);
+          const stale = staleChanges(listed, run.changes.filter((c) => queuedIds.has(c.id)), first.ids, eitherEnd, run.changes);
 
           if (stale.length > 0) return yield* finish(`the library changed since this plan (${stale[0]}); ${changed}`);
-          const folders = folderIds(store.snapshot(), folder.id, original);
+          const folders = folderIds(listed, folder.id, original);
           const needsTrash = queued.some((s) => changeOf.get(s.change)?.op === "trash");
           const trashOn = needsTrash ? yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)) : true;
 
@@ -571,7 +574,9 @@ export const makeAgent = (deps: AgentDeps) =>
             }
           }
 
-          yield* scan.pipe(Effect.ignore);
+          let latest = listed;
+          const rescan = scanFolder(folder).pipe(Effect.match({ onFailure: () => {}, onSuccess: (s) => void (latest = s.files) }));
+          yield* rescan;
 
           const restored = new Set(
             (currentRun(actor.getSnapshot(), undoing)?.steps ?? []).flatMap((s) => {
@@ -582,14 +587,14 @@ export const makeAgent = (deps: AgentDeps) =>
           );
 
           const missing = () => {
-            const have = new Set(store.snapshot().map((f) => f.id));
+            const have = new Set(latest.map((f) => f.id));
 
             return [...restored].some((id) => !have.has(id));
           };
 
           for (let i = 0; i < 3 && missing(); i++) {
             yield* Effect.sleep(deps.restoreRecheckMs ?? 5000);
-            yield* scan.pipe(Effect.ignore);
+            yield* rescan;
           }
 
           yield* finish(null);

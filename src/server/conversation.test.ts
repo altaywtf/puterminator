@@ -639,6 +639,24 @@ describe("plans", () => {
     expect(planOf(t).run?.steps.map((s) => s.error)).toEqual(Array(3).fill("put.io signed you out; sign in again"));
   });
 
+  it("checks the folder a run started in, even when a turn switches folders while the run waits to scan", async () => {
+    let release = () => {};
+    const slow = new Promise<void>((resolve) => (release = resolve));
+    const rename = JSON.stringify({ title: "tidy", changes: [{ op: "rename", path: "/Alvex (1979).mkv", to: "Alvex (1979) [1080p].mkv" }] });
+    const t = await setup([tool("toolu_r", "propose_changes", rename), say("plan's up."), say("ok.")], { seed: scanned("2026-01-01T00:00:00.000Z"), holdFirstListing: slow });
+
+    t.agent.connected();
+    await Effect.runPromise(t.agent.receive(send("rename it")));
+    await vi.waitFor(() => expect(t.events.some((e) => e.type === "plan")).toBe(true));
+    await vi.waitFor(() => expect(t.agent.state().busy).toBe(false));
+    const id = planOf(t).plan.id;
+    await Effect.runPromise(t.agent.receive(frame({ type: "apply", plan: id, exclude: [] })));
+    await Effect.runPromise(t.agent.receive(frame({ type: "send", text: "thanks", folder: { id: 1, name: "Movies" } })));
+    release();
+    await t.settle();
+    expect([recordOf(t, id)?.run?.steps.map((s) => [s.state, s.error]), writes(t)]).toEqual([[["done", null]], [["/v2/files/rename", { file_id: "4", name: "Alvex (1979) [1080p].mkv" }]]]);
+  });
+
   it("refuses to apply a plan in another target folder than the one it was made in", async () => {
     const t = await setup([...proposeTurn(), say("ok.")]);
     await t.receive(send("go"));
