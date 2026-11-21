@@ -16,7 +16,7 @@ import { audit, isMessyName, junkFinder } from "./audit";
 import type { Change, Run } from "../shared/actions";
 import { createEffectActor, type EffectActor, sendAndAwait, waitFor } from "@xstate/effect";
 import { initialTransition, type EventFromLogic } from "xstate";
-import { activityMachine, AgentWork, type Activity, isBusy, isIdle, isRescanning, runningPlan } from "./activity-machine";
+import { activityMachine, AgentWork, type Activity, isBusy, isIdle, isRescanning, runOf } from "./activity-machine";
 import { accepts, fromRecord, isRunning, type PlanEvent, encodeSnapshot, planCodec, planMachine, PlanSteps, type PlanSnapshot, recordOf, settleAfterRestart } from "./plan-machine";
 import { AskInput, applyChange, cleanPath, type StoredPlan, uploadedKey, validateTranslation, untranslated, folderIds, nameOf, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion, videoOf } from "./changes";
 import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, mediaInfo, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
@@ -210,6 +210,7 @@ export const makeAgent = (deps: AgentDeps) =>
     };
 
     const scope = yield* Scope.make();
+    const frames = yield* Semaphore.make(1);
     const tellActivity = (event: EventFromLogic<typeof activityMachine>): Effect.Effect<Activity> => sendAndAwait(activity, event).pipe(Effect.orDie);
     let asked = false;
     let streamed: ReadonlyArray<{ readonly type: string; readonly text?: string }> = [];
@@ -381,6 +382,7 @@ export const makeAgent = (deps: AgentDeps) =>
     const plans = new Map(store.plans().map((p) => [p.record.plan.id, p]));
     const snapshots = new Map<string, PlanSnapshot>();
     const planActors = new Map<string, EffectActor<typeof planMachine>>();
+    const runIds = new Map<string, string>();
     const newId = () => crypto.randomUUID().replaceAll("-", "").slice(0, 12);
 
     const sessionGen = () => Number(store.secret("session_gen") ?? 0);
@@ -393,25 +395,24 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const encodePlan = (snapshot: PlanSnapshot) => Effect.runSync(encodeSnapshot(snapshot));
 
-    const withSnapshot = (p: StoredRecord, snapshot: PlanSnapshot): StoredRecord => {
+    const savePlan = (p: StoredRecord, snapshot: PlanSnapshot) => {
+      saveRecord({ ...p, record: recordOf(p.record.plan, snapshot), machine: encodePlan(snapshot) });
       snapshots.set(p.record.plan.id, snapshot);
-
-      return { ...p, record: recordOf(p.record.plan, snapshot), machine: encodePlan(snapshot) };
     };
 
     const persistPlan = (id: string) => (snapshot: PlanSnapshot) => {
       const p = plans.get(id);
 
-      if (p && snapshots.get(id) !== snapshot) saveRecord({ ...withSnapshot(p, snapshot), reported: false });
+      if (p && snapshots.get(id) !== snapshot) savePlan({ ...p, reported: false }, snapshot);
     };
 
     for (const p of plans.values()) {
       const decoded = p.machine === undefined ? Option.none() : yield* planCodec.decode(p.machine).pipe(Effect.option);
       const snapshot = Option.match(decoded, { onNone: () => fromRecord(p.record), onSome: (s) => planMachine.resolveState({ value: s.value, context: s.context }) });
       const settled = settleAfterRestart(snapshot);
-      snapshots.set(p.record.plan.id, settled);
 
-      if (settled !== snapshot) saveRecord(withSnapshot(p, settled));
+      if (settled === snapshot) snapshots.set(p.record.plan.id, settled);
+      else savePlan(p, settled);
     }
 
     const planActor = (id: string) =>
@@ -443,22 +444,27 @@ export const makeAgent = (deps: AgentDeps) =>
         const first = plans.get(planId);
         const run = actor ? currentRun(actor.getSnapshot(), undoing) : null;
 
-        if (!actor || !first || !run) return Effect.die(new Error(`plan ${planId} has no run`)).pipe(Effect.ensuring(tellActivity({ type: "RUN_ENDED", plan: planId })));
+        const ended = tellActivity({ type: "RUN_ENDED", run: runIds.get(planId) ?? "" });
+
+        if (!actor || !first || !run) return Effect.die(new Error(`plan ${planId} has no run`)).pipe(Effect.ensuring(ended));
         const token = store.token();
+        const folder = state.folder;
         const changed = undoing ? "undo it by hand" : "ask for a new one";
         const tell = (event: PlanEvent) => sendAndAwait(actor, event).pipe(Effect.orDie);
         let finished = false;
         const finish = (error: string | null) => Effect.sync(() => (finished = true)).pipe(Effect.andThen(tell({ type: "FINISH", error })));
 
         const setStep = (change: string, state: Run["steps"][number]["state"], error: string | null = null, maybeApplied = false) =>
-          tell({ type: "STEP", change, state, error, maybeApplied }).pipe(Effect.flatMap((s) => (isRunning(s) ? Effect.void : Effect.interrupt)));
+          tell({ type: "STEP", change, state, error, maybeApplied }).pipe(
+            Effect.flatMap((s) => (!isRunning(s) ? Effect.interrupt : snapshots.get(planId) === s ? Effect.void : Effect.die(new Error(`plan ${planId} step not saved`)))),
+          );
 
         const rescanLater = () => deps.background(scan.pipe(Effect.ignore, Effect.provide(putioLayer(token ?? undefined, deps.putioFetch))));
 
         const refused =
           !token ? "put.io signed you out; sign in again"
-          : first.folder && first.folder.id !== state.folder.id ? `made in ${first.folder.name}; switch back to it first`
-          : !scannedHere() ? "the last scan is of another folder; scan again first"
+          : first.folder && first.folder.id !== folder.id ? `made in ${first.folder.name}; switch back to it first`
+          : store.secret("snapshot_root") !== String(folder.id) ? "the last scan is of another folder; scan again first"
           : null;
 
         const parents = first.parents ?? {};
@@ -499,7 +505,7 @@ export const makeAgent = (deps: AgentDeps) =>
           const stale = staleChanges(store.snapshot(), run.changes.filter((c) => queuedIds.has(c.id)), first.ids, eitherEnd, run.changes);
 
           if (stale.length > 0) return yield* finish(`the library changed since this plan (${stale[0]}); ${changed}`);
-          const folders = folderIds(store.snapshot(), state.folder.id, original);
+          const folders = folderIds(store.snapshot(), folder.id, original);
           const needsTrash = queued.some((s) => changeOf.get(s.change)?.op === "trash");
           const trashOn = needsTrash ? yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)) : true;
 
@@ -516,7 +522,7 @@ export const makeAgent = (deps: AgentDeps) =>
               if (!lang || !Schema.is(LanguageCode)(lang) || !change.to) return yield* setStep(step.change, "failed", "no language in the subtitle name");
 
               yield* setStep(step.change, "running");
-              const parentId = first.parents?.[step.change] ?? state.folder.id;
+              const parentId = first.parents?.[step.change] ?? folder.id;
               const spend = spendFor(m);
               const done = yield* Effect.exit(translateSubtitle(fileId, change.path, parentId, nameOf(change.to), lang, spend, sources).pipe(Effect.provide(deps.anthropic)));
               yield* refreshCredits;
@@ -595,7 +601,7 @@ export const makeAgent = (deps: AgentDeps) =>
           Effect.provide(putioLayer(token ?? undefined, deps.putioFetch)),
           Effect.catchDefect((defect) => Effect.logError("run crashed", defect).pipe(Effect.andThen(Effect.sync(rescanLater)), Effect.andThen(finish("stopped")))),
           Effect.onInterrupt(() => Effect.sync(() => finished || rescanLater())),
-          Effect.ensuring(tellActivity({ type: "RUN_ENDED", plan: planId })),
+          Effect.ensuring(ended),
         );
       });
 
@@ -609,15 +615,18 @@ export const makeAgent = (deps: AgentDeps) =>
 
         if (!event || !accepts(actor.getSnapshot(), event)) return;
 
-        if (runningPlan(yield* tellActivity({ type: "RUN", plan: planId })) !== planId) return;
+        const runId = `${planId}:${newId()}`;
+
+        if (runOf(yield* tellActivity({ type: "RUN", run: runId })) !== runId) return;
+        runIds.set(planId, runId);
 
         const started = yield* sendAndAwait(actor, event).pipe(
           Effect.map(isRunning),
           Effect.catchCause(() => Effect.succeed(false)),
         );
 
-        if (!started) return yield* tellActivity({ type: "RUN_ENDED", plan: planId }).pipe(Effect.asVoid);
-        deps.background(waitFor(activity, (a) => runningPlan(a) !== planId).pipe(Effect.ignore));
+        if (!started) return yield* tellActivity({ type: "RUN_ENDED", run: runId }).pipe(Effect.asVoid);
+        deps.background(waitFor(activity, (a) => runOf(a) !== runId).pipe(Effect.ignore));
       });
 
     const queuedRun = (planId: string, title: string, changes: ReadonlyArray<Change>): Run => ({
@@ -670,7 +679,7 @@ export const makeAgent = (deps: AgentDeps) =>
     const storePlan = (out: StoredPlan) => {
       const [snapshot] = initialTransition(planMachine, { plan: out.plan.id });
 
-      saveRecord(withSnapshot({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true }, snapshot));
+      savePlan({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true }, snapshot);
     };
 
     const proposeGenerated = (
@@ -1152,7 +1161,7 @@ export const makeAgent = (deps: AgentDeps) =>
         ];
       },
       receive: (raw: string) =>
-        Effect.gen(function* () {
+        frames.withPermits(1)(Effect.gen(function* () {
           const event = decodeFrame(raw);
 
           if (Option.isNone(event)) return;
@@ -1195,7 +1204,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
               return;
           }
-        }),
+        })),
       setAuth: (token: string, username: string, avatarUrl: string | null) =>
         Effect.sync(() => {
           store.deleteToken();
@@ -1210,7 +1219,7 @@ export const makeAgent = (deps: AgentDeps) =>
         store.setSecret("session_gen", String(sessionGen() + 1));
         deps.disconnect();
       }),
-      deleteData: Effect.gen(function* () {
+      deleteData: frames.withPermits(1)(Effect.gen(function* () {
         if (!isIdle(activity.getSnapshot())) return false;
         epoch++;
 
@@ -1226,7 +1235,7 @@ export const makeAgent = (deps: AgentDeps) =>
         deps.disconnect();
 
         return true;
-      }),
+      })),
       sessionGen: Effect.sync(() => sessionGen()),
       thumbnail: (id: number) =>
         Effect.suspend(() => {

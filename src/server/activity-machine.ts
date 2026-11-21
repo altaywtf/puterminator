@@ -31,22 +31,22 @@ const refresh = createEffectLogic({ effect: () => AgentWork.use((work) => work.r
  */
 export const activityMachine = setupEffect({
   schemas: {
-    context: Schema.Struct({ plan: Schema.NullOr(Schema.String) }),
+    context: Schema.Struct({ run: Schema.NullOr(Schema.String) }),
     events: {
       SEND: TurnInput,
       REPLYING: Schema.Struct({}),
       STOP: Schema.Struct({}),
       TURN_SETTLED: Schema.Struct({}),
       REFRESH: Schema.Struct({}),
-      RUN: Schema.Struct({ plan: Schema.String }),
-      RUN_ENDED: Schema.Struct({ plan: Schema.String }),
+      RUN: Schema.Struct({ run: Schema.String }),
+      RUN_ENDED: Schema.Struct({ run: Schema.String }),
     },
   },
   actors: { turn, refresh },
 }).createMachine({
   id: "activity",
   type: "parallel",
-  context: { plan: null },
+  context: { run: null },
   states: {
     chat: {
       initial: "idle",
@@ -95,12 +95,12 @@ export const activityMachine = setupEffect({
       states: {
         idle: {
           on: {
-            RUN: ({ context, event, value }) => (matchesState({ chat: "idle" }, value) ? { target: "running", context: { ...context, plan: event.plan } } : undefined),
+            RUN: ({ context, event, value }) => (matchesState({ chat: "idle" }, value) ? { target: "running", context: { ...context, run: event.run } } : undefined),
           },
         },
         running: {
           on: {
-            RUN_ENDED: ({ context, event }) => (event.plan === context.plan ? { target: "idle", context: { ...context, plan: null } } : undefined),
+            RUN_ENDED: ({ context, event }) => (event.run === context.run ? { target: "idle", context: { ...context, run: null } } : undefined),
           },
         },
       },
@@ -116,4 +116,4 @@ export const isIdle = (activity: Activity) => activity.matches({ chat: "idle" })
 
 export const isRescanning = (activity: Activity) => activity.matches({ rescan: "refreshing" });
 
-export const runningPlan = (activity: Activity) => (activity.matches({ plans: "running" }) ? activity.context.plan : null);
+export const runOf = (activity: Activity) => (activity.matches({ plans: "running" }) ? activity.context.run : null);

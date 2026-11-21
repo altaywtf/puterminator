@@ -16,7 +16,7 @@ const run = (states: ReadonlyArray<Run["steps"][number]["state"]>, maybe: Readon
 });
 
 const resolved = (value: (typeof STATUSES)[number], context: Partial<PlanSnapshot["context"]> = {}) =>
-  planMachine.resolveState({ value, context: { plan: "p", run: run(["failed"]), undo: value === "undoing" || value === "undone" ? run(["failed"]) : null, eitherEnd: false, ...context } });
+  planMachine.resolveState({ value, context: { plan: "p", run: run(["done", "failed"]), undo: value === "undoing" || value === "undone" ? run(["done", "failed"]) : null, eitherEnd: false, ...context } });
 
 const at = (value: (typeof STATUSES)[number], context: Partial<PlanSnapshot["context"]> = {}) =>
   Match.value(value).pipe(

@@ -897,6 +897,26 @@ describe("plans", () => {
     expect(writes(t)).toEqual([]);
   });
 
+  it("handles frames in the order they arrive: a stop right after apply takes effect, a send to another folder doesn't refuse the run", async () => {
+    const stopped = await setup(proposeTurn());
+    await stopped.receive(send("clean up"));
+    const id = planOf(stopped).plan.id;
+    await Promise.all([Effect.runPromise(stopped.agent.receive(frame({ type: "apply", plan: id, exclude: [] }))), Effect.runPromise(stopped.agent.receive(frame({ type: "stopRun", plan: id })))]);
+    await stopped.settle();
+    const steps = planOf(stopped).run?.steps ?? [];
+    expect([planOf(stopped).status, steps.some((s) => s.error === "stopped"), steps.filter((s) => s.state === "done" || s.maybeApplied).length]).toEqual(["done", true, writes(stopped).length]);
+
+    const moved = await setup([...proposeTurn(), say("ok.")]);
+    await moved.receive(send("clean up"));
+    const plan = planOf(moved).plan.id;
+    await Promise.all([
+      Effect.runPromise(moved.agent.receive(frame({ type: "apply", plan, exclude: [] }))),
+      Effect.runPromise(moved.agent.receive(frame({ type: "send", text: "thanks", folder: { id: 1, name: "Movies" } }))),
+    ]);
+    await moved.settle();
+    expect(recordOf(moved, plan)?.run?.steps.map((s) => s.state)).toEqual(["done", "done", "done"]);
+  });
+
   it("rescans after a stopped run", async () => {
     const t = await setup(proposeTurn());
     await t.receive(send("go"));
@@ -932,7 +952,10 @@ describe("plans", () => {
       const record = { ...old.record, status: "applying" as const, run: cut };
       t.store.savePlan(legacy ? { ...old, record } : { ...old, record, machine: JSON.stringify(applying) });
 
+      const before = writes(t).length;
       const evicted = await t.restart();
+      await t.settle();
+      expect(writes(t).length).toBe(before);
       const settled = evicted.agent.greeting().flatMap((e) => (e.type === "plan" ? [e.record] : []))[0];
       expect([settled?.status, settled?.run?.steps.map((s) => [s.state, s.error, s.maybeApplied ?? false])]).toEqual([
         "done",
@@ -1629,6 +1652,14 @@ describe("delete data", () => {
 });
 
 describe("threads", () => {
+  it("won't archive a conversation whose next turn has just been sent", async () => {
+    const t = await setup([say("hi."), say("still here.")]);
+    await t.receive(send("hello"));
+    await Promise.all([Effect.runPromise(t.agent.receive(send("again"))), Effect.runPromise(t.agent.receive(frame({ type: "newThread" })))]);
+    await t.settle();
+    expect(t.store.history().map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+  });
+
   it("archives the conversation on new thread; the next turn starts empty", async () => {
     const t = await setup([
       say("hi."),
