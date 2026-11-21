@@ -198,8 +198,8 @@ importers:
         specifier: 5.3.0
         version: 5.3.0
       '@putdotio/sdk':
-        specifier: 15.1.0
-        version: 15.1.0
+        specifier: 17.0.0
+        version: 17.0.0
       '@xstate/effect':
         specifier: 1.0.0-beta.3
         version: 1.0.0-beta.3(@oxlint/plugins@1.94.0)(effect@4.1.4)(xstate@6.0.0-beta.4)
@@ -1070,8 +1070,8 @@ packages:
       yauzl:
         optional: true
 
-  '@putdotio/sdk@15.1.0':
-    resolution: {integrity: sha512-5/2oJa6NJDzFmnq6fHHYff3rarUMTWrX+lgr7+slK/c6h1zUwFLfZA9gYwqf8WJM88mXyiWqtCEDgZE6rbV24A==}
+  '@putdotio/sdk@17.0.0':
+    resolution: {integrity: sha512-00GkiDjjoq+bA0/9/6cnDg6XufyInqG/EUI+r38DiNT6YUBlP4ZecpyxmKmeJbL4K2Tk+dv0U+9uaA2aWUTs/g==}
     engines: {node: '>=24.19.0'}
 
   '@redis/bloom@6.3.1':
@@ -2956,7 +2956,7 @@ snapshots:
     optionalDependencies:
       yauzl: 3.4.0
 
-  '@putdotio/sdk@15.1.0':
+  '@putdotio/sdk@17.0.0':
     dependencies:
       effect: 4.1.4
 
