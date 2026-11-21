@@ -29,7 +29,7 @@ export const Question = Schema.Struct({
 
 export type Question = typeof Question.Type;
 
-const StepState = Schema.Literals(["queued", "running", "done", "failed"]);
+export const StepState = Schema.Literals(["queued", "running", "done", "failed"]);
 
 /** An applied plan in flight, or finished: one step per change. `maybeApplied` marks a failed step whose write may
     still have reached put.io (stopped mid-write, no answer, 5xx). */

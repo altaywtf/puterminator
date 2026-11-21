@@ -26,7 +26,8 @@
       "name": "anti-slop-effect",
       "specifier": "./tools/oxlint/anti-slop/effect/index.ts"
     },
-    "@uinaf/oxlint-plugin-no-comments"
+    "@uinaf/oxlint-plugin-no-comments",
+    "@xstate/effect/oxlint"
   ],
   "rules": {
     "oxc/no-accumulating-spread": "error",
@@ -53,6 +54,7 @@
     "anti-slop-effect/no-manual-tagged-construction": "error",
     "anti-slop-effect/no-service-constructor-imports": "error",
     "anti-slop-effect/prefer-effect-match": "error",
-    "uinaf/no-comments": "error"
+    "uinaf/no-comments": "error",
+    "xstate-effect/no-inline-effect": "error"
   }
 }

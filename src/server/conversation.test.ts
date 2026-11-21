@@ -8,7 +8,7 @@ import { type AgentDeps, makeAgent } from "./conversation";
 import { makeOpenSubtitles } from "./opensubtitles";
 import { makeTmdb } from "./tmdb";
 import { anthropicLayer } from "./runner";
-import { makeStore, month } from "./store";
+import { makeStore, month, type StoredRecord } from "./store";
 import { makeFakeAnthropic, type Reply, textTurn, toolUseTurn } from "./testing/fake-anthropic";
 import { type FakeOpenSubtitlesOptions, makeFakeOpenSubtitles } from "./testing/fake-opensubtitles";
 import { type FakePutioOptions, file, makeFakePutio } from "./testing/fake-putio";
@@ -52,8 +52,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
   const turns: Array<Promise<unknown>> = [];
   let disconnects = 0;
 
-  const agent = await Effect.runPromise(
-    makeAgent({
+  const deps: AgentDeps = {
       store,
       model: "claude-sonnet-5-5",
       monthlyCredits: (cap ?? 1_000_000) / CREDIT_TOKENS,
@@ -69,16 +68,23 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
       background: (effect) => turns.push(Effect.runPromiseExit(effect)),
       partialEveryMs: 0,
       restoreRecheckMs: 0,
-    }),
-  );
+  };
 
-  await Effect.runPromise(agent.setAuth("putio-token", "altay", null));
   const settle = () => Promise.all(turns);
 
-  const receive = async (event: string | ClientEvent) => {
-    await Effect.runPromise(agent.receive(Predicate.isString(event) ? event : frame(event)));
-    await settle();
+  const boot = async () => {
+    const agent = await Effect.runPromise(makeAgent(deps));
+
+    const receive = async (event: string | ClientEvent) => {
+      await Effect.runPromise(agent.receive(Predicate.isString(event) ? event : frame(event)));
+      await settle();
+    };
+
+    return { agent, receive };
   };
+
+  const { agent, receive } = await boot();
+  await Effect.runPromise(agent.setAuth("putio-token", "altay", null));
 
   const toolOutput = (id: string) => {
     const result = store
@@ -89,7 +95,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
     return result?.type === "tool_result" ? String(result.content) : "";
   };
 
-  return { sql, store, agent, anthropic, putio, opensubtitles, movieDb, events, settle, receive, toolOutput, disconnects: () => disconnects };
+  return { sql, store, agent, anthropic, putio, opensubtitles, movieDb, events, settle, receive, restart: boot, toolOutput, disconnects: () => disconnects };
 };
 
 const tool = (id: string, name: string, input = "{}", usage = { input: 10, output: 5 }): Reply => ({ kind: "sse", events: toolUseTurn({ id, name, inputJsonChunks: [input] }, usage) });
@@ -890,6 +896,42 @@ describe("plans", () => {
     await t.receive({ type: "stopRun", plan: id });
     expect(planOf(t).status).toBe("done");
     expect(lists()).toBeGreaterThan(before);
+  });
+
+  it("resumes plans saved before and after plans were machines: a finished one undoes, one cut off mid-run settles", async () => {
+    for (const legacy of [true, false]) {
+      const t = await setup(proposeTurn());
+      await t.receive(send("clean up"));
+      const id = planOf(t).plan.id;
+      await t.receive({ type: "apply", plan: id, exclude: [] });
+      const { machine, ...saved } = t.store.plans()[0] ?? expect.fail("no stored plan");
+      const old: StoredRecord = legacy ? saved : { ...saved, machine: machine ?? expect.fail("no snapshot") };
+      t.store.savePlan(old);
+
+      const finished = await t.restart();
+      expect(finished.agent.greeting().flatMap((e) => (e.type === "plan" ? [e.record.status] : []))).toEqual(["done"]);
+      await finished.receive({ type: "undo", plan: id });
+      expect([planOf(t).status, planOf(t).undo?.steps.map((s) => s.state)]).toEqual(["undone", ["done", "done", "done"]]);
+
+      const run = saved.record.run ?? expect.fail("no run");
+      const cutOff = ["done", "running", "queued"] as const;
+      const cut = { ...run, steps: run.steps.map((s, i) => ({ ...s, state: cutOff[i] ?? "queued", error: null })) };
+      const persisted = JSON.parse(old.machine ?? "{}");
+      const applying = { ...persisted, snapshot: { ...persisted.snapshot, value: "applying", context: { ...persisted.snapshot?.context, run: cut } } };
+      const record = { ...old.record, status: "applying" as const, run: cut };
+      t.store.savePlan(legacy ? { ...old, record } : { ...old, record, machine: JSON.stringify(applying) });
+
+      const evicted = await t.restart();
+      const settled = evicted.agent.greeting().flatMap((e) => (e.type === "plan" ? [e.record] : []))[0];
+      expect([settled?.status, settled?.run?.steps.map((s) => [s.state, s.error, s.maybeApplied ?? false])]).toEqual([
+        "done",
+        [
+          ["done", null, false],
+          ["failed", "interrupted", true],
+          ["failed", "interrupted", false],
+        ],
+      ]);
+    }
   });
 
   it("tells the model in the next context what happened to the plan", async () => {

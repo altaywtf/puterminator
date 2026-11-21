@@ -126,7 +126,7 @@ Finish ==
   /\ UNCHANGED <<step, maybe, ustep, umaybe, lib, inflight, skip, eitherEnd, writes, grants, retries>>
 
 Halt ==
-  /\ fiber \in {"precheck", "awaiting", "final"}
+  /\ fiber \in {"precheck", "writing", "awaiting", "final"}
   /\ \E landed \in BOOLEAN :
        lib' = IF fiber = "awaiting" /\ landed THEN [lib EXCEPT ![inflight] = Target] ELSE lib
   /\ SetCur(FailUnfinished(Cur), FailUnfinishedMaybe(Cur, CurMaybe))
