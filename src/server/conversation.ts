@@ -347,18 +347,27 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const scanIn = (target: () => Folder) => scanLock.withPermits(1)(Effect.gen(function* () {
       const started = epoch;
-      const { id, name } = target();
-      const tree = buildTree(yield* listAll, id);
-      const a = audit(tree.files, id === 0 ? name : tree.rootName, false, new Date(yield* Clock.currentTimeMillis), id === 0 ? "" : tree.rootName);
+      const picked = target();
+      const listing = yield* listAll;
+      const at = new Date(yield* Clock.currentTimeMillis);
 
-      if (started !== epoch || id !== state.folder.id) return { audit: a, files: tree.files };
-      store.saveSnapshot(tree.files, id);
-      setState({ ...state, lastAudit: { at: a.at, rootName: a.rootName, score: a.score, items: a.totals.items } });
+      const auditOf = ({ id, name }: Folder) => {
+        const tree = buildTree(listing, id);
+
+        return { files: tree.files, audit: audit(tree.files, id === 0 ? name : tree.rootName, false, at, id === 0 ? "" : tree.rootName) };
+      };
+
+      const scanned = auditOf(picked);
+
+      if (started !== epoch) return scanned;
+      const shown = state.folder.id === picked.id ? scanned : auditOf(state.folder);
+      store.saveSnapshot(shown.files, state.folder.id);
+      setState({ ...state, lastAudit: { at: shown.audit.at, rootName: shown.audit.rootName, score: shown.audit.score, items: shown.audit.totals.items } });
       const lib = library();
 
       if (lib) broadcast({ type: "library", library: lib });
 
-      return { audit: a, files: tree.files };
+      return scanned;
     }));
 
     const scan = scanIn(() => state.folder).pipe(Effect.map((s) => s.audit));
