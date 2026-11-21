@@ -1,17 +1,19 @@
 ---
 name: verify-plan-runs
-description: Model-check the plan run engine (apply, stop, retry, undo, eviction) with TLA+. Use when a change touches how plan steps run, fail, stop, retry or undo in conversation.ts, undoChanges or staleChanges in changes.ts, or maybeApplied and error mapping in putio.ts.
+description: Model-check the plan run engine (apply, stop, retry, undo, eviction, standing-rule alarms) with TLA+. Use when a change touches how plan steps run, fail, stop, retry or undo in conversation.ts, when a rule's alarm starts a run (rule-machine.ts, ruleDue, checkDue), undoChanges or staleChanges in changes.ts, or maybeApplied and error mapping in putio.ts.
 ---
 
 # Verify plan runs
 
-[`PlanRuns.tla`](PlanRuns.tla) models one plan's runs against put.io. TLC checks every order of user frames, write outcomes, stops and evictions for 3 steps (2 of them trash) and up to 2 retries.
+[`PlanRuns.tla`](PlanRuns.tla) models one plan's runs against put.io, and the standing rule whose alarm can start a fresh one. TLC checks every order of user frames, alarm deliveries, write outcomes, stops and evictions for 3 steps (2 of them trash), up to 2 retries and 2 due times.
 
 ## The promises
 
 | Invariant | Promise | Harm if broken |
 | --- | --- | --- |
-| `NoSilentWrite` | A step reaches put.io at most once per apply, retry or undo frame that queued it. | The library changes without a click: a lost write gets sent again. |
+| `NoSilentWrite` | A step reaches put.io at most once per apply, retry or undo frame, or approved due time, that queued it. | The library changes without a click: a lost write gets sent again. |
+| `OneRunPerDue` | A rule starts at most one run per due time, however often its alarm is delivered. | A redelivered alarm trashes a second batch nobody approved. |
+| `PausedRuleStartsNothing` | Only an active rule starts a run. | A paused rule keeps trashing after a safety stop. |
 | `UndoSeesEveryWrite` | After a run, every step whose write may have landed is `done` or failed with `maybeApplied`. | Undo skips a change put.io made, and the library keeps it. |
 | `UndoLeavesNothing` | An undo whose steps all finished leaves every touched file as it was before the apply. | The user trusts "undone" while files stay moved, renamed or trashed. |
 | `NoOrphanRunning` | With no run fiber, no step is still `running`. | A dead run blocks retry and undo, and its step's fate stays unknown. |
@@ -22,6 +24,8 @@ Covered code, last confirmed against commit `6b1ce1f`:
 
 | Model | Code |
 | --- | --- |
+| `Due` | `DUE` in [`rule-machine.ts`](../../../src/server/rule-machine.ts) (accepted only for `nextAt`, which it advances); `ruleDue`, `checkDue` and `applyAll` in `conversation.ts` |
+| `Reschedule`, `Pause`, `Approve` | `syncSchedule`; `PAUSE`, the check's `stop` outcome and a failed run (`RUN_SETTLED`); `APPROVE` after `PREVIEWED` in `rule-machine.ts` |
 | `Apply`, `Retry`, `Undo` | `APPLY`, `RETRY`, `UNDO` in [`plan-machine.ts`](../../../src/server/plan-machine.ts); `startRun`, `apply`, `retry`, `undo` and their `receive` cases (`apply`, `retry`, `undo`, `stopRun`) in [`conversation.ts`](../../../src/server/conversation.ts) |
 | `InUndo` | `undoChanges` in [`changes.ts`](../../../src/server/changes.ts) |
 | `PrecheckPass`, `PrecheckFail` | `runPlan`: `refused`, the opening `scanFolder(folder)` and its listing, `trashed`, `staleChanges`, `trashEnabled`, `finish(error)` |
@@ -35,7 +39,7 @@ Covered code, last confirmed against commit `6b1ce1f`:
 See what changed since the sync commit:
 
 ```bash
-git diff 6b1ce1f -- src/server/conversation.ts src/server/plan-machine.ts src/server/changes.ts src/server/putio.ts
+git diff 6b1ce1f -- src/server/conversation.ts src/server/plan-machine.ts src/server/rule-machine.ts src/server/changes.ts src/server/putio.ts
 ```
 
 The change touches the verification when a hunk lands in a function in the table.
@@ -68,11 +72,13 @@ After editing the model, prove the check can still fail: break the matching acti
 | `InUndo(st, mb) == st = "done"` | `UndoLeavesNothing` |
 | `WriteLost` sets the step back to `"queued"` | `NoSilentWrite` |
 | `FailUnfinished` leaves `"running"` steps alone | `NoOrphanRunning` |
+| `Due` drops `due \notin ran` | `OneRunPerDue` |
+| `Due` drops `rule = "active"` | `PausedRuleStartsNothing` |
 
 Move the sync commit in the table above forward only after confirming the model matches the code at the new commit.
 
 ## Scope
 
-- One plan, 3 steps, 2 of them trash, at most 2 retries. Runs on two plans at once are left out: the `plans` region of [`activity-machine.ts`](../../../src/server/activity-machine.ts) keeps them apart, and the runner sends `RUN_ENDED` only once it has exited.
+- One plan, 3 steps, 2 of them trash, at most 2 retries, 2 due times. A rule's run starts a fresh plan over fresh files. Runs on two plans at once are left out: the `plans` region of [`activity-machine.ts`](../../../src/server/activity-machine.ts) keeps them apart, and the runner sends `RUN_ENDED` only once it has exited.
 - A 4xx from put.io means the write did not happen. A lost response or a stopped or evicted request may or may not have landed.
 - Left out: translate steps (parallel uploads, subtitle ids saved after the upload), the video-then-subtitle ordering in `failedVideos`, folder creation inside a move, unticked changes, and the snapshot rescans themselves. A pass says nothing about those paths.

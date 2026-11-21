@@ -32,6 +32,7 @@ export const StoredRecord = Schema.Struct({
   ids: Schema.Record(Schema.String, Schema.Finite),
   parents: Schema.optionalKey(Schema.Record(Schema.String, Schema.Finite)),
   folder: Schema.optionalKey(Folder),
+  rule: Schema.optionalKey(Schema.String),
   reported: Schema.Boolean,
 });
 
@@ -62,6 +63,7 @@ export const makeStore = (sql: Sql) => {
   sql.exec("CREATE TABLE IF NOT EXISTS file_mime (id INTEGER PRIMARY KEY, content_type TEXT)");
   sql.exec("CREATE TABLE IF NOT EXISTS plans (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, json TEXT NOT NULL)");
   sql.exec("CREATE TABLE IF NOT EXISTS feedback_sent (day TEXT PRIMARY KEY, count INTEGER NOT NULL)");
+  sql.exec("CREATE TABLE IF NOT EXISTS rules (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, machine TEXT NOT NULL)");
 
   return {
     loadState: (now: number): AgentState => {
@@ -94,7 +96,7 @@ export const makeStore = (sql: Sql) => {
     },
     deleteUserData: (keepMonth: string) =>
       sql.transaction(() => {
-        for (const table of ["messages", "archived_messages", "files", "file_mime", "plans", "cf_agents_state", "feedback_sent"]) sql.exec(`DELETE FROM ${table}`);
+        for (const table of ["messages", "archived_messages", "files", "file_mime", "plans", "rules", "cf_agents_state", "feedback_sent"]) sql.exec(`DELETE FROM ${table}`);
         sql.exec("DELETE FROM secrets WHERE key != 'session_gen'");
         sql.exec("DELETE FROM usage WHERE month != ?", keepMonth);
       }),
@@ -139,6 +141,14 @@ export const makeStore = (sql: Sql) => {
       sql.exec("SELECT json FROM plans ORDER BY seq").flatMap((r) => Option.toArray(decodeRecord(str(r.json)))),
     savePlan: (p: StoredRecord) => {
       sql.exec("INSERT INTO plans (id, json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json", p.record.plan.id, encodeRecord(p));
+    },
+
+    rules: (): Array<string> => sql.exec("SELECT machine FROM rules ORDER BY seq").map((r) => str(r.machine)),
+    saveRule: (id: string, machine: string) => {
+      sql.exec("INSERT INTO rules (id, machine) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET machine = excluded.machine", id, machine);
+    },
+    deleteRule: (id: string) => {
+      sql.exec("DELETE FROM rules WHERE id = ?", id);
     },
 
     snapshot: (): Array<WalkedFile> =>

@@ -8,6 +8,7 @@ import { art, type IconName, icon } from "./art";
 import logoUrl from "./logo.svg?inline";
 import { COMPOSER_ID, DELETE_CANCEL_ID, FEEDBACK_CLOSE_ID, FEEDBACK_TEXT_ID, isBusy, isLocked, LENGTH_ERROR, Message, type Model, Session, THREAD_ID } from "./main";
 import { toolCard } from "./cards";
+import { rulesElsewhere } from "./rules";
 import { playerView, treeDrawer } from "./files";
 import { landingView } from "./landing";
 import { renderMarkdown } from "./markdown";
@@ -665,6 +666,7 @@ const emptyThread = (h: H, model: Model) => {
             ],
           ),
           h.div([h.Class("grid gap-3")], [starterRows(h, enabled), composer(h, model, "or ask puterminator…")]),
+          ...rulesElsewhere(h, model),
           ...statusRows(h, model),
         ],
       ),
@@ -694,6 +696,7 @@ const threadPage = (h: H, model: Model) => {
         h.div(
           [h.Class(`${COLUMN} gap-9 pt-10 pb-14`)],
           [
+            ...rulesElsewhere(h, model),
             ...turns.map((t, i) =>
               t.role === "user"
                 ? userView(h, t, busy && (t === last || t === turns.at(-2)))

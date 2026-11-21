@@ -1,5 +1,5 @@
 import { Match } from "effect";
-import type { Change, Plan, Question, Run } from "../../shared/actions";
+import type { Change, Plan, PlanRecord, Question, RuleRecord, Run } from "../../shared/actions";
 import type { Audit } from "../../shared/audit";
 import { type Feedback, FileFlag, type Library } from "../../shared/contract";
 import type { DownloadLinksOutput, ListFolderOutput, SearchFilesOutput } from "../../shared/tools";
@@ -236,4 +236,41 @@ export const plans: Array<[string, Plan, string[]]> = [
     },
     [],
   ],
+];
+
+const trashRun: Run = {
+  id: "rp1",
+  title: "trash old films",
+  changes: [
+    { id: "c1", op: "trash", path: "/Movies/Haze (1995)/Haze (1995).mkv", to: null, bytes: 8_400_000_000 },
+    { id: "c2", op: "trash", path: "/Movies/Alvex (1979)/Alvex (1979).mkv", to: null, bytes: 4_100_000_000 },
+  ],
+  steps: [
+    { change: "c1", state: "done", error: null },
+    { change: "c2", state: "done", error: null },
+  ],
+};
+
+const baseRule: RuleRecord = {
+  id: "rule1",
+  title: "trash old films",
+  within: ["/Movies"],
+  openedDaysAgo: 30,
+  protect: ["/Movies/Keep"],
+  cap: 50,
+  every: "week",
+  folder: "Your Files",
+  status: "previewed",
+  why: null,
+  preview: { at: "2026-11-21T12:00:00.000Z", count: 7, bytes: 31_000_000_000, sample: ["Haze (1995).mkv", "Alvex (1979).mkv", "Dunmar (2021).mkv", "Bekir (2003).mkv", "Ostra (2014).mkv"], ids: [1, 2, 3, 4, 5, 6, 7] },
+  nextAt: null,
+  run: null,
+};
+
+export const rulePlans = { rp1: { plan: { id: "rp1", title: "trash old films", changes: trashRun.changes }, status: "done", run: trashRun } } satisfies Record<string, PlanRecord>;
+
+export const rules: Array<[string, RuleRecord]> = [
+  ["previewed", baseRule],
+  ["active, with its last run", { ...baseRule, status: "active", nextAt: "2026-11-28T12:00:00.000Z", run: "rp1" }],
+  ["paused", { ...baseRule, status: "paused", why: "it matched 64 files, over its cap of 50", run: "rp1" }],
 ];

@@ -1,4 +1,6 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
+import * as Alchemy from "alchemy";
+import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
@@ -19,6 +21,7 @@ import { makeStore, type Sql } from "./store";
 const encodeEvent = Schema.encodeSync(ServerFrame);
 
 const POOL_NAME = "pool";
+const RULE_CALLBACK = "rule-due";
 const FEEDBACK_PER_DAY = 5;
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -42,6 +45,10 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
       };
 
       const store = makeStore(sql);
+      const runtime = yield* RuntimeContext;
+      let ruleDue: (rule: string, due: number) => Effect.Effect<void> = () => Effect.void;
+      const dueRule = yield* Alchemy.makeCallback(RULE_CALLBACK, (job: { readonly rule: string; readonly due: number }) => ruleDue(job.rule, job.due));
+      const scheduled = <A, E>(effect: Effect.Effect<A, E, RuntimeContext>) => effect.pipe(Effect.provideService(RuntimeContext, runtime), Effect.orDie, Effect.asVoid);
 
       const deps: AgentDeps = {
         store,
@@ -70,9 +77,14 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
           }
         },
         background: (effect) => raw.waitUntil(Effect.runPromiseExit(effect)),
+        schedule: {
+          set: (rule, at) => scheduled(dueRule.schedule(rule, { at, payload: { rule, due: at } })),
+          cancel: (rule) => scheduled(dueRule.cancel(rule)),
+        },
       };
 
       const agent = yield* makeAgent(dev ? { ...deps, putioFetch: dev.fetch, putioBase: dev.base } : deps);
+      ruleDue = agent.ruleDue;
 
       return {
         fetch: Effect.gen(function* () {

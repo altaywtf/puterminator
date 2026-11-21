@@ -8,14 +8,15 @@ import { Plan, Question } from "../shared/actions";
 import { DownloadLinksOutput, FreeSpaceOutput, LayoutOutput, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
 import { discardedLine, planCard, questionCard, runCard } from "./actions";
 import { art, type Mood, moodOf } from "./art";
+import { proposedRuleCard } from "./rules";
 import { has, type Index, isFolder, isRegular, libraryIndex, type Node, putioUrl, resolve } from "./library";
 import { Message, type Model } from "./main";
 import { auditOf, fmt, size } from "./steps";
 
 type H = HtmlBuilder<Message>;
 
-/** All a card reads from the app: which toggles are open, the last scan, the plans, whether a reply is running, and fetched download links. */
-export type Ctx = Pick<Model, "expanded" | "library" | "plans"> & { agent?: Model["agent"]; links?: Model["links"]; drafts?: Model["drafts"] };
+/** All a card reads from the app: which toggles are open, the last scan, the plans and rules, whether a reply is running, and fetched download links. */
+export type Ctx = Pick<Model, "expanded" | "library" | "plans" | "rules"> & { agent?: Model["agent"]; links?: Model["links"]; drafts?: Model["drafts"] };
 
 const ROWS = 5;
 
@@ -395,6 +396,7 @@ const CARDS = {
   search_files: (h, ctx, { key }, output, live) => Option.match(decodeSearchFiles(output), { onNone: () => null, onSome: (o) => searchCard(h, ctx, key, o, live) }),
   propose_changes: proposedPlanCard,
   propose_translation: proposedPlanCard,
+  propose_rule: (h, ctx, _call, output, live) => proposedRuleCard(h, ctx, output, live),
   plan_layout: generatedPlanCard,
   plan_subtitles: generatedPlanCard,
   plan_free_space: (h, ctx, _call, output, live) =>

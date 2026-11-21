@@ -38,6 +38,9 @@ export const LayoutOutput = Schema.Struct({
 
 export type LayoutOutput = typeof LayoutOutput.Type;
 
+/** `propose_rule`: the rule the card shows. */
+export const RuleOutput = Schema.Struct({ rule: Schema.String });
+
 /** `search_files`: matching files, by size for the size-ranked categories, and every match counted by MIME type. */
 export const SearchFilesOutput = Schema.Struct({
   total: Schema.Finite,
