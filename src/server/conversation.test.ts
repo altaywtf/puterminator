@@ -8,7 +8,7 @@ import { type AgentDeps, makeAgent } from "./conversation";
 import { makeOpenSubtitles } from "./opensubtitles";
 import { makeTmdb } from "./tmdb";
 import { anthropicLayer } from "./runner";
-import { makeStore, month } from "./store";
+import { makeStore, month, type StoredRecord } from "./store";
 import { makeFakeAnthropic, type Reply, textTurn, toolUseTurn } from "./testing/fake-anthropic";
 import { type FakeOpenSubtitlesOptions, makeFakeOpenSubtitles } from "./testing/fake-opensubtitles";
 import { type FakePutioOptions, file, makeFakePutio } from "./testing/fake-putio";
@@ -52,8 +52,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
   const turns: Array<Promise<unknown>> = [];
   let disconnects = 0;
 
-  const agent = await Effect.runPromise(
-    makeAgent({
+  const deps: AgentDeps = {
       store,
       model: "claude-sonnet-5-5",
       monthlyCredits: (cap ?? 1_000_000) / CREDIT_TOKENS,
@@ -69,16 +68,23 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
       background: (effect) => turns.push(Effect.runPromiseExit(effect)),
       partialEveryMs: 0,
       restoreRecheckMs: 0,
-    }),
-  );
+  };
 
-  await Effect.runPromise(agent.setAuth("putio-token", "altay", null));
   const settle = () => Promise.all(turns);
 
-  const receive = async (event: string | ClientEvent) => {
-    await Effect.runPromise(agent.receive(Predicate.isString(event) ? event : frame(event)));
-    await settle();
+  const boot = async () => {
+    const agent = await Effect.runPromise(makeAgent(deps));
+
+    const receive = async (event: string | ClientEvent) => {
+      await Effect.runPromise(agent.receive(Predicate.isString(event) ? event : frame(event)));
+      await settle();
+    };
+
+    return { agent, receive };
   };
+
+  const { agent, receive } = await boot();
+  await Effect.runPromise(agent.setAuth("putio-token", "altay", null));
 
   const toolOutput = (id: string) => {
     const result = store
@@ -89,7 +95,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
     return result?.type === "tool_result" ? String(result.content) : "";
   };
 
-  return { sql, store, agent, anthropic, putio, opensubtitles, movieDb, events, settle, receive, toolOutput, disconnects: () => disconnects };
+  return { sql, store, agent, anthropic, putio, opensubtitles, movieDb, events, settle, receive, restart: boot, toolOutput, disconnects: () => disconnects };
 };
 
 const tool = (id: string, name: string, input = "{}", usage = { input: 10, output: 5 }): Reply => ({ kind: "sse", events: toolUseTurn({ id, name, inputJsonChunks: [input] }, usage) });
@@ -160,6 +166,17 @@ describe("a turn", () => {
     expect(t.events.filter((e) => e.type === "state").map((e) => e.type === "state" && e.state.busy)).toContain(true);
   });
 
+  it("never shows busy for a turn stopped before Claude was called", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const t = await setup([say("hi.")], { pool: () => Effect.promise(() => held).pipe(Effect.as(0)) });
+    await Effect.runPromise(t.agent.receive(send("hello")));
+    await t.receive({ type: "stop" });
+    release();
+    await t.settle();
+    expect([t.anthropic.requests.length, t.events.some((e) => e.type === "state" && e.state.busy)]).toEqual([0, false]);
+  });
+
   it("stop aborts the Anthropic stream, clears busy and sends no error", async () => {
     const t = await setup([{ kind: "hang" }]);
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
@@ -209,6 +226,15 @@ describe("a turn", () => {
     expect(sent[2]?.content).toEqual([
       { type: "tool_result", tool_use_id: "toolu_old", content: "Stopped before this tool finished.", is_error: true },
     ]);
+  });
+
+  it("takes the next message right after a stop", async () => {
+    const t = await setup([{ kind: "hang" }, say("here.")]);
+    await Effect.runPromise(t.agent.receive(send("first")));
+    await t.anthropic.hanging;
+    await Effect.runPromise(t.agent.receive(frame({ type: "stop" })));
+    await t.receive(send("second"));
+    expect(t.anthropic.requests).toHaveLength(2);
   });
 
   it("charges a stopped turn the usage its message_start reported", async () => {
@@ -880,6 +906,26 @@ describe("plans", () => {
     expect(writes(t)).toEqual([]);
   });
 
+  it("handles frames in the order they arrive: a stop right after apply takes effect, a send to another folder doesn't refuse the run", async () => {
+    const stopped = await setup(proposeTurn());
+    await stopped.receive(send("clean up"));
+    const id = planOf(stopped).plan.id;
+    await Promise.all([Effect.runPromise(stopped.agent.receive(frame({ type: "apply", plan: id, exclude: [] }))), Effect.runPromise(stopped.agent.receive(frame({ type: "stopRun", plan: id })))]);
+    const atStop = writes(stopped).length;
+    await stopped.settle();
+    expect([planOf(stopped).status, planOf(stopped).run?.steps.some((s) => s.error === "stopped"), writes(stopped).length]).toEqual(["done", true, atStop]);
+
+    const moved = await setup([...proposeTurn(), say("ok.")]);
+    await moved.receive(send("clean up"));
+    const plan = planOf(moved).plan.id;
+    await Promise.all([
+      Effect.runPromise(moved.agent.receive(frame({ type: "apply", plan, exclude: [] }))),
+      Effect.runPromise(moved.agent.receive(frame({ type: "send", text: "thanks", folder: { id: 1, name: "Movies" } }))),
+    ]);
+    await moved.settle();
+    expect(recordOf(moved, plan)?.run?.steps.map((s) => s.state)).toEqual(["done", "done", "done"]);
+  });
+
   it("rescans after a stopped run", async () => {
     const t = await setup(proposeTurn());
     await t.receive(send("go"));
@@ -890,6 +936,56 @@ describe("plans", () => {
     await t.receive({ type: "stopRun", plan: id });
     expect(planOf(t).status).toBe("done");
     expect(lists()).toBeGreaterThan(before);
+  });
+
+  it("resumes plans saved before and after plans were machines: a finished one undoes, one cut off mid-run settles", async () => {
+    for (const legacy of [true, false]) {
+      const t = await setup(proposeTurn());
+      await t.receive(send("clean up"));
+      const id = planOf(t).plan.id;
+      await t.receive({ type: "apply", plan: id, exclude: [] });
+      const { machine, ...saved } = t.store.plans()[0] ?? expect.fail("no stored plan");
+      const old: StoredRecord = legacy ? saved : { ...saved, machine: machine ?? expect.fail("no snapshot") };
+      t.store.savePlan(old);
+
+      const finished = await t.restart();
+      expect(finished.agent.greeting().flatMap((e) => (e.type === "plan" ? [e.record.status] : []))).toEqual(["done"]);
+      await finished.receive({ type: "undo", plan: id });
+      expect([planOf(t).status, planOf(t).undo?.steps.map((s) => s.state)]).toEqual(["undone", ["done", "done", "done"]]);
+
+      const run = saved.record.run ?? expect.fail("no run");
+      const cutOff = ["done", "running", "queued"] as const;
+      const cut = { ...run, steps: run.steps.map((s, i) => ({ ...s, state: cutOff[i] ?? "queued", error: null })) };
+      const persisted = JSON.parse(old.machine ?? "{}");
+      const applying = { ...persisted, snapshot: { ...persisted.snapshot, value: "applying", context: { ...persisted.snapshot?.context, run: cut } } };
+      const record = { ...old.record, status: "applying" as const, run: cut };
+      t.store.savePlan(legacy ? { ...old, record } : { ...old, machine: JSON.stringify(applying) });
+
+      const before = writes(t).length;
+      const evicted = await t.restart();
+      await t.settle();
+      expect(writes(t).length).toBe(before);
+      const settled = evicted.agent.greeting().flatMap((e) => (e.type === "plan" ? [e.record] : []))[0];
+      expect([settled?.status, settled?.run?.steps.map((s) => [s.state, s.error, s.maybeApplied ?? false])]).toEqual([
+        "done",
+        [
+          ["done", null, false],
+          ["failed", "interrupted", true],
+          ["failed", "interrupted", false],
+        ],
+      ]);
+    }
+  });
+
+  it("keeps a plan the model was told about reported when a restart meets a stale frame for it", async () => {
+    const t = await setup([...proposeTurn(), say("done.")]);
+    await t.receive(send("clean up"));
+    const id = planOf(t).plan.id;
+    await t.receive({ type: "apply", plan: id, exclude: [] });
+    await t.receive(send("thanks"));
+    const restarted = await t.restart();
+    await restarted.receive({ type: "discard", plan: id });
+    expect(t.store.plans().map((p) => [p.record.status, p.reported])).toEqual([["done", true]]);
   });
 
   it("tells the model in the next context what happened to the plan", async () => {
@@ -1565,6 +1661,14 @@ describe("delete data", () => {
 });
 
 describe("threads", () => {
+  it("won't archive a conversation whose next turn has just been sent", async () => {
+    const t = await setup([say("hi."), say("still here.")]);
+    await t.receive(send("hello"));
+    await Promise.all([Effect.runPromise(t.agent.receive(send("again"))), Effect.runPromise(t.agent.receive(frame({ type: "newThread" })))]);
+    await t.settle();
+    expect(t.store.history().map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+  });
+
   it("archives the conversation on new thread; the next turn starts empty", async () => {
     const t = await setup([
       say("hi."),

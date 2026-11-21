@@ -70,6 +70,7 @@ stateDiagram-v2
   undone --> undoing: retry failed steps
 ```
 
+- [`plan-machine.ts`](../src/server/plan-machine.ts) owns these states and invokes the step runner; its snapshot is saved with the plan. [`activity-machine.ts`](../src/server/activity-machine.ts) allows one run at a time, and none during a turn.
 - A run applies the changes one at a time, in order (a move may also create folders and rename), then rescans. Writes are never retried automatically: a lost response could mean put.io already applied it, so the step is marked "may have happened" and undo reverses it too.
 - Trash goes to put.io's trash. With trash off in the account, trash steps fail instead of deleting for good.
 
@@ -84,7 +85,7 @@ flowchart TB
   D -. "instance named pool" .- ps[pool_spend: each instance's month total]
   D --- me[messages and archived_messages: chat history]
   D --- fi[files: library snapshot]
-  D --- pl[plans: proposals, runs, undo runs]
+  D --- pl[plans: proposals, runs, undo runs, machine snapshots]
 ```
 
 - The class name, the `putio-<user_id>` instance names, the `pool` instance and the v1 tables carry users' data across deploys.

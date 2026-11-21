@@ -23,10 +23,12 @@ const encodeState = Schema.encodeSync(Schema.fromJsonString(AgentState));
 const decodeMessage = Schema.decodeUnknownOption(Schema.fromJsonString(MessageParam));
 const encodeMessage = Schema.encodeSync(Schema.fromJsonString(MessageParam));
 
-/** A plan as the server keeps it: the record the browser sees, the put.io ids it acts on, each file's folder
-    id when proposed, the target folder it was made in, and whether the model has been told how its run went. */
+/** A plan as the server keeps it: the record the browser sees, its lifecycle machine's snapshot as JSON, the put.io
+    ids it acts on, each file's folder id when proposed, the target folder it was made in, and whether the model has
+    been told how its run went. Plans saved before the machine have no snapshot and resume from `record.status`. */
 export const StoredRecord = Schema.Struct({
   record: PlanRecord,
+  machine: Schema.optionalKey(Schema.String),
   ids: Schema.Record(Schema.String, Schema.Finite),
   parents: Schema.optionalKey(Schema.Record(Schema.String, Schema.Finite)),
   folder: Schema.optionalKey(Folder),

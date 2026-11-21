@@ -2,18 +2,22 @@ import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages
 import * as Clock from "effect/Clock";
 import * as Exit from "effect/Exit";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Result from "effect/Result";
+import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import { type AgentState, type Blocked, blockedText, ClientFrame, ContentBlock, CREDIT_TOKENS, type Credits, creditsLeft, Feedback, FEEDBACK_MAX_CHARS, feedbackText, type Folder, MessageParam, type ServerEvent, FileFlag, initialAgentState, type Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
-import type { PlanRecord, Run } from "../shared/actions";
+import type { Change, Run } from "../shared/actions";
+import { createEffectActor, type EffectActor, sendAndAwait, waitFor } from "@xstate/effect";
+import { initialTransition, type EventFromLogic } from "xstate";
+import { activityMachine, AgentWork, type Activity, isBusy, isIdle, isRescanning, runOf } from "./activity-machine";
+import { accepts, fromRecord, isRunning, type PlanEvent, encodeSnapshot, planCodec, planMachine, PlanSteps, type PlanSnapshot, recordOf, settleAfterRestart } from "./plan-machine";
 import { AskInput, applyChange, cleanPath, type StoredPlan, uploadedKey, validateTranslation, untranslated, folderIds, nameOf, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion, videoOf } from "./changes";
 import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, mediaInfo, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
 import { blockedBy, outOfBudget } from "./credits";
@@ -195,7 +199,6 @@ export const makeAgent = (deps: AgentDeps) =>
     let poolTotal: number | null = null;
     let syncing = false;
     let dirty = false;
-    let turnFiber: Fiber.Fiber<unknown, unknown> | null = null;
     const thumbs = new Map<number, string | null>();
     let streamToken: string | null = null;
 
@@ -206,7 +209,9 @@ export const makeAgent = (deps: AgentDeps) =>
       if (oldest && !oldest.done) thumbs.delete(oldest.value);
     };
 
-    let running = false;
+    const scope = yield* Scope.make();
+    const frames = yield* Semaphore.make(1);
+    const tellActivity = (event: EventFromLogic<typeof activityMachine>): Effect.Effect<Activity> => sendAndAwait(activity, event).pipe(Effect.orDie);
     let asked = false;
     let streamed: ReadonlyArray<{ readonly type: string; readonly text?: string }> = [];
     const calls = new Set<string>();
@@ -357,26 +362,27 @@ export const makeAgent = (deps: AgentDeps) =>
     }));
 
     const STALE_AFTER_MS = 10 * MINUTE_MS;
-    let refreshing = false;
     const scanAgeMs = (now: number) => (state.lastAudit ? now - Date.parse(state.lastAudit.at) : Number.POSITIVE_INFINITY);
 
-    const refreshStaleSnapshot = Effect.gen(function* () {
+    const refresh = Effect.suspend(() => {
       const token = store.token();
 
-      if (!token || refreshing || running || runFibers.size > 0) return;
+      return token ? scan.pipe(Effect.ignore, Effect.provide(putioLayer(token, deps.putioFetch))) : Effect.void;
+    });
+
+    const refreshStaleSnapshot = Effect.gen(function* () {
+      if (!store.token()) return;
 
       if (scannedHere() && scanAgeMs(yield* Clock.currentTimeMillis) <= STALE_AFTER_MS) return;
-      refreshing = true;
 
-      yield* scan.pipe(
-        Effect.ignore,
-        Effect.provide(putioLayer(token, deps.putioFetch)),
-        Effect.ensuring(Effect.sync(() => (refreshing = false))),
-      );
+      if (!isRescanning(yield* tellActivity({ type: "REFRESH" }))) return;
+      yield* waitFor(activity, (a) => !isRescanning(a)).pipe(Effect.ignore);
     });
 
     const plans = new Map(store.plans().map((p) => [p.record.plan.id, p]));
-    const runFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
+    const snapshots = new Map<string, PlanSnapshot>();
+    const planActors = new Map<string, EffectActor<typeof planMachine>>();
+    const runIds = new Map<string, string>();
     const newId = () => crypto.randomUUID().replaceAll("-", "").slice(0, 12);
 
     const sessionGen = () => Number(store.secret("session_gen") ?? 0);
@@ -387,260 +393,268 @@ export const makeAgent = (deps: AgentDeps) =>
       broadcast({ type: "plan", record: p.record });
     };
 
-    const current = (r: PlanRecord) => r.undo ?? r.run;
-    const withCurrent = (r: PlanRecord, run: Run): PlanRecord => (r.undo ? { ...r, undo: run } : { ...r, run });
+    const encodePlan = (snapshot: PlanSnapshot) => Effect.runSync(encodeSnapshot(snapshot));
 
-    const failUnfinished = (run: Run, error: string): Run => ({
-      ...run,
-      steps: run.steps.map((s) =>
-        Match.value(s.state).pipe(
-          Match.withReturnType<Run["steps"][number]>(),
-          Match.when("running", () => ({ ...s, state: "failed", error, maybeApplied: true })),
-          Match.when("queued", () => ({ ...s, state: "failed", error })),
-          Match.orElse(() => s),
-        ),
-      ),
-    });
-
-    const runSteps = (planId: string, eitherEnd: boolean, changed: string) => {
-      const token = store.token();
-      const first = plans.get(planId);
-      const run = first && current(first.record);
-
-      if (!first || !run) return;
-      const undoing = !!first.record.undo;
-
-      const update = (f: (run: Run) => Run, status: StoredRecord["record"]["status"] = undoing ? "undoing" : "applying") => {
-        const cur = plans.get(planId);
-        const r = cur && current(cur.record);
-
-        if (cur && r) saveRecord({ ...cur, reported: false, record: withCurrent({ ...cur.record, status }, f(r)) });
-      };
-
-      const finished = undoing ? "undone" : "done";
-
-      const setStep = (change: string, state: Run["steps"][number]["state"], error: string | null = null, maybe = false) =>
-        update((run) => ({
-          ...run,
-          steps: run.steps.map((s) => {
-            if (s.change !== change) return s;
-            const step = { change, state, error };
-
-            return maybe || s.maybeApplied ? { ...step, maybeApplied: true } : step;
-          }),
-        }));
-
-      const refused =
-        !token ? "put.io signed you out; sign in again"
-        : first.folder && first.folder.id !== state.folder.id ? `made in ${first.folder.name}; switch back to it first`
-        : !scannedHere() ? "the last scan is of another folder; scan again first"
-        : null;
-
-      if (!token || refused) return update((r) => failUnfinished(r, refused ?? ""), finished);
-      const parents = first.parents ?? {};
-
-      const original = undoing
-        ? run.changes.flatMap((c): Array<[string, number]> => {
-            const id = parents[c.id];
-
-            return c.op === "move" && c.to && id !== undefined ? [[parentOf(c.to), id]] : [];
-          })
-        : [];
-
-      const changeOf = new Map(run.changes.map((c) => [c.id, c]));
-
-      const failStep = (change: string, exit: Exit.Exit<unknown, PutioError>) => {
-        const err = Exit.findErrorOption(exit);
-
-        if (Option.isSome(err)) setStep(change, "failed", stepMessage(err.value), maybeApplied(err.value));
-        else setStep(change, "failed", "didn’t finish", true);
-      };
-
-      const work = Effect.gen(function* () {
-        const queued = run.steps.filter((s) => s.state === "queued");
-        const checked = yield* Effect.result(scan);
-
-        if (Result.isFailure(checked)) return update((r) => failUnfinished(r, `couldn’t check put.io first: ${stepMessage(checked.failure)}`), finished);
-        const present = new Set(store.snapshot().map((f) => f.id));
-
-        const trashed = new Set(
-          queued.flatMap((s) => {
-            const id = first.ids[s.change];
-
-            return eitherEnd && s.maybeApplied && changeOf.get(s.change)?.op === "trash" && id !== undefined && !present.has(id) ? [s.change] : [];
-          }),
-        );
-
-        const queuedIds = new Set(queued.flatMap((s) => (trashed.has(s.change) ? [] : [s.change])));
-        const stale = staleChanges(store.snapshot(), run.changes.filter((c) => queuedIds.has(c.id)), first.ids, eitherEnd, run.changes);
-
-        if (stale.length > 0) return update((r) => failUnfinished(r, `the library changed since this plan (${stale[0]}); ${changed}`), finished);
-        const folders = folderIds(store.snapshot(), state.folder.id, original);
-        const needsTrash = queued.some((s) => changeOf.get(s.change)?.op === "trash");
-        const trashOn = needsTrash ? yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)) : true;
-
-        const translate = (step: (typeof queued)[number]) =>
-          Effect.gen(function* () {
-            const change = changeOf.get(step.change);
-            const fileId = first.ids[step.change];
-
-            if (change?.op !== "translate" || fileId === undefined) return;
-
-            const lang = change.to?.match(/\.([a-z]{3})\.srt$/)?.[1];
-            const m = month(yield* Clock.currentTimeMillis);
-
-            if (!lang || !Schema.is(LanguageCode)(lang) || !change.to) {
-              setStep(step.change, "failed", "no language in the subtitle name");
-
-              return;
-            }
-
-            setStep(step.change, "running");
-            const parentId = first.parents?.[step.change] ?? state.folder.id;
-            const spend = spendFor(m);
-            const done = yield* Effect.exit(translateSubtitle(fileId, change.path, parentId, nameOf(change.to), lang, spend, sources).pipe(Effect.provide(deps.anthropic)));
-            yield* refreshCredits;
-
-            if (Exit.isSuccess(done)) {
-              const p = plans.get(planId);
-
-              if (p) saveRecord({ ...p, ids: { ...p.ids, [uploadedKey(step.change)]: done.value } });
-              setStep(step.change, "done");
-            } else failStep(step.change, done);
-          });
-
-        if (queued.some((step) => changeOf.get(step.change)?.op === "translate")) yield* syncPool;
-        yield* Effect.forEach(queued, translate, { concurrency: PARALLEL_TRANSLATIONS, discard: true });
-
-        const failedVideos = new Set<string>();
-
-        for (const step of queued) {
-          const change = changeOf.get(step.change);
-          const fileId = first.ids[step.change];
-
-          if (!change || fileId === undefined) continue;
-          const video = videoOf(change.id);
-
-          if (video !== change.id && failedVideos.has(video)) {
-            setStep(step.change, "failed", "its video didn’t move");
-            continue;
-          }
-
-          if (change.op === "translate") continue;
-
-          if (trashed.has(step.change)) {
-            setStep(step.change, "done");
-            continue;
-          }
-
-          if (change.op === "trash" && !trashOn) {
-            setStep(step.change, "failed", "trash is off in your put.io settings, so this would delete for good");
-            continue;
-          }
-
-          setStep(step.change, "running");
-          const exit = yield* Effect.exit(applyChange(change, fileId, folders));
-
-          if (Exit.isSuccess(exit)) setStep(step.change, "done");
-          else {
-            failedVideos.add(step.change);
-            failStep(step.change, exit);
-          }
-        }
-
-        yield* scan.pipe(Effect.ignore);
-
-        const restored = new Set(
-          (current(plans.get(planId)?.record ?? first.record)?.steps ?? []).flatMap((s) => {
-            const id = first.ids[s.change];
-
-            return s.state === "done" && id !== undefined && changeOf.get(s.change)?.op === "restore" ? [id] : [];
-          }),
-        );
-
-        const missing = () => {
-          const have = new Set(store.snapshot().map((f) => f.id));
-
-          return [...restored].some((id) => !have.has(id));
-        };
-
-        for (let i = 0; i < 3 && missing(); i++) {
-          yield* Effect.sleep(deps.restoreRecheckMs ?? 5000);
-          yield* scan.pipe(Effect.ignore);
-        }
-
-        update((r) => r, finished);
-      });
-
-      deps.background(
-        Effect.withFiber((fiber) => {
-          runFibers.set(planId, fiber);
-
-          return work.pipe(
-            Effect.provide(putioLayer(token, deps.putioFetch)),
-            Effect.catchDefect((defect) => Effect.logError("run crashed", defect)),
-            Effect.ensuring(
-              Effect.sync(() => {
-                runFibers.delete(planId);
-                const status = plans.get(planId)?.record.status;
-
-                if (status !== "applying" && status !== "undoing") return;
-                update((r) => failUnfinished(r, "stopped"), finished);
-                deps.background(scan.pipe(Effect.ignore, Effect.provide(putioLayer(token, deps.putioFetch))));
-              }),
-            ),
-          );
-        }),
-      );
+    const savePlan = (p: StoredRecord, snapshot: PlanSnapshot) => {
+      saveRecord({ ...p, record: recordOf(p.record.plan, snapshot), machine: encodePlan(snapshot) });
+      snapshots.set(p.record.plan.id, snapshot);
     };
 
-    const apply = (planId: string, exclude: ReadonlyArray<string>) => {
-      const p = plans.get(planId);
+    const persistPlan = (id: string) => (snapshot: PlanSnapshot) => {
+      const p = plans.get(id);
 
-      if (!p || p.record.status !== "proposed" || runFibers.size > 0) return;
-      const changes = p.record.plan.changes.filter((c) => !exclude.includes(c.id) && !exclude.includes(videoOf(c.id)));
-
-      if (changes.length === 0) return;
-      const run: Run = { id: planId, title: p.record.plan.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
-      saveRecord({ ...p, reported: false, record: { ...p.record, status: "applying", run } });
-      runSteps(planId, false, "ask for a new one");
-    };
-
-    const retry = (planId: string) => {
-      const p = plans.get(planId);
-      const run = p && current(p.record);
-
-      if (!p || !run || (p.record.status !== "done" && p.record.status !== "undone") || runFibers.size > 0) return;
-      const steps = run.steps.map((s) => (s.state === "failed" ? { ...s, state: "queued" as const, error: null } : s));
-      saveRecord({ ...p, reported: false, record: withCurrent({ ...p.record, status: p.record.undo ? "undoing" : "applying" }, { ...run, steps }) });
-      runSteps(planId, true, p.record.undo ? "undo it by hand" : "ask for a new one");
-    };
-
-    const undo = (planId: string) => {
-      const p = plans.get(planId);
-      const run = p?.record.run;
-
-      if (!p || !run || p.record.status !== "done" || runFibers.size > 0) return;
-      const changes = undoChanges(run).filter((c) => p.ids[c.id] !== undefined);
-
-      if (changes.length === 0) return;
-      const back: Run = { id: planId, title: run.title, changes, steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })) };
-      saveRecord({ ...p, reported: false, record: { ...p.record, status: "undoing", undo: back } });
-      runSteps(planId, true, "undo it by hand");
-    };
-
-    const discard = (planId: string) => {
-      const p = plans.get(planId);
-
-      if (p?.record.status === "proposed") saveRecord({ ...p, reported: false, record: { ...p.record, status: "discarded" } });
+      if (p && snapshots.get(id) !== snapshot) savePlan({ ...p, reported: false }, snapshot);
     };
 
     for (const p of plans.values()) {
-      const run = current(p.record);
+      const decoded = p.machine === undefined ? Option.none() : yield* planCodec.decode(p.machine).pipe(Effect.option);
+      const snapshot = Option.match(decoded, { onNone: () => fromRecord(p.record), onSome: (s) => planMachine.resolveState({ value: s.value, context: s.context }) });
+      const settled = settleAfterRestart(snapshot);
 
-      if (run && (p.record.status === "applying" || p.record.status === "undoing"))
-        saveRecord({ ...p, record: withCurrent({ ...p.record, status: p.record.undo ? "undone" : "done" }, failUnfinished(run, "interrupted")) });
+      if (settled === snapshot) snapshots.set(p.record.plan.id, settled);
+      else savePlan(p, settled);
     }
+
+    const planActor = (id: string) =>
+      Effect.gen(function* () {
+        const live = planActors.get(id);
+
+        if (live) return live;
+        const snapshot = snapshots.get(id);
+
+        if (!snapshot || isRunning(snapshot)) return null;
+
+        const actor = yield* createEffectActor(planMachine, { snapshot: planMachine.getPersistedSnapshot(snapshot) }).pipe(
+          Effect.provideService(PlanSteps, { run: runPlan }),
+          Scope.provide(scope),
+        );
+
+        planActors.set(id, actor);
+        snapshots.set(id, actor.getSnapshot());
+        actor.subscribe(persistPlan(id));
+
+        return actor;
+      });
+
+    const currentRun = (snapshot: PlanSnapshot, undoing: boolean) => (undoing ? snapshot.context.undo : snapshot.context.run);
+
+    const runPlan = ({ plan: planId, eitherEnd, undoing }: { readonly plan: string; readonly eitherEnd: boolean; readonly undoing: boolean }) =>
+      Effect.suspend(() => {
+        const actor = planActors.get(planId);
+        const first = plans.get(planId);
+        const run = actor ? currentRun(actor.getSnapshot(), undoing) : null;
+
+        if (!actor || !first || !run) return Effect.die(new Error(`plan ${planId} has no run`));
+        const token = store.token();
+        const folder = state.folder;
+        const changed = undoing ? "undo it by hand" : "ask for a new one";
+        const tell = (event: PlanEvent) => sendAndAwait(actor, event).pipe(Effect.orDie);
+        let finished = false;
+        const finish = (error: string | null) => Effect.sync(() => (finished = true)).pipe(Effect.andThen(tell({ type: "FINISH", error })));
+
+        const setStep = (change: string, state: Run["steps"][number]["state"], error: string | null = null, maybeApplied = false) =>
+          tell({ type: "STEP", change, state, error, maybeApplied }).pipe(
+            Effect.flatMap((s) => (!isRunning(s) ? Effect.interrupt : snapshots.get(planId) === s ? Effect.void : Effect.die(new Error(`plan ${planId} step not saved`)))),
+          );
+
+        const rescanLater = () => deps.background(scan.pipe(Effect.ignore, Effect.provide(putioLayer(token ?? undefined, deps.putioFetch))));
+
+        const refused =
+          !token ? "put.io signed you out; sign in again"
+          : first.folder && first.folder.id !== folder.id ? `made in ${first.folder.name}; switch back to it first`
+          : store.secret("snapshot_root") !== String(folder.id) ? "the last scan is of another folder; scan again first"
+          : null;
+
+        const parents = first.parents ?? {};
+
+        const original = undoing
+          ? run.changes.flatMap((c): Array<[string, number]> => {
+              const id = parents[c.id];
+
+              return c.op === "move" && c.to && id !== undefined ? [[parentOf(c.to), id]] : [];
+            })
+          : [];
+
+        const changeOf = new Map(run.changes.map((c) => [c.id, c]));
+
+        const failStep = (change: string, exit: Exit.Exit<unknown, PutioError>) => {
+          const err = Exit.findErrorOption(exit);
+
+          return Option.isSome(err) ? setStep(change, "failed", stepMessage(err.value), maybeApplied(err.value)) : setStep(change, "failed", "didn’t finish", true);
+        };
+
+        const work = Effect.gen(function* () {
+          if (refused) return yield* finish(refused);
+          const queued = run.steps.filter((s) => s.state === "queued");
+          const checked = yield* Effect.result(scan);
+
+          if (Result.isFailure(checked)) return yield* finish(`couldn’t check put.io first: ${stepMessage(checked.failure)}`);
+          const present = new Set(store.snapshot().map((f) => f.id));
+
+          const trashed = new Set(
+            queued.flatMap((s) => {
+              const id = first.ids[s.change];
+
+              return eitherEnd && s.maybeApplied && changeOf.get(s.change)?.op === "trash" && id !== undefined && !present.has(id) ? [s.change] : [];
+            }),
+          );
+
+          const queuedIds = new Set(queued.flatMap((s) => (trashed.has(s.change) ? [] : [s.change])));
+          const stale = staleChanges(store.snapshot(), run.changes.filter((c) => queuedIds.has(c.id)), first.ids, eitherEnd, run.changes);
+
+          if (stale.length > 0) return yield* finish(`the library changed since this plan (${stale[0]}); ${changed}`);
+          const folders = folderIds(store.snapshot(), folder.id, original);
+          const needsTrash = queued.some((s) => changeOf.get(s.change)?.op === "trash");
+          const trashOn = needsTrash ? yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)) : true;
+
+          const translate = (step: (typeof queued)[number]) =>
+            Effect.gen(function* () {
+              const change = changeOf.get(step.change);
+              const fileId = first.ids[step.change];
+
+              if (change?.op !== "translate" || fileId === undefined) return;
+
+              const lang = change.to?.match(/\.([a-z]{3})\.srt$/)?.[1];
+              const m = month(yield* Clock.currentTimeMillis);
+
+              if (!lang || !Schema.is(LanguageCode)(lang) || !change.to) return yield* setStep(step.change, "failed", "no language in the subtitle name");
+
+              yield* setStep(step.change, "running");
+              const parentId = first.parents?.[step.change] ?? folder.id;
+              const spend = spendFor(m);
+              const done = yield* Effect.exit(translateSubtitle(fileId, change.path, parentId, nameOf(change.to), lang, spend, sources).pipe(Effect.provide(deps.anthropic)));
+              yield* refreshCredits;
+
+              if (Exit.isFailure(done)) return yield* failStep(step.change, done);
+              const p = plans.get(planId);
+
+              if (p) saveRecord({ ...p, ids: { ...p.ids, [uploadedKey(step.change)]: done.value } });
+              yield* setStep(step.change, "done");
+            });
+
+          if (queued.some((step) => changeOf.get(step.change)?.op === "translate")) yield* syncPool;
+          yield* Effect.forEach(queued, translate, { concurrency: PARALLEL_TRANSLATIONS, discard: true });
+
+          const failedVideos = new Set<string>();
+
+          for (const step of queued) {
+            const change = changeOf.get(step.change);
+            const fileId = first.ids[step.change];
+
+            if (!change || fileId === undefined) continue;
+            const video = videoOf(change.id);
+
+            if (video !== change.id && failedVideos.has(video)) {
+              yield* setStep(step.change, "failed", "its video didn’t move");
+              continue;
+            }
+
+            if (change.op === "translate") continue;
+
+            if (trashed.has(step.change)) {
+              yield* setStep(step.change, "done");
+              continue;
+            }
+
+            if (change.op === "trash" && !trashOn) {
+              yield* setStep(step.change, "failed", "trash is off in your put.io settings, so this would delete for good");
+              continue;
+            }
+
+            yield* setStep(step.change, "running");
+            const exit = yield* Effect.exit(applyChange(change, fileId, folders));
+
+            if (Exit.isSuccess(exit)) yield* setStep(step.change, "done");
+            else {
+              failedVideos.add(step.change);
+              yield* failStep(step.change, exit);
+            }
+          }
+
+          yield* scan.pipe(Effect.ignore);
+
+          const restored = new Set(
+            (currentRun(actor.getSnapshot(), undoing)?.steps ?? []).flatMap((s) => {
+              const id = first.ids[s.change];
+
+              return s.state === "done" && id !== undefined && changeOf.get(s.change)?.op === "restore" ? [id] : [];
+            }),
+          );
+
+          const missing = () => {
+            const have = new Set(store.snapshot().map((f) => f.id));
+
+            return [...restored].some((id) => !have.has(id));
+          };
+
+          for (let i = 0; i < 3 && missing(); i++) {
+            yield* Effect.sleep(deps.restoreRecheckMs ?? 5000);
+            yield* scan.pipe(Effect.ignore);
+          }
+
+          yield* finish(null);
+        });
+
+        return work.pipe(
+          Effect.provide(putioLayer(token ?? undefined, deps.putioFetch)),
+          Effect.catchDefect((defect) => Effect.logError("run crashed", defect).pipe(Effect.andThen(Effect.sync(rescanLater)), Effect.andThen(finish("stopped")))),
+          Effect.onInterrupt(() => Effect.sync(() => finished || rescanLater())),
+        );
+      }).pipe(Effect.ensuring(Effect.suspend(() => tellActivity({ type: "RUN_ENDED", run: runIds.get(planId) ?? "" }))));
+
+    const startRun = (planId: string, eventFor: (snapshot: PlanSnapshot, p: StoredRecord) => PlanEvent | null) =>
+      Effect.uninterruptible(Effect.gen(function* () {
+        const actor = yield* planActor(planId);
+        const p = plans.get(planId);
+
+        if (!actor || !p) return;
+        const event = eventFor(actor.getSnapshot(), p);
+
+        if (!event || !accepts(actor.getSnapshot(), event)) return;
+
+        const runId = `${planId}:${newId()}`;
+
+        if (runOf(yield* tellActivity({ type: "RUN", run: runId })) !== runId) return;
+        runIds.set(planId, runId);
+
+        const started = yield* sendAndAwait(actor, event).pipe(
+          Effect.map(isRunning),
+          Effect.catchCause(() => Effect.succeed(false)),
+        );
+
+        if (!started) return yield* tellActivity({ type: "RUN_ENDED", run: runId }).pipe(Effect.asVoid);
+        deps.background(waitFor(activity, (a) => runOf(a) !== runId).pipe(Effect.ignore));
+      }));
+
+    const queuedRun = (planId: string, title: string, changes: ReadonlyArray<Change>): Run => ({
+      id: planId,
+      title,
+      changes: [...changes],
+      steps: changes.map((c) => ({ change: c.id, state: "queued", error: null })),
+    });
+
+    const apply = (planId: string, exclude: ReadonlyArray<string>) =>
+      startRun(planId, (_, p) => {
+        const changes = p.record.plan.changes.filter((c) => !exclude.includes(c.id) && !exclude.includes(videoOf(c.id)));
+
+        return { type: "APPLY", run: queuedRun(planId, p.record.plan.title, changes) };
+      });
+
+    const retry = (planId: string) => startRun(planId, () => ({ type: "RETRY" }));
+
+    const undo = (planId: string) =>
+      startRun(planId, (snapshot, p) => {
+        const run = snapshot.context.run;
+
+        return run && { type: "UNDO", undo: queuedRun(planId, run.title, undoChanges(run).filter((c) => p.ids[c.id] !== undefined)) };
+      });
+
+    const discard = (planId: string) =>
+      Effect.gen(function* () {
+        const actor = yield* planActor(planId);
+
+        if (actor) yield* sendAndAwait(actor, { type: "DISCARD" }).pipe(Effect.orDie);
+      });
 
     const planNews = () =>
       [...plans.values()].flatMap((p) => {
@@ -650,7 +664,7 @@ export const makeAgent = (deps: AgentDeps) =>
         saveRecord({ ...p, reported: true });
 
         if (status === "discarded") return [`The user discarded plan "${p.record.plan.title}".`];
-        const steps = current(p.record)?.steps ?? [];
+        const steps = (p.record.undo ?? p.record.run)?.steps ?? [];
         const failed = steps.filter((s) => s.state === "failed");
         const verb = status === "undone" ? "undid" : "applied";
 
@@ -659,8 +673,11 @@ export const makeAgent = (deps: AgentDeps) =>
         ];
       });
 
-    const storePlan = (out: StoredPlan) =>
-      saveRecord({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true });
+    const storePlan = (out: StoredPlan) => {
+      const [snapshot] = initialTransition(planMachine, { plan: out.plan.id });
+
+      savePlan({ record: { plan: out.plan, status: "proposed", run: null }, ids: out.ids, parents: out.parents, folder: state.folder, reported: true }, snapshot);
+    };
 
     const proposeGenerated = (
       snapshot: ReadonlyArray<WalkedFile>,
@@ -1047,7 +1064,7 @@ export const makeAgent = (deps: AgentDeps) =>
           return;
         }
 
-        setState({ ...state, busy: true });
+        yield* tellActivity({ type: "REPLYING" });
         const m = credits.month;
 
         const events = runTurn({
@@ -1086,8 +1103,15 @@ export const makeAgent = (deps: AgentDeps) =>
         ).pipe(Effect.provide(Layer.merge(deps.anthropic, putioLayer(store.token() ?? undefined, deps.putioFetch))));
       });
 
-    const turn = (text: string) =>
-      converse(text).pipe(
+    const turn = ({ text, folder }: { readonly text: string; readonly folder: Folder }) =>
+      Effect.suspend(() => {
+        asked = false;
+        calls.clear();
+
+        if (folder.id !== state.folder.id) setState({ ...state, folder });
+
+        return converse(text);
+      }).pipe(
         Effect.catch((e: TurnError) =>
           Effect.gen(function* () {
             if (Predicate.isTagged(e, "PutioUnauthorized")) store.deleteToken();
@@ -1105,31 +1129,19 @@ export const makeAgent = (deps: AgentDeps) =>
           Effect.sync(() => {
             closeDanglingTools();
             keepStreamedText();
-            turnFiber = null;
-            running = false;
             broadcast({ type: "partial", content: null });
-
-            if (state.busy) setState({ ...state, busy: false });
-          }).pipe(Effect.andThen(refreshCredits)),
+          }).pipe(Effect.andThen(refreshCredits), Effect.ensuring(tellActivity({ type: "TURN_SETTLED" }))),
         ),
       );
 
-    const start = (text: string, folder: Folder) => {
-      running = true;
-      asked = false;
-      calls.clear();
+    const activity = yield* createEffectActor(activityMachine).pipe(Effect.provideService(AgentWork, { turn, refresh }), Scope.provide(scope));
 
-      if (folder.id !== state.folder.id) setState({ ...state, folder });
-      deps.background(
-        Effect.withFiber((fiber) => {
-          turnFiber = fiber;
-
-          return turn(text);
-        }),
-      );
+    const showBusy = (a: Activity) => {
+      if (state.busy !== isBusy(a)) setState({ ...state, busy: isBusy(a) });
     };
 
-    if (state.busy) setState({ ...state, busy: false });
+    activity.subscribe(showBusy);
+    showBusy(activity.getSnapshot());
     yield* refreshCredits;
 
     return {
@@ -1146,7 +1158,7 @@ export const makeAgent = (deps: AgentDeps) =>
         ];
       },
       receive: (raw: string) =>
-        Effect.gen(function* () {
+        frames.withPermits(1)(Effect.gen(function* () {
           const event = decodeFrame(raw);
 
           if (Option.isNone(event)) return;
@@ -1154,27 +1166,20 @@ export const makeAgent = (deps: AgentDeps) =>
 
           switch (e.type) {
             case "stop":
-              if (turnFiber) yield* Fiber.interrupt(turnFiber);
+              yield* tellActivity({ type: "STOP" });
+              yield* waitFor(activity, (a) => a.matches({ chat: "idle" })).pipe(Effect.ignore);
 
               return;
             case "apply":
-              if (!running && !state.busy) apply(e.plan, e.exclude);
-
-              return;
+              return yield* apply(e.plan, e.exclude);
             case "retry":
-              if (!running && !state.busy) retry(e.plan);
-
-              return;
+              return yield* retry(e.plan);
             case "undo":
-              if (!running && !state.busy) undo(e.plan);
-
-              return;
+              return yield* undo(e.plan);
             case "discard":
-              discard(e.plan);
-
-              return;
+              return yield* discard(e.plan);
             case "newThread":
-              if (running || state.busy || runFibers.size > 0) return;
+              if (!isIdle(activity.getSnapshot())) return;
               store.archiveHistory();
               last = null;
 
@@ -1183,20 +1188,24 @@ export const makeAgent = (deps: AgentDeps) =>
 
               return;
             case "stopRun": {
-              const f = runFibers.get(e.plan);
+              const actor = planActors.get(e.plan);
 
-              if (f) yield* Fiber.interrupt(f);
+              if (actor) yield* sendAndAwait(actor, { type: "STOP" }).pipe(Effect.orDie);
 
               return;
             }
 
             case "send":
-              if (running || state.busy) return;
-              start(e.text, e.folder);
+              if (!activity.getSnapshot().matches({ chat: "idle" })) return;
+              yield* Effect.uninterruptible(
+                tellActivity({ type: "SEND", text: e.text, folder: e.folder }).pipe(
+                  Effect.andThen(Effect.sync(() => deps.background(waitFor(activity, (a) => a.matches({ chat: "idle" })).pipe(Effect.ignore)))),
+                ),
+              );
 
               return;
           }
-        }),
+        })),
       setAuth: (token: string, username: string, avatarUrl: string | null) =>
         Effect.sync(() => {
           store.deleteToken();
@@ -1211,10 +1220,15 @@ export const makeAgent = (deps: AgentDeps) =>
         store.setSecret("session_gen", String(sessionGen() + 1));
         deps.disconnect();
       }),
-      deleteData: Effect.gen(function* () {
-        if (running || state.busy || runFibers.size > 0) return false;
+      deleteData: frames.withPermits(1)(Effect.gen(function* () {
+        if (!isIdle(activity.getSnapshot())) return false;
         epoch++;
         store.deleteUserData(month(yield* Clock.currentTimeMillis));
+
+        for (const actor of planActors.values()) actor.stop();
+        planActors.clear();
+        snapshots.clear();
+        runIds.clear();
         store.setSecret("session_gen", String(sessionGen() + 1));
         plans.clear();
         thumbs.clear();
@@ -1223,7 +1237,7 @@ export const makeAgent = (deps: AgentDeps) =>
         deps.disconnect();
 
         return true;
-      }),
+      })),
       sessionGen: Effect.sync(() => sessionGen()),
       thumbnail: (id: number) =>
         Effect.suspend(() => {
