@@ -7,7 +7,7 @@ description: Model-check the plan run engine (apply, stop, retry, undo, eviction
 
 [`PlanRuns.tla`](PlanRuns.tla) models one plan's runs against put.io. TLC checks every order of user frames, write outcomes, stops and evictions for 3 steps (2 of them trash) and up to 2 retries. Its `Apply` is any start of a run, from an `apply` frame or from a rule's alarm.
 
-[`RuleRuns.tla`](RuleRuns.tla) models one standing rule and the runs its alarm starts, with each run's plan reduced to running, then settled with or without a failed step. TLC checks every order of alarm deliveries, checks, pauses, previews, approvals, run outcomes and evictions for 4 due times.
+[`RuleRuns.tla`](RuleRuns.tla) models one standing rule and the runs its alarm starts, with each run's plan reduced to running, then settled with or without a failed step. TLC checks every order of alarm deliveries, checks, pauses, previews, approvals (stale ones included), run outcomes, undos, deletes and evictions for 4 due times and 3 previews.
 
 ## The promises
 
@@ -26,11 +26,11 @@ Covered code, last confirmed against commit `6b1ce1f`:
 
 | Model | Code |
 | --- | --- |
-| `Deliver`, `Issue` | `DUE` in [`rule-machine.ts`](../../../src/server/rule-machine.ts), accepted only for `nextAt`, which it advances; `ruleDue` and `syncSchedule` in `conversation.ts` |
+| `Deliver`, `Issue` | `DUE` in [`rule-machine.ts`](../../../src/server/rule-machine.ts), accepted only for `nextAt`, which it advances; `ruleDue` in `conversation.ts`, which arms the next due time before sending `DUE` and re-arms `nextAt` for any other delivery |
 | `CheckLater`, `CheckNothing`, `CheckStop` | the `later`, `none` and `stop` outcomes of `checkDue` |
 | `Mark`, `Launch`, `Fizzle`, `Started` | `STARTING`, then `storePlan` and `applyAll` in `checkDue`; a refused start (`discard`, `later`); the `started` outcome |
-| `PlanEnds`, `Settle` | the rule plan settling (`persistPlan`, `settleRuleRun`, `RUN_SETTLED`) |
-| `Pause`, `Preview`, `Approve` | `PAUSE` (frame, `pauseRules` on sign-out or a rejected token, a failed `syncSchedule`); `resumeRule` and `PREVIEWED`; `APPROVE` with the shown `preview.at`, refused while the latest run is running (`ruleFrame`) |
+| `PlanEnds`, `Settle` | the rule plan settling (`persistPlan`, `settleRuleRun`: `RUN_SETTLED` while applying, `PAUSE` for any later failed retry) |
+| `Pause`, `Preview`, `Approve` | `PAUSE` (frame; `pauseRules` on sign-out or a rejected token, previewed rules included); `resumeRule` and `PREVIEWED`; `APPROVE` with the shown `preview.at`, armed before it commits, refused while the latest run is running (`ruleFrame`) |
 | `Delete`, `UndoRun` | `DELETE`, refused while the latest run is running; an undo of a rule plan pausing the rule in `persistPlan` |
 | `Evict` | `settleRuleAfterRestart` |
 | `Apply`, `Retry`, `Undo` | `APPLY`, `RETRY`, `UNDO` in [`plan-machine.ts`](../../../src/server/plan-machine.ts); `startRun`, `apply`, `retry`, `undo` and their `receive` cases (`apply`, `retry`, `undo`, `stopRun`) in [`conversation.ts`](../../../src/server/conversation.ts) |
@@ -83,6 +83,7 @@ After editing the model, prove the check can still fail: break the matching acti
 | `Evict` sends a cut-off `checking` rule back to `waiting` whatever its `phase` | `NoRunWithoutApproval` |
 | `Settle` ignores `failed` | `NoRunWithoutApproval` |
 | `Approve` drops `plan # "running"` | `NoRunWithoutApproval` |
+| `Approve` drops `shown = preview` (a stale frame approves the new preview) | `NoRunWithoutApproval` |
 | `Init` starts the rule `waiting` with a due time issued | `NoRunWithoutApproval` |
 | `Delete` leaves the rule `waiting` with its alarm | `NoRunWithoutApproval` |
 

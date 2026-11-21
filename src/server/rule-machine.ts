@@ -81,6 +81,7 @@ export const ruleMachine = setupEffect({
     previewed: {
       on: {
         PREVIEWED: ({ context, event }) => ({ context: { ...context, preview: event.preview } }),
+        PAUSE: ({ context, event }) => ({ target: "paused", context: pause(context, event.why) }),
         APPROVE: ({ context, event }) =>
           event.preview === context.preview.at ? { target: "active", context: { ...context, why: null, nextAt: event.now, fresh: true } } : undefined,
       },

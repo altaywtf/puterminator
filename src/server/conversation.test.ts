@@ -71,7 +71,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
       partialEveryMs: 0,
       restoreRecheckMs: 0,
       schedule: {
-        set: (rule, at) => (failSchedule ? Effect.die(new Error("alarm storage failed")) : Effect.sync(() => void jobs.set(rule, at))),
+        set: (rule, _at, due) => (failSchedule ? Effect.die(new Error("alarm storage failed")) : Effect.sync(() => void jobs.set(rule, due))),
         cancel: (rule) => Effect.sync(() => void jobs.delete(rule)),
       },
   };
@@ -1888,9 +1888,26 @@ describe("standing rules", () => {
     expect(t.jobs.has(id)).toBe(false);
   });
 
-  it("pauses instead of claiming to be active when its alarm can't be stored", async () => {
-    const { t } = await approved(proposeRule(), { failSchedule: true });
-    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "couldn’t schedule its next run; preview it again" });
+  it("stays unapproved when its first alarm can't be stored", async () => {
+    const { t, id } = await approved(proposeRule(), { failSchedule: true });
+    expect(ruleOf(t).status).toBe("previewed");
+    expect(t.jobs.has(id)).toBe(false);
+  });
+
+  it("re-arms the due time it is waiting for when a stale or early alarm arrives", async () => {
+    const { t, id } = await approved();
+    const due = t.jobs.get(id) ?? 0;
+    t.jobs.delete(id);
+    await fire(t, id, due - 1);
+    expect(t.jobs.get(id)).toBe(due);
+    expect(deletes(t)).toEqual([]);
+  });
+
+  it("pauses every rule and forgets the token when an alarm finds put.io signed out", async () => {
+    const { t, id } = await approved(proposeRule(), { unauthorizedAfter: 1 });
+    await fire(t, id);
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "put.io signed you out; sign in again" });
+    expect(t.store.token()).toBeNull();
   });
 
   it("refuses a rule while trash is off, since a run would delete for good", async () => {

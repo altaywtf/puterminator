@@ -78,7 +78,7 @@ export default class Puterminator extends Cloudflare.DurableObject<Puterminator>
         },
         background: (effect) => raw.waitUntil(Effect.runPromiseExit(effect)),
         schedule: {
-          set: (rule, at) => scheduled(dueRule.schedule(rule, { at, payload: { rule, due: at } })),
+          set: (rule, at, due) => scheduled(dueRule.schedule(rule, { at, payload: { rule, due } })),
           cancel: (rule) => scheduled(dueRule.cancel(rule)),
         },
       };

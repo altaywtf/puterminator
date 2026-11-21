@@ -28,8 +28,26 @@ const Spec = Schema.Struct({
 
 type Spec = typeof Spec.Type;
 
-const walked = (spec: Spec): WalkedFile[] =>
-  spec.files.map((f, i) => ({
+const FOLDERS = ["/Movies", "/Movies/Keep", "/Shows", "/Shows/Keep", "/Shows/Keep/Deep"];
+
+const folder = (path: string, i: number): WalkedFile => ({
+  id: 1000 + i,
+  parent_id: 0,
+  name: path.slice(path.lastIndexOf("/") + 1),
+  path,
+  depth: path.split("/").length - 1,
+  size: 0,
+  file_type: "FOLDER",
+  content_type: null,
+  extension: null,
+  crc32: null,
+  created_at: "2025-01-01T00:00:00",
+  first_accessed_at: null,
+});
+
+const walked = (spec: Spec): WalkedFile[] => [
+  ...FOLDERS.map(folder),
+  ...spec.files.map((f, i): WalkedFile => ({
     id: i + 1,
     parent_id: 0,
     name: f.name,
@@ -42,7 +60,8 @@ const walked = (spec: Spec): WalkedFile[] =>
     crc32: null,
     created_at: "2025-01-01T00:00:00",
     first_accessed_at: f.openedDaysAgo === null ? null : new Date(NOW - f.openedDaysAgo * DAY_MS).toISOString().slice(0, 19),
-  }));
+  })),
+];
 
 const ruleOf = (spec: Spec): Criteria => ({ title: "old", within: WITHIN[spec.within] ?? [], protect: PROTECT[spec.protect] ?? [], openedDaysAgo: spec.openedDaysAgo, cap: spec.cap, every: "day" });
 
@@ -98,10 +117,18 @@ describe("rules", () => {
   });
 
   it("stops when a folder it looks in or protects is gone or renamed", () => {
-    const files = walked({ files: [{ dir: "/Movies", name: "a.mkv", openedDaysAgo: 400, size: 700 }], within: 0, protect: 0, openedDaysAgo: 30, cap: 50, shuffle: 0 });
-    const folders: WalkedFile[] = ["/Movies"].map((path, i) => ({ ...files[0]!, id: 100 + i, path, name: path.slice(1), file_type: "FOLDER" }));
+    const files = walked({ files: [{ dir: "/Movies", name: "a.mkv", openedDaysAgo: 400, size: 700 }], within: 0, protect: 0, openedDaysAgo: 30, cap: 50, shuffle: 0 }).filter((f) => f.path !== "/Movies/Keep");
 
-    expect(checkRule([...files, ...folders], { title: "old", within: ["/Movies"], protect: ["/Movies/Keep"], openedDaysAgo: 30, cap: 50, every: "week" }, NOW)).toEqual({ kind: "stop", why: "/Movies/Keep is gone or was renamed" });
+    expect(checkRule(files, { title: "old", within: ["/Movies"], protect: ["/Movies/Keep"], openedDaysAgo: 30, cap: 50, every: "week" }, NOW)).toEqual({ kind: "stop", why: "/Movies/Keep is gone or was renamed" });
+  });
+
+  it("plans trash inside its folders and stops over its cap", () => {
+    const old = { openedDaysAgo: 400, size: 700 } as const;
+    const files = walked({ files: [{ dir: "/Movies", name: "a.mkv", ...old }, { dir: "/Movies/Keep", name: "b.mkv", ...old }, { dir: "/Shows", name: "c.mp4", ...old }], within: 1, protect: 1, openedDaysAgo: 30, cap: 1, shuffle: 0 });
+    const rule: Criteria = { title: "old", within: ["/Movies"], protect: ["/Movies/Keep"], openedDaysAgo: 30, cap: 1, every: "day" };
+
+    expect(checkRule(files, rule, NOW)).toMatchObject({ kind: "plan", ids: [1], input: { changes: [{ op: "trash", path: "/Movies/0-a.mkv", to: null }] } });
+    expect(checkRule(files, { ...rule, within: ["/"], protect: [] }, NOW)).toEqual({ kind: "stop", why: "it matched 3 files, over its cap of 1" });
   });
 
   it("refuses folders the snapshot lacks and out-of-range numbers", () => {

@@ -18,7 +18,7 @@ import { createEffectActor, type EffectActor, sendAndAwait, waitFor } from "@xst
 import { initialTransition, type EventFromLogic } from "xstate";
 import { activityMachine, AgentWork, type Activity, isBusy, isIdle, isRescanning, runOf } from "./activity-machine";
 import { type CheckOutcome, encodeRuleSnapshot, isApplying, isDeleted, isWaiting, ruleAccepts, ruleCodec, type RuleEvent, RuleChecks, ruleMachine, ruleRecordOf, type RuleSnapshot, settleRuleAfterRestart } from "./rule-machine";
-import { checkRule, RuleInput, validateRule } from "./rules";
+import { checkRule, intervalMs, RuleInput, validateRule } from "./rules";
 import { accepts, fromRecord, isRunning, type PlanEvent, encodeSnapshot, planCodec, planMachine, PlanSteps, type PlanSnapshot, recordOf, settleAfterRestart } from "./plan-machine";
 import { AskInput, applyChange, cleanPath, type StoredPlan, uploadedKey, validateTranslation, untranslated, folderIds, nameOf, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion, videoOf } from "./changes";
 import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, mediaInfo, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
@@ -169,9 +169,9 @@ export interface AgentDeps {
   readonly restoreRecheckMs?: number;
   /** put.io makes download links in the background; ask again this often while it works. */
   readonly linksPollMs?: number;
-  /** Durable per-rule alarms: `set` replaces the rule's pending alarm, which calls `ruleDue(rule, at)` at `at`. */
+  /** Durable per-rule alarms: `set` replaces the rule's pending alarm, which calls `ruleDue(rule, due)` at `at`. */
   readonly schedule: {
-    readonly set: (rule: string, at: number) => Effect.Effect<void>;
+    readonly set: (rule: string, at: number, due: number) => Effect.Effect<void>;
     readonly cancel: (rule: string) => Effect.Effect<void>;
   };
 }
@@ -179,7 +179,6 @@ export interface AgentDeps {
 const MINUTE_MS = 60_000;
 const BUSY_RETRY_MS = 5 * MINUTE_MS;
 const FAILED_LISTING_RETRY_MS = 60 * MINUTE_MS;
-const SCHEDULE_RETRIES = 2;
 const PARALLEL_TRANSLATIONS = 3;
 const SOURCE_CHECKS = 6;
 const MAX_THUMBS = 500;
@@ -430,7 +429,7 @@ export const makeAgent = (deps: AgentDeps) =>
       savePlan({ ...p, reported: false }, snapshot);
 
       if (!p.rule) return;
-      settleRuleRun(p.rule);
+      settleRuleRun(p.rule, id);
 
       if (snapshot.matches("undoing") && ruleSnapshots.get(p.rule)?.matches("active")) deps.background(tellRule(p.rule, { type: "PAUSE", why: "you undid its last run" }));
     };
@@ -720,30 +719,14 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const ruleSnapshots = new Map<string, RuleSnapshot>();
     const ruleActors = new Map<string, EffectActor<typeof ruleMachine>>();
-    const scheduled = new Map<string, number>();
+    const arm = (id: string, due: number, at = due) => deps.schedule.set(id, at, due);
 
-    const syncSchedule = (id: string, snapshot: RuleSnapshot | null) => {
-      if (snapshot && !isWaiting(snapshot) && !isDeleted(snapshot) && snapshot.matches("active")) return;
-      const want = snapshot && isWaiting(snapshot) ? snapshot.context.nextAt : null;
-
-      if (want === (scheduled.get(id) ?? null)) return;
-
-      if (want === null) scheduled.delete(id);
-      else scheduled.set(id, want);
-      const write = want === null ? deps.schedule.cancel(id) : deps.schedule.set(id, want);
-
-      const failed = Effect.gen(function* () {
-        if (want === null) return void scheduled.set(id, -1);
-
-        if (scheduled.get(id) === want) scheduled.delete(id);
-        yield* tellRule(id, { type: "PAUSE", why: "couldn’t schedule its next run; preview it again" });
-      });
-
-      deps.background(write.pipe(Effect.sandbox, Effect.retry({ times: SCHEDULE_RETRIES }), Effect.catchCause(() => failed)));
-    };
-
-    const pauseRules = (why: string) =>
-      Effect.forEach([...ruleSnapshots].filter(([, rule]) => rule.matches("active")), ([id]) => tellRule(id, { type: "PAUSE", why }), { discard: true });
+    const pauseRules = (why: string, except?: string) =>
+      Effect.forEach(
+        [...ruleSnapshots].filter(([id, rule]) => id !== except && (rule.matches("active") || rule.matches("previewed"))),
+        ([id]) => tellRule(id, { type: "PAUSE", why }),
+        { discard: true },
+      );
 
     const saveRule = (snapshot: RuleSnapshot) => {
       const { id } = snapshot.context;
@@ -753,7 +736,7 @@ export const makeAgent = (deps: AgentDeps) =>
         ruleSnapshots.delete(id);
         ruleActors.delete(id);
         broadcast({ type: "ruleDeleted", id });
-        syncSchedule(id, null);
+        deps.background(deps.schedule.cancel(id));
 
         return;
       }
@@ -761,27 +744,36 @@ export const makeAgent = (deps: AgentDeps) =>
       store.saveRule(id, Effect.runSync(encodeRuleSnapshot(snapshot)));
       ruleSnapshots.set(id, snapshot);
       broadcast({ type: "rule", rule: ruleRecordOf(snapshot) });
-      syncSchedule(id, snapshot);
+
+      if (!snapshot.matches("active")) deps.background(deps.schedule.cancel(id));
     };
 
     const runFailed = (planId: string) => {
       const plan = snapshots.get(planId);
 
-      if (!plan || isRunning(plan) || plan.context.run === null) return null;
+      const run = plan?.matches("undone") ? plan.context.undo : plan?.context.run;
 
-      return (plan.context.run?.steps ?? []).some((step) => step.state === "failed");
+      if (!plan || isRunning(plan) || !run) return null;
+
+      return run.steps.some((step) => step.state === "failed");
     };
 
-    function settleRuleRun(id: string) {
+    function settleRuleRun(id: string, planId?: string) {
       const actor = ruleActors.get(id);
       const rule = actor?.getSnapshot();
 
-      const run = rule?.context.runs[0];
+      if (!actor || !rule) return;
+      const latest = rule.context.runs[0];
 
-      if (!actor || !rule || !isApplying(rule) || run === undefined) return;
-      const failed = runFailed(run);
+      if (isApplying(rule) && latest !== undefined) {
+        const failed = runFailed(latest);
 
-      if (failed !== null) deps.background(sendAndAwait(actor, { type: "RUN_SETTLED", plan: run, failed }).pipe(Effect.ignore));
+        if (failed !== null) deps.background(sendAndAwait(actor, { type: "RUN_SETTLED", plan: latest, failed }).pipe(Effect.ignore));
+
+        return;
+      }
+
+      if (planId !== undefined && rule.matches("active") && runFailed(planId) === true) deps.background(tellRule(id, { type: "PAUSE", why: "a run of it had failed steps; check the receipt" }));
     }
 
     for (const raw of store.rules()) {
@@ -805,15 +797,21 @@ export const makeAgent = (deps: AgentDeps) =>
         if (!rule) return { kind: "none" } satisfies CheckOutcome;
         const { criteria, folder, preview } = rule.context;
         const now = yield* Clock.currentTimeMillis;
-        const busy: CheckOutcome = { kind: "later", retryAt: now + BUSY_RETRY_MS };
+        const later = (retryAt: number) => arm(id, retryAt).pipe(Effect.as<CheckOutcome>({ kind: "later", retryAt }));
 
         if (!store.token()) return stopCheck("put.io signed you out; sign in again");
 
-        if (!isIdle(activity.getSnapshot())) return busy;
+        if (!isIdle(activity.getSnapshot())) return yield* later(now + BUSY_RETRY_MS);
         const listed = yield* Effect.result(scanFolder(folder));
 
-        if (Result.isFailure(listed))
-          return Predicate.isTagged(listed.failure, "PutioUnauthorized") ? stopCheck("put.io signed you out; sign in again") : ({ kind: "later", retryAt: now + FAILED_LISTING_RETRY_MS } satisfies CheckOutcome);
+        if (Result.isFailure(listed) && Predicate.isTagged(listed.failure, "PutioUnauthorized")) {
+          store.deleteToken();
+          deps.background(pauseRules("put.io signed you out", id));
+
+          return stopCheck("put.io signed you out; sign in again");
+        }
+
+        if (Result.isFailure(listed)) return yield* later(now + FAILED_LISTING_RETRY_MS);
 
         if (!(yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)))) return stopCheck("trash is off in your put.io settings, so a run would delete for good");
         const check = checkRule(listed.success.files, criteria, now);
@@ -835,13 +833,15 @@ export const makeAgent = (deps: AgentDeps) =>
           const actor = ruleActors.get(id);
 
           if (!actor?.getSnapshot().matches({ active: "checking" })) return { kind: "none" } satisfies CheckOutcome;
-          yield* sendAndAwait(actor, { type: "STARTING", plan: out.plan.id }).pipe(Effect.orDie);
+          const marked = yield* sendAndAwait(actor, { type: "STARTING", plan: out.plan.id }).pipe(Effect.orDie);
+
+          if (ruleSnapshots.get(id) !== marked || marked.context.starting !== out.plan.id) return yield* Effect.die(new Error(`rule ${id} start not saved`));
           storePlan(out, { id, folder });
 
           if (yield* applyAll(out.plan.id)) return { kind: "started", plan: out.plan.id } satisfies CheckOutcome;
           yield* discard(out.plan.id);
 
-          return busy;
+          return yield* later(now + BUSY_RETRY_MS);
         }));
       }).pipe(Effect.provide(putioLayer(store.token() ?? undefined, deps.putioFetch)));
 
@@ -915,7 +915,16 @@ export const makeAgent = (deps: AgentDeps) =>
     const ruleFrame = (id: string, action: "approve" | "pause" | "resume" | "delete", preview: string) =>
       Match.value(action).pipe(
         Match.when("approve", () =>
-          lastRunRunning(id) ? Effect.void : Clock.currentTimeMillis.pipe(Effect.flatMap((now) => tellRule(id, { type: "APPROVE", now, preview }))),
+          Effect.gen(function* () {
+            const rule = ruleSnapshots.get(id);
+
+            if (lastRunRunning(id) || !rule || !ruleAccepts(rule, { type: "APPROVE", now: 0, preview })) return;
+            const now = yield* Clock.currentTimeMillis;
+            const armed = yield* Effect.exit(arm(id, now));
+
+            if (Exit.isFailure(armed)) return yield* Effect.logError("couldn’t arm a rule's first run", armed.cause);
+            yield* tellRule(id, { type: "APPROVE", now, preview });
+          }),
         ),
         Match.when("pause", () => tellRule(id, { type: "PAUSE", why: "paused by you" })),
         Match.when("resume", () => resumeRule(id)),
@@ -925,13 +934,15 @@ export const makeAgent = (deps: AgentDeps) =>
 
     const ruleDue = (id: string, due: number) =>
       Effect.gen(function* () {
-        if (scheduled.get(id) === due) scheduled.delete(id);
         const actor = yield* ruleActor(id);
+        const rule = actor?.getSnapshot();
 
-        if (!actor) return;
-        const before = actor.getSnapshot();
+        if (!actor || !rule?.matches("active")) return;
+        const { nextAt } = rule.context;
+        const now = yield* Clock.currentTimeMillis;
 
-        if (!ruleAccepts(before, { type: "DUE", due })) return syncSchedule(id, before);
+        if (!ruleAccepts(rule, { type: "DUE", due })) return nextAt === null ? undefined : yield* arm(id, nextAt, Math.max(nextAt, isWaiting(rule) ? now : now + BUSY_RETRY_MS));
+        yield* arm(id, due + intervalMs(rule.context.criteria.every));
         yield* sendAndAwait(actor, { type: "DUE", due }).pipe(Effect.orDie);
         yield* waitFor(actor, (s) => !s.matches({ active: "checking" })).pipe(Effect.ignore);
       });
@@ -1431,8 +1442,6 @@ export const makeAgent = (deps: AgentDeps) =>
     showBusy(activity.getSnapshot());
     yield* refreshCredits;
 
-    for (const [id, snapshot] of ruleSnapshots) syncSchedule(id, snapshot);
-
     return {
       state: () => state,
       connected: () => deps.background(refreshStaleSnapshot),
@@ -1523,10 +1532,9 @@ export const makeAgent = (deps: AgentDeps) =>
         planActors.clear();
 
         for (const actor of ruleActors.values()) actor.stop();
-        const alarms = new Set([...ruleSnapshots.keys(), ...scheduled.keys()]);
+        const alarms = [...ruleSnapshots.keys()];
         ruleActors.clear();
         ruleSnapshots.clear();
-        scheduled.clear();
         snapshots.clear();
         runIds.clear();
         store.setSecret("session_gen", String(sessionGen() + 1));
