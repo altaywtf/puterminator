@@ -405,6 +405,7 @@ export const makeAgent = (deps: AgentDeps) =>
     const cutOffRuns: Array<[rule: string, plan: string]> = [];
     const snapshots = new Map<string, PlanSnapshot>();
     const planActors = new Map<string, EffectActor<typeof planMachine>>();
+    const actorScopes = new Map<string, Scope.Closeable>();
     const runIds = new Map<string, string>();
     const newId = () => crypto.randomUUID().replaceAll("-", "").slice(0, 12);
 
@@ -435,6 +436,29 @@ export const makeAgent = (deps: AgentDeps) =>
       if (snapshot.matches("undoing") && ruleSnapshots.get(p.rule)?.matches("active")) deps.background(tellRule(p.rule, { type: "PAUSE", why: "you undid its last run" }));
     };
 
+    const savePlanSafely = (id: string) => (snapshot: PlanSnapshot) =>
+      Effect.runSync(Effect.try(() => persistPlan(id)(snapshot)).pipe(Effect.catch((e) => Effect.logError(`couldn't save plan ${id}`, e))));
+
+    const saved = (id: string, actor: EffectActor<typeof planMachine>) =>
+      Effect.suspend(() => {
+        const now = actor.getSnapshot();
+
+        if (snapshots.get(id) !== now) persistPlan(id)(now);
+
+        return snapshots.get(id) === now ? Effect.succeed(now) : Effect.die(new Error(`plan ${id} not saved`));
+      });
+
+    const tellPlan = (id: string, actor: EffectActor<typeof planMachine>, event: PlanEvent) =>
+      sendAndAwait(actor, event).pipe(Effect.orDie, Effect.andThen(saved(id, actor)));
+
+    const ownScope = (key: string) =>
+      Effect.gen(function* () {
+        const own = yield* Scope.fork(scope);
+        actorScopes.set(key, own);
+
+        return own;
+      });
+
     for (const p of plans.values()) {
       const decoded = p.machine === undefined ? Option.none() : yield* planCodec.decode(p.machine).pipe(Effect.option);
       const snapshot = Option.match(decoded, { onNone: () => fromRecord(p.record), onSome: (s) => planMachine.resolveState({ value: s.value, context: s.context }) });
@@ -459,12 +483,12 @@ export const makeAgent = (deps: AgentDeps) =>
 
         const actor = yield* createEffectActor(planMachine, { snapshot: planMachine.getPersistedSnapshot(snapshot) }).pipe(
           Effect.provideService(PlanSteps, { run: runPlan }),
-          Scope.provide(scope),
+          Scope.provide(yield* ownScope(`plan:${id}`)),
         );
 
         planActors.set(id, actor);
         snapshots.set(id, actor.getSnapshot());
-        actor.subscribe(persistPlan(id));
+        actor.subscribe(savePlanSafely(id));
 
         return actor;
       });
@@ -481,13 +505,13 @@ export const makeAgent = (deps: AgentDeps) =>
         const token = store.token();
         const folder = first.rule && first.folder ? first.folder : state.folder;
         const changed = undoing ? "undo it by hand" : "ask for a new one";
-        const tell = (event: PlanEvent) => sendAndAwait(actor, event).pipe(Effect.orDie);
+        const tell = (event: PlanEvent) => tellPlan(planId, actor, event);
         let finished = false;
         const finish = (error: string | null) => Effect.sync(() => (finished = true)).pipe(Effect.andThen(tell({ type: "FINISH", error })));
 
         const setStep = (change: string, state: Run["steps"][number]["state"], error: string | null = null, maybeApplied = false) =>
           tell({ type: "STEP", change, state, error, maybeApplied }).pipe(
-            Effect.flatMap((s) => (!isRunning(s) ? Effect.interrupt : snapshots.get(planId) === s ? Effect.void : Effect.die(new Error(`plan ${planId} step not saved`)))),
+            Effect.flatMap((s) => (isRunning(s) ? Effect.void : Effect.interrupt)),
           );
 
         const rescanLater = () => deps.background(scanFolder(folder).pipe(Effect.ignore, Effect.provide(putioLayer(token ?? undefined, deps.putioFetch))));
@@ -637,7 +661,14 @@ export const makeAgent = (deps: AgentDeps) =>
           Effect.catchDefect((defect) => Effect.logError("run crashed", defect).pipe(Effect.andThen(Effect.sync(rescanLater)), Effect.andThen(finish("stopped")))),
           Effect.onInterrupt(() => Effect.sync(() => finished || rescanLater())),
         );
-      }).pipe(Effect.ensuring(Effect.suspend(() => tellActivity({ type: "RUN_ENDED", run: runIds.get(planId) ?? "" }))));
+      }).pipe(Effect.ensuring(Effect.sync(() => deps.background(runEnded(planId, runIds.get(planId) ?? "")))));
+
+    const runEnded = (planId: string, run: string) => {
+      const actor = planActors.get(planId);
+      const settled = actor ? waitFor(actor, (s) => !isRunning(s)).pipe(Effect.andThen(saved(planId, actor)), Effect.ignoreCause) : Effect.void;
+
+      return settled.pipe(Effect.ensuring(tellActivity({ type: "RUN_ENDED", run })), Effect.asVoid);
+    };
 
     const startRun = (planId: string, eventFor: (snapshot: PlanSnapshot, p: StoredRecord) => PlanEvent | null) =>
       Effect.uninterruptible(Effect.gen(function* () {
@@ -694,7 +725,7 @@ export const makeAgent = (deps: AgentDeps) =>
       Effect.gen(function* () {
         const actor = yield* planActor(planId);
 
-        if (actor) yield* sendAndAwait(actor, { type: "DISCARD" }).pipe(Effect.orDie);
+        if (actor) yield* tellPlan(planId, actor, { type: "DISCARD" });
       });
 
     const planNews = () =>
@@ -872,7 +903,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
         const actor = yield* createEffectActor(ruleMachine, { snapshot: ruleMachine.getPersistedSnapshot(snapshot) }).pipe(
           Effect.provideService(RuleChecks, { check: checkDue }),
-          Scope.provide(scope),
+          Scope.provide(yield* ownScope(`rule:${id}`)),
         );
 
         ruleActors.set(id, actor);
@@ -1520,7 +1551,7 @@ export const makeAgent = (deps: AgentDeps) =>
             case "stopRun": {
               const actor = planActors.get(e.plan);
 
-              if (actor) yield* sendAndAwait(actor, { type: "STOP" }).pipe(Effect.orDie);
+              if (actor) yield* tellPlan(e.plan, actor, { type: "STOP" });
 
               return;
             }
@@ -1557,10 +1588,9 @@ export const makeAgent = (deps: AgentDeps) =>
         epoch++;
         store.deleteUserData(month(yield* Clock.currentTimeMillis));
 
-        for (const actor of planActors.values()) actor.stop();
+        yield* Effect.forEach(actorScopes.values(), (own) => Scope.close(own, Exit.void), { discard: true });
+        actorScopes.clear();
         planActors.clear();
-
-        for (const actor of ruleActors.values()) actor.stop();
         const alarms = [...ruleSnapshots.keys()];
         ruleActors.clear();
         ruleSnapshots.clear();
