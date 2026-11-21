@@ -1,9 +1,6 @@
-import { checkCommand } from "./policy.ts";
+import { text } from "node:stream/consumers";
 
-const chunks: Buffer[] = [];
-for await (const chunk of process.stdin) {
-  chunks.push(Buffer.from(chunk as Buffer));
-}
+import { checkCommand } from "./policy.ts";
 
 const parse = (raw: string): unknown => {
   try {
@@ -13,7 +10,7 @@ const parse = (raw: string): unknown => {
   }
 };
 
-const payload = parse(Buffer.concat(chunks).toString("utf8"));
+const payload = parse(await text(process.stdin));
 const input =
   typeof payload === "object" && payload !== null && "tool_input" in payload ? payload.tool_input : undefined;
 const command =
