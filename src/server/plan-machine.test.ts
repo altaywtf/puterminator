@@ -86,6 +86,7 @@ describe("plan machine", () => {
       allowed.push(await settleWithRunner(value, "runner done", Effect.void), await settleWithRunner(value, "runner error", Effect.die(new Error("crash"))));
     }
 
+    expect(planMachine.events.filter((e) => !e.startsWith("xstate.")).sort()).toEqual(events.map(([name]) => name).sort());
     expect(allowed.sort()).toEqual([...MODEL, ...OUTSIDE_MODEL].map(([, from, event, to]) => `${from} --${event}--> ${to}`).sort());
   });
 

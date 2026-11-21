@@ -444,9 +444,7 @@ export const makeAgent = (deps: AgentDeps) =>
         const first = plans.get(planId);
         const run = actor ? currentRun(actor.getSnapshot(), undoing) : null;
 
-        const ended = tellActivity({ type: "RUN_ENDED", run: runIds.get(planId) ?? "" });
-
-        if (!actor || !first || !run) return Effect.die(new Error(`plan ${planId} has no run`)).pipe(Effect.ensuring(ended));
+        if (!actor || !first || !run) return Effect.die(new Error(`plan ${planId} has no run`));
         const token = store.token();
         const folder = state.folder;
         const changed = undoing ? "undo it by hand" : "ask for a new one";
@@ -601,12 +599,11 @@ export const makeAgent = (deps: AgentDeps) =>
           Effect.provide(putioLayer(token ?? undefined, deps.putioFetch)),
           Effect.catchDefect((defect) => Effect.logError("run crashed", defect).pipe(Effect.andThen(Effect.sync(rescanLater)), Effect.andThen(finish("stopped")))),
           Effect.onInterrupt(() => Effect.sync(() => finished || rescanLater())),
-          Effect.ensuring(ended),
         );
-      });
+      }).pipe(Effect.ensuring(Effect.suspend(() => tellActivity({ type: "RUN_ENDED", run: runIds.get(planId) ?? "" }))));
 
     const startRun = (planId: string, eventFor: (snapshot: PlanSnapshot, p: StoredRecord) => PlanEvent | null) =>
-      Effect.gen(function* () {
+      Effect.uninterruptible(Effect.gen(function* () {
         const actor = yield* planActor(planId);
         const p = plans.get(planId);
 
@@ -627,7 +624,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
         if (!started) return yield* tellActivity({ type: "RUN_ENDED", run: runId }).pipe(Effect.asVoid);
         deps.background(waitFor(activity, (a) => runOf(a) !== runId).pipe(Effect.ignore));
-      });
+      }));
 
     const queuedRun = (planId: string, title: string, changes: ReadonlyArray<Change>): Run => ({
       id: planId,
@@ -1170,6 +1167,7 @@ export const makeAgent = (deps: AgentDeps) =>
           switch (e.type) {
             case "stop":
               yield* tellActivity({ type: "STOP" });
+              yield* waitFor(activity, (a) => a.matches({ chat: "idle" })).pipe(Effect.ignore);
 
               return;
             case "apply":
@@ -1199,8 +1197,11 @@ export const makeAgent = (deps: AgentDeps) =>
 
             case "send":
               if (!activity.getSnapshot().matches({ chat: "idle" })) return;
-              yield* tellActivity({ type: "SEND", text: e.text, folder: e.folder });
-              deps.background(waitFor(activity, (a) => a.matches({ chat: "idle" })).pipe(Effect.ignore));
+              yield* Effect.uninterruptible(
+                tellActivity({ type: "SEND", text: e.text, folder: e.folder }).pipe(
+                  Effect.andThen(Effect.sync(() => deps.background(waitFor(activity, (a) => a.matches({ chat: "idle" })).pipe(Effect.ignore)))),
+                ),
+              );
 
               return;
           }

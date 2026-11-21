@@ -228,6 +228,15 @@ describe("a turn", () => {
     ]);
   });
 
+  it("takes the next message right after a stop", async () => {
+    const t = await setup([{ kind: "hang" }, say("here.")]);
+    await Effect.runPromise(t.agent.receive(send("first")));
+    await t.anthropic.hanging;
+    await Effect.runPromise(t.agent.receive(frame({ type: "stop" })));
+    await t.receive(send("second"));
+    expect(t.anthropic.requests).toHaveLength(2);
+  });
+
   it("charges a stopped turn the usage its message_start reported", async () => {
     const t = await setup([{ kind: "hang" }]);
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
@@ -902,9 +911,9 @@ describe("plans", () => {
     await stopped.receive(send("clean up"));
     const id = planOf(stopped).plan.id;
     await Promise.all([Effect.runPromise(stopped.agent.receive(frame({ type: "apply", plan: id, exclude: [] }))), Effect.runPromise(stopped.agent.receive(frame({ type: "stopRun", plan: id })))]);
+    const atStop = writes(stopped).length;
     await stopped.settle();
-    const steps = planOf(stopped).run?.steps ?? [];
-    expect([planOf(stopped).status, steps.some((s) => s.error === "stopped"), steps.filter((s) => s.state === "done" || s.maybeApplied).length]).toEqual(["done", true, writes(stopped).length]);
+    expect([planOf(stopped).status, planOf(stopped).run?.steps.some((s) => s.error === "stopped"), writes(stopped).length]).toEqual(["done", true, atStop]);
 
     const moved = await setup([...proposeTurn(), say("ok.")]);
     await moved.receive(send("clean up"));
