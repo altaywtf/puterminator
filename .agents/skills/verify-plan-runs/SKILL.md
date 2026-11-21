@@ -26,10 +26,10 @@ Covered code, last confirmed against commit `6b1ce1f`:
 
 | Model | Code |
 | --- | --- |
-| `Deliver`, `Issue` | `DUE` in [`rule-machine.ts`](../../../src/server/rule-machine.ts), accepted only for `nextAt`, which it advances; `ruleDue` in `conversation.ts`, which arms the next due time before sending `DUE` and re-arms `nextAt` for any other delivery |
+| `Deliver`, `Issue` | `DUE` in [`rule-machine.ts`](../../../src/server/rule-machine.ts), accepted only for `nextAt`, which it advances; `ruleDue` in `conversation.ts`, which arms the next due time after `DUE` commits and re-arms `nextAt` for any other delivery |
 | `CheckLater`, `CheckNothing`, `CheckStop` | the `later`, `none` and `stop` outcomes of `checkDue` |
 | `Mark`, `Launch`, `Fizzle`, `Started` | `STARTING`, then `storePlan` and `applyAll` in `checkDue`; a refused start (`discard`, `later`); the `started` outcome |
-| `PlanEnds`, `Settle` | the rule plan settling (`persistPlan`, `settleRuleRun`: `RUN_SETTLED` while applying, `PAUSE` for any later failed retry) |
+| `PlanEnds`, `Settle` | the rule plan settling (`persistPlan`, `settleRuleRun`: `RUN_SETTLED` while applying) |
 | `Pause`, `Preview`, `Approve` | `PAUSE` (frame; `pauseRules` on sign-out or a rejected token, previewed rules included); `resumeRule` and `PREVIEWED`; `APPROVE` with the shown `preview.at`, armed before it commits, refused while the latest run is running (`ruleFrame`) |
 | `Delete`, `UndoRun` | `DELETE`, refused while the latest run is running; an undo of a rule plan pausing the rule in `persistPlan` |
 | `Evict` | `settleRuleAfterRestart` |
@@ -91,6 +91,6 @@ Move the sync commit in the table above forward only after confirming the model 
 
 ## Scope
 
-- One plan, 3 steps, 2 of them trash, at most 2 retries; one rule, 4 due times. Runs on two plans at once are left out: the `plans` region of [`activity-machine.ts`](../../../src/server/activity-machine.ts) keeps them apart, and the runner sends `RUN_ENDED` only once it has exited.
+- One plan, 3 steps, 2 of them trash, at most 2 retries; one rule, 4 due times, 3 previews. `RuleRuns` leaves out a receipt retry after the run settled (the code pauses an active rule when one fails, in `settleRuleRun`), and treats the stored alarm as always armed for `nextAt`: alarm storage commits apart from the rule, so a crash can only skip a due time, which `ruleDue` re-arms on the next delivery. Runs on two plans at once are left out: the `plans` region of [`activity-machine.ts`](../../../src/server/activity-machine.ts) keeps them apart, and the runner sends `RUN_ENDED` only once it has exited.
 - A 4xx from put.io means the write did not happen. A lost response or a stopped or evicted request may or may not have landed.
 - Left out: translate steps (parallel uploads, subtitle ids saved after the upload), the video-then-subtitle ordering in `failedVideos`, folder creation inside a move, unticked changes, and the snapshot rescans themselves. A pass says nothing about those paths.

@@ -52,6 +52,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
   const events: Array<ServerEvent> = [];
   const turns: Array<Promise<unknown>> = [];
   const jobs = new Map<string, number>();
+  const wakes = new Map<string, number>();
   let disconnects = 0;
 
   const deps: AgentDeps = {
@@ -71,8 +72,8 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
       partialEveryMs: 0,
       restoreRecheckMs: 0,
       schedule: {
-        set: (rule, _at, due) => (failSchedule ? Effect.die(new Error("alarm storage failed")) : Effect.sync(() => void jobs.set(rule, due))),
-        cancel: (rule) => Effect.sync(() => void jobs.delete(rule)),
+        set: (rule, at, due) => (failSchedule ? Effect.die(new Error("alarm storage failed")) : Effect.sync(() => void (jobs.set(rule, due), wakes.set(rule, at)))),
+        cancel: (rule) => Effect.sync(() => void (jobs.delete(rule), wakes.delete(rule))),
       },
   };
 
@@ -106,7 +107,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
     return result?.type === "tool_result" ? String(result.content) : "";
   };
 
-  return { sql, store, agent, anthropic, putio, opensubtitles, movieDb, events, settle, receive, restart: boot, toolOutput, jobs, disconnects: () => disconnects };
+  return { sql, store, agent, anthropic, putio, opensubtitles, movieDb, events, settle, receive, restart: boot, toolOutput, jobs, wakes, disconnects: () => disconnects };
 };
 
 const tool = (id: string, name: string, input = "{}", usage = { input: 10, output: 5 }): Reply => ({ kind: "sse", events: toolUseTurn({ id, name, inputJsonChunks: [input] }, usage) });
@@ -1853,6 +1854,7 @@ describe("standing rules", () => {
     await fire(t, id, due, false);
     expect(deletes(t)).toEqual([]);
     expect(t.jobs.get(id)).toBeGreaterThanOrEqual(due + 5 * 60_000);
+    expect(t.wakes.get(id)).toBe(t.jobs.get(id));
     expect(ruleOf(t).status).toBe("active");
     await t.receive({ type: "stop" });
     await turn;
@@ -1900,6 +1902,27 @@ describe("standing rules", () => {
     t.jobs.delete(id);
     await fire(t, id, due - 1);
     expect(t.jobs.get(id)).toBe(due);
+    expect(deletes(t)).toEqual([]);
+  });
+
+  it("pauses a reapproved rule when a retry of its failed run fails after a restart", async () => {
+    const { t, id } = await approved(proposeRule(), { failWrites: [11] });
+    await fire(t, id);
+    const failedRun = ruleOf(t).runs[0] ?? "";
+    await t.receive(ruleFrame(t, id, "resume"));
+    await t.receive(ruleFrame(t, id, "approve"));
+    expect(ruleOf(t).status).toBe("active");
+
+    const cold = await t.restart();
+    await cold.receive({ type: "retry", plan: failedRun });
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "a run of it had failed steps; check the receipt" });
+  });
+
+  it("stops when a protected folder was replaced by another of the same name", async () => {
+    const swapped = rulesLibrary.map((f) => (f.id === 2 ? { ...f, id: 3 } : f.parent_id === 2 ? { ...f, parent_id: 3 } : f));
+    const { t, id } = await approved(proposeRule(), { files: rulesLibrary, swapAfter: { listings: 1, files: swapped } });
+    await fire(t, id);
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "/Movies/Keep isn’t the folder you protected any more" });
     expect(deletes(t)).toEqual([]);
   });
 

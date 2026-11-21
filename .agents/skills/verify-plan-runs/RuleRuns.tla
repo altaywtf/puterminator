@@ -37,7 +37,7 @@ Preview ==
   /\ UNCHANGED <<phase, nextDue, issued, cur, runs, needsApproval, plan, failed>>
 
 Pause ==
-  /\ rule \in {"waiting", "checking", "applying"}
+  /\ rule \in {"previewed", "waiting", "checking", "applying"}
   /\ rule' = "paused" /\ phase' = "none" /\ nextDue' = 0 /\ needsApproval' = TRUE
   /\ UNCHANGED <<issued, cur, runs, plan, failed, preview>>
 

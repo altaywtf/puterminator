@@ -9,6 +9,7 @@ const input = {
   criteria: { title: "old films", within: ["/Movies"], openedDaysAgo: 30, protect: [], cap: 10, every: "day" as const },
   folder: { id: 0, name: "Your Files" },
   preview: { at: "2026-11-21T00:00:00.000Z", count: 1, bytes: 1, sample: ["a.mkv"], ids: [7] },
+  guards: [],
 };
 
 const [previewed] = initialTransition(ruleMachine, input);

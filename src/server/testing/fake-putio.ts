@@ -51,6 +51,7 @@ export type FakePutioOptions = {
   rateLimitContinue?: { times: number; resetAt: number };
   unauthorized?: boolean;
   unauthorizedAfter?: number;
+  swapAfter?: { listings: number; files: ReadonlyArray<ReturnType<typeof file>> };
   trashEnabled?: boolean;
   failWrites?: ReadonlyArray<number>;
   failRenames?: ReadonlyArray<number>;
@@ -91,6 +92,8 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
     log.push({ method: init?.method ?? "GET", url, body });
 
     if (url.pathname === "/v2/files/list") listings++;
+
+    if (opts.swapAfter && url.pathname === "/v2/files/list" && listings === opts.swapAfter.listings + 1) tree = [...opts.swapAfter.files];
 
     if (opts.unauthorized || (opts.unauthorizedAfter !== undefined && listings > opts.unauthorizedAfter)) return json(401, { status: "ERROR", error_type: "invalid_grant", status_code: 401 });
 

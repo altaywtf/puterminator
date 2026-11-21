@@ -171,7 +171,7 @@ export interface AgentDeps {
   readonly linksPollMs?: number;
   /** Durable per-rule alarms: `set` replaces the rule's pending alarm, which calls `ruleDue(rule, due)` at `at`. */
   readonly schedule: {
-    readonly set: (rule: string, at: number, due: number) => Effect.Effect<void>;
+    readonly set: (rule: string, at: number, due: number, progress?: number) => Effect.Effect<void>;
     readonly cancel: (rule: string) => Effect.Effect<void>;
   };
 }
@@ -402,6 +402,7 @@ export const makeAgent = (deps: AgentDeps) =>
     });
 
     const plans = new Map(store.plans().map((p) => [p.record.plan.id, p]));
+    const cutOffRuns: Array<[rule: string, plan: string]> = [];
     const snapshots = new Map<string, PlanSnapshot>();
     const planActors = new Map<string, EffectActor<typeof planMachine>>();
     const runIds = new Map<string, string>();
@@ -440,7 +441,11 @@ export const makeAgent = (deps: AgentDeps) =>
       const settled = settleAfterRestart(snapshot);
 
       if (settled === snapshot) snapshots.set(p.record.plan.id, settled);
-      else savePlan(p, settled);
+      else {
+        savePlan(p, settled);
+
+        if (p.rule) cutOffRuns.push([p.rule, p.record.plan.id]);
+      }
     }
 
     const planActor = (id: string) =>
@@ -759,21 +764,25 @@ export const makeAgent = (deps: AgentDeps) =>
     };
 
     function settleRuleRun(id: string, planId?: string) {
-      const actor = ruleActors.get(id);
-      const rule = actor?.getSnapshot();
+      deps.background(
+        Effect.gen(function* () {
+          const actor = yield* ruleActor(id);
+          const rule = actor?.getSnapshot();
 
-      if (!actor || !rule) return;
-      const latest = rule.context.runs[0];
+          if (!actor || !rule) return;
+          const latest = rule.context.runs[0];
 
-      if (isApplying(rule) && latest !== undefined) {
-        const failed = runFailed(latest);
+          if (isApplying(rule) && latest !== undefined) {
+            const failed = runFailed(latest);
 
-        if (failed !== null) deps.background(sendAndAwait(actor, { type: "RUN_SETTLED", plan: latest, failed }).pipe(Effect.ignore));
+            if (failed !== null) yield* sendAndAwait(actor, { type: "RUN_SETTLED", plan: latest, failed }).pipe(Effect.ignore);
 
-        return;
-      }
+            return;
+          }
 
-      if (planId !== undefined && rule.matches("active") && runFailed(planId) === true) deps.background(tellRule(id, { type: "PAUSE", why: "a run of it had failed steps; check the receipt" }));
+          if (planId !== undefined && rule.matches("active") && runFailed(planId) === true) yield* tellRule(id, { type: "PAUSE", why: "a run of it had failed steps; check the receipt" });
+        }),
+      );
     }
 
     for (const raw of store.rules()) {
@@ -804,16 +813,23 @@ export const makeAgent = (deps: AgentDeps) =>
         if (!isIdle(activity.getSnapshot())) return yield* later(now + BUSY_RETRY_MS);
         const listed = yield* Effect.result(scanFolder(folder));
 
-        if (Result.isFailure(listed) && Predicate.isTagged(listed.failure, "PutioUnauthorized")) {
+        const signedOut = () => {
           store.deleteToken();
           deps.background(pauseRules("put.io signed you out", id));
 
           return stopCheck("put.io signed you out; sign in again");
-        }
+        };
 
-        if (Result.isFailure(listed)) return yield* later(now + FAILED_LISTING_RETRY_MS);
+        if (Result.isFailure(listed)) return Predicate.isTagged(listed.failure, "PutioUnauthorized") ? signedOut() : yield* later(now + FAILED_LISTING_RETRY_MS);
+        const trash = yield* Effect.result(trashEnabled);
 
-        if (!(yield* trashEnabled.pipe(Effect.orElseSucceed(() => false)))) return stopCheck("trash is off in your put.io settings, so a run would delete for good");
+        if (Result.isFailure(trash)) return Predicate.isTagged(trash.failure, "PutioUnauthorized") ? signedOut() : yield* later(now + FAILED_LISTING_RETRY_MS);
+
+        if (!trash.success) return stopCheck("trash is off in your put.io settings, so a run would delete for good");
+        const folderAt = new Map(listed.success.files.flatMap((f) => (f.file_type === "FOLDER" ? [[f.path, f.id] as const] : [])));
+        const replaced = rule.context.guards.find((g) => folderAt.has(g.path) && folderAt.get(g.path) !== g.id);
+
+        if (replaced) return stopCheck(`${replaced.path} isn’t the folder you protected any more`);
         const check = checkRule(listed.success.files, criteria, now);
 
         if (check.kind === "stop") return stopCheck(check.why);
@@ -895,7 +911,10 @@ export const makeAgent = (deps: AgentDeps) =>
         const rule = ruleSnapshots.get(id);
 
         if (!rule?.matches("paused") || !store.token()) return;
+        const gen = sessionGen();
         const listed = yield* Effect.result(scanFolder(rule.context.folder));
+
+        if (gen !== sessionGen()) return;
 
         if (Result.isFailure(listed)) return yield* tellRule(id, { type: "PAUSE", why: `couldn’t read put.io for a fresh preview (${stepMessage(listed.failure)}); try again` });
         const now = yield* Clock.currentTimeMillis;
@@ -942,8 +961,9 @@ export const makeAgent = (deps: AgentDeps) =>
         const now = yield* Clock.currentTimeMillis;
 
         if (!ruleAccepts(rule, { type: "DUE", due })) return nextAt === null ? undefined : yield* arm(id, nextAt, Math.max(nextAt, isWaiting(rule) ? now : now + BUSY_RETRY_MS));
-        yield* arm(id, due + intervalMs(rule.context.criteria.every));
+        const next = due + intervalMs(rule.context.criteria.every);
         yield* sendAndAwait(actor, { type: "DUE", due }).pipe(Effect.orDie);
+        yield* deps.schedule.set(id, next, next, next);
         yield* waitFor(actor, (s) => !s.matches({ active: "checking" })).pipe(Effect.ignore);
       });
 
@@ -1125,14 +1145,21 @@ export const makeAgent = (deps: AgentDeps) =>
 
             if ("error" in criteria) return JSON.stringify(criteria);
 
-            if (!(yield* trashEnabled.pipe(Effect.orElseSucceed(() => false))))
-              return JSON.stringify({ error: "Trash is off in their put.io settings, so a rule would delete for good. Tell the user to turn trash on first, then stop." });
+            const gen = sessionGen();
+            const trash = yield* Effect.result(trashEnabled);
+
+            if (Result.isFailure(trash)) return Predicate.isTagged(trash.failure, "PutioUnauthorized") ? signedOut : JSON.stringify({ error: `Couldn't read their put.io settings: ${stepMessage(trash.failure)}` });
+
+            if (!trash.success) return JSON.stringify({ error: "Trash is off in their put.io settings, so a rule would delete for good. Tell the user to turn trash on first, then stop." });
+
+            if (gen !== sessionGen()) return signedOut;
             const now = yield* Clock.currentTimeMillis;
             const check = checkRule(all.success, criteria, now);
 
             if (check.kind === "stop") return JSON.stringify({ error: `Its first run would stop: ${check.why}. Narrow it or raise the cap.` });
             const preview = previewOf(all.success, check, now);
-            const [snapshot] = initialTransition(ruleMachine, { id: newId(), criteria, folder: state.folder, preview });
+            const guards = criteria.protect.flatMap((path) => all.success.flatMap((f) => (f.file_type === "FOLDER" && f.path === path ? [{ path, id: f.id }] : [])));
+            const [snapshot] = initialTransition(ruleMachine, { id: newId(), criteria, folder: state.folder, preview, guards });
             saveRule(snapshot);
 
             return JSON.stringify({ rule: snapshot.context.id, count: preview.count, size: formatSize(preview.bytes), sample: preview.sample, next: "Proposed. Stop now; the user approves it from the card." });
@@ -1441,6 +1468,8 @@ export const makeAgent = (deps: AgentDeps) =>
     activity.subscribe(showBusy);
     showBusy(activity.getSnapshot());
     yield* refreshCredits;
+
+    for (const [rule, plan] of cutOffRuns) settleRuleRun(rule, plan);
 
     return {
       state: () => state,

@@ -33,6 +33,7 @@ const RuleContext = Schema.Struct({
   criteria: Criteria,
   folder: Folder,
   preview: RulePreview,
+  guards: Schema.Array(Schema.Struct({ path: Schema.String, id: Schema.Finite })),
   why: Schema.NullOr(Schema.String),
   nextAt: Schema.NullOr(Schema.Finite),
   fresh: Schema.Boolean,
@@ -60,7 +61,7 @@ const RULE_MACHINE_VERSION = "1";
 export const ruleMachine = setupEffect({
   schemas: {
     context: RuleContext,
-    input: Schema.Struct({ id: Schema.String, criteria: Criteria, folder: Folder, preview: RulePreview }),
+    input: Schema.Struct({ id: Schema.String, criteria: Criteria, folder: Folder, preview: RulePreview, guards: Schema.Array(Schema.Struct({ path: Schema.String, id: Schema.Finite })) }),
     events: {
       PREVIEWED: Schema.Struct({ preview: RulePreview }),
       APPROVE: Schema.Struct({ now: Schema.Finite, preview: Schema.String }),
