@@ -33,7 +33,7 @@ pnpm lab                         # every card in every fixture state on :5174/sr
 pnpm verify                      # the gate: typecheck, lint, knip, test, build
 ```
 
-Every commit runs `pnpm verify` through the lefthook pre-commit hook, which `pnpm install` installs. Don't skip it: in Pi, [`.pi/extensions/hook-guard`](.pi/extensions/hook-guard) blocks `--no-verify`, `git commit -n`, `LEFTHOOK=0` and edits under `.git/hooks`. CI runs the same gate.
+Every commit runs `pnpm verify` through the lefthook pre-commit hook, which `pnpm install` installs. Don't skip it: in Pi and Claude Code, [`.pi/extensions/hook-guard`](.pi/extensions/hook-guard) (wired through [`.claude/settings.json`](.claude/settings.json)) blocks `--no-verify`, `git commit -n`, `LEFTHOOK=0` and edits under `.git/hooks`. CI runs the same gate.
 
 The Tokenmaxx workshop tools live in the git-ignored `workshop/`: `pnpm pi` and `pnpm ex <id> <command>`.
 
