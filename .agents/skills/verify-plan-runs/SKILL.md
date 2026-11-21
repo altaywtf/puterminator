@@ -30,7 +30,8 @@ Covered code, last confirmed against commit `6b1ce1f`:
 | `CheckLater`, `CheckNothing`, `CheckStop` | the `later`, `none` and `stop` outcomes of `checkDue` |
 | `Mark`, `Launch`, `Fizzle`, `Started` | `STARTING`, then `storePlan` and `applyAll` in `checkDue`; a refused start (`discard`, `later`); the `started` outcome |
 | `PlanEnds`, `Settle` | the rule plan settling (`persistPlan`, `settleRuleRun`, `RUN_SETTLED`) |
-| `Pause`, `Preview`, `Approve` | `PAUSE` (frame, sign-out); `resumeRule` and `PREVIEWED`; `APPROVE` with the shown `preview.at`, refused while the latest run is running (`ruleFrame`) |
+| `Pause`, `Preview`, `Approve` | `PAUSE` (frame, `pauseRules` on sign-out or a rejected token, a failed `syncSchedule`); `resumeRule` and `PREVIEWED`; `APPROVE` with the shown `preview.at`, refused while the latest run is running (`ruleFrame`) |
+| `Delete`, `UndoRun` | `DELETE`, refused while the latest run is running; an undo of a rule plan pausing the rule in `persistPlan` |
 | `Evict` | `settleRuleAfterRestart` |
 | `Apply`, `Retry`, `Undo` | `APPLY`, `RETRY`, `UNDO` in [`plan-machine.ts`](../../../src/server/plan-machine.ts); `startRun`, `apply`, `retry`, `undo` and their `receive` cases (`apply`, `retry`, `undo`, `stopRun`) in [`conversation.ts`](../../../src/server/conversation.ts) |
 | `InUndo` | `undoChanges` in [`changes.ts`](../../../src/server/changes.ts) |
@@ -82,6 +83,8 @@ After editing the model, prove the check can still fail: break the matching acti
 | `Evict` sends a cut-off `checking` rule back to `waiting` whatever its `phase` | `NoRunWithoutApproval` |
 | `Settle` ignores `failed` | `NoRunWithoutApproval` |
 | `Approve` drops `plan # "running"` | `NoRunWithoutApproval` |
+| `Init` starts the rule `waiting` with a due time issued | `NoRunWithoutApproval` |
+| `Delete` leaves the rule `waiting` with its alarm | `NoRunWithoutApproval` |
 
 Move the sync commit in the table above forward only after confirming the model matches the code at the new commit.
 

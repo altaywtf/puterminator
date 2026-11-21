@@ -179,6 +179,7 @@ export interface AgentDeps {
 const MINUTE_MS = 60_000;
 const BUSY_RETRY_MS = 5 * MINUTE_MS;
 const FAILED_LISTING_RETRY_MS = 60 * MINUTE_MS;
+const SCHEDULE_RETRIES = 2;
 const PARALLEL_TRANSLATIONS = 3;
 const SOURCE_CHECKS = 6;
 const MAX_THUMBS = 500;
@@ -428,7 +429,10 @@ export const makeAgent = (deps: AgentDeps) =>
       if (!p || snapshots.get(id) === snapshot) return;
       savePlan({ ...p, reported: false }, snapshot);
 
-      if (p.rule) settleRuleRun(p.rule);
+      if (!p.rule) return;
+      settleRuleRun(p.rule);
+
+      if (snapshot.matches("undoing") && ruleSnapshots.get(p.rule)?.matches("active")) deps.background(tellRule(p.rule, { type: "PAUSE", why: "you undid its last run" }));
     };
 
     for (const p of plans.values()) {
@@ -726,9 +730,20 @@ export const makeAgent = (deps: AgentDeps) =>
 
       if (want === null) scheduled.delete(id);
       else scheduled.set(id, want);
-      const forget = Effect.sync(() => (want === null ? scheduled.set(id, -1) : scheduled.get(id) === want && scheduled.delete(id)));
-      deps.background((want === null ? deps.schedule.cancel(id) : deps.schedule.set(id, want)).pipe(Effect.onError(() => forget), Effect.ignore));
+      const write = want === null ? deps.schedule.cancel(id) : deps.schedule.set(id, want);
+
+      const failed = Effect.gen(function* () {
+        if (want === null) return void scheduled.set(id, -1);
+
+        if (scheduled.get(id) === want) scheduled.delete(id);
+        yield* tellRule(id, { type: "PAUSE", why: "couldn’t schedule its next run; preview it again" });
+      });
+
+      deps.background(write.pipe(Effect.sandbox, Effect.retry({ times: SCHEDULE_RETRIES }), Effect.catchCause(() => failed)));
     };
+
+    const pauseRules = (why: string) =>
+      Effect.forEach([...ruleSnapshots].filter(([, rule]) => rule.matches("active")), ([id]) => tellRule(id, { type: "PAUSE", why }), { discard: true });
 
     const saveRule = (snapshot: RuleSnapshot) => {
       const { id } = snapshot.context;
@@ -890,20 +905,21 @@ export const makeAgent = (deps: AgentDeps) =>
         yield* tellRule(id, { type: "PREVIEWED", preview: previewOf(listed.success.files, check, now) });
       }).pipe(Effect.provide(putioLayer(store.token() ?? undefined, deps.putioFetch)));
 
+    const lastRunRunning = (id: string) => {
+      const last = ruleSnapshots.get(id)?.context.runs[0];
+      const run = last === undefined ? undefined : snapshots.get(last);
+
+      return run !== undefined && isRunning(run);
+    };
+
     const ruleFrame = (id: string, action: "approve" | "pause" | "resume" | "delete", preview: string) =>
       Match.value(action).pipe(
         Match.when("approve", () =>
-          Effect.gen(function* () {
-            const last = ruleSnapshots.get(id)?.context.runs[0];
-            const lastRun = last === undefined ? undefined : snapshots.get(last);
-
-            if (lastRun && isRunning(lastRun)) return;
-            yield* tellRule(id, { type: "APPROVE", now: yield* Clock.currentTimeMillis, preview });
-          }),
+          lastRunRunning(id) ? Effect.void : Clock.currentTimeMillis.pipe(Effect.flatMap((now) => tellRule(id, { type: "APPROVE", now, preview }))),
         ),
         Match.when("pause", () => tellRule(id, { type: "PAUSE", why: "paused by you" })),
         Match.when("resume", () => resumeRule(id)),
-        Match.when("delete", () => tellRule(id, { type: "DELETE" })),
+        Match.when("delete", () => (lastRunRunning(id) ? Effect.void : tellRule(id, { type: "DELETE" }))),
         Match.exhaustive,
       );
 
@@ -1383,8 +1399,10 @@ export const makeAgent = (deps: AgentDeps) =>
       }).pipe(
         Effect.catch((e: TurnError) =>
           Effect.gen(function* () {
-            if (Predicate.isTagged(e, "PutioUnauthorized")) store.deleteToken();
-            else yield* Effect.logError("turn failed", e);
+            if (Predicate.isTagged(e, "PutioUnauthorized")) {
+              store.deleteToken();
+              yield* pauseRules("put.io signed you out");
+            } else yield* Effect.logError("turn failed", e);
             broadcast({ type: "error", message: errorMessage(e) });
           }),
         ),
@@ -1493,7 +1511,7 @@ export const makeAgent = (deps: AgentDeps) =>
         store.deleteToken();
         store.setSecret("session_gen", String(sessionGen() + 1));
 
-        for (const [id, rule] of ruleSnapshots) if (rule.matches("active")) yield* tellRule(id, { type: "PAUSE", why: "you signed out" });
+        yield* pauseRules("you signed out");
         deps.disconnect();
       }),
       deleteData: frames.withPermits(1)(Effect.gen(function* () {
@@ -1505,8 +1523,7 @@ export const makeAgent = (deps: AgentDeps) =>
         planActors.clear();
 
         for (const actor of ruleActors.values()) actor.stop();
-
-        for (const id of new Set([...ruleSnapshots.keys(), ...scheduled.keys()])) yield* deps.schedule.cancel(id);
+        const alarms = new Set([...ruleSnapshots.keys(), ...scheduled.keys()]);
         ruleActors.clear();
         ruleSnapshots.clear();
         scheduled.clear();
@@ -1518,6 +1535,8 @@ export const makeAgent = (deps: AgentDeps) =>
         last = null;
         state = { ...initialAgentState(state.credits.month), credits: state.credits };
         deps.disconnect();
+
+        for (const id of alarms) yield* Effect.exit(deps.schedule.cancel(id));
 
         return true;
       })),

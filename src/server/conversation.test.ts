@@ -34,10 +34,11 @@ type SetupOptions = Partial<Omit<FakePutioOptions, "pageSize">> & {
   seed?: (store: ReturnType<typeof makeStore>) => void;
   online?: FakeOpenSubtitlesOptions;
   tmdb?: Parameters<typeof makeFakeTmdb>[0];
+  failSchedule?: boolean;
 };
 
 const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
-  const { cap, budget, pool, unlimited, history, seed, files, online, tmdb, ...putioOptions } = opts;
+  const { cap, budget, pool, unlimited, history, seed, files, online, tmdb, failSchedule, ...putioOptions } = opts;
   const sql = memorySql();
   const store = makeStore(sql);
   const poolStore = makeStore(memorySql());
@@ -70,7 +71,7 @@ const setup = async (replies: Array<Reply>, opts: SetupOptions = {}) => {
       partialEveryMs: 0,
       restoreRecheckMs: 0,
       schedule: {
-        set: (rule, at) => Effect.sync(() => void jobs.set(rule, at)),
+        set: (rule, at) => (failSchedule ? Effect.die(new Error("alarm storage failed")) : Effect.sync(() => void jobs.set(rule, at))),
         cancel: (rule) => Effect.sync(() => void jobs.delete(rule)),
       },
   };
@@ -1818,6 +1819,11 @@ describe("standing rules", () => {
     const calls = t.putio.log.length;
     await fire(t, id, due);
     expect(t.putio.log.length).toBe(calls);
+
+    await t.receive({ type: "undo", plan: rule.runs[0] ?? "" });
+    expect(deletes(t)).toEqual(["10", "11"]);
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "you undid its last run" });
+    expect(t.jobs.has(id)).toBe(false);
     expect(deletes(t)).toEqual(["10", "11"]);
   });
 
@@ -1880,6 +1886,11 @@ describe("standing rules", () => {
     await t.receive({ type: "rule", rule: id, action: "approve", preview: "2020-01-01T00:00:00.000Z" });
     expect(ruleOf(t).status).toBe("previewed");
     expect(t.jobs.has(id)).toBe(false);
+  });
+
+  it("pauses instead of claiming to be active when its alarm can't be stored", async () => {
+    const { t } = await approved(proposeRule(), { failSchedule: true });
+    expect(ruleOf(t)).toMatchObject({ status: "paused", why: "couldn’t schedule its next run; preview it again" });
   });
 
   it("refuses a rule while trash is off, since a run would delete for good", async () => {

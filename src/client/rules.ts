@@ -43,12 +43,12 @@ const actionsOf = (h: H, ctx: Ctx, rule: RuleRecord) => {
 
   switch (rule.status) {
     case "previewed":
-      return [ruleButton(h, rule, "delete", "delete"), ruleButton(h, rule, "approve", "approve", true, wait)];
+      return [ruleButton(h, rule, "delete", "delete", false, wait), ruleButton(h, rule, "approve", "approve", true, wait)];
     case "active":
     case "running":
-      return [ruleButton(h, rule, "delete", "delete"), ruleButton(h, rule, "pause", "pause")];
+      return [ruleButton(h, rule, "delete", "delete", false, wait), ruleButton(h, rule, "pause", "pause")];
     case "paused":
-      return [ruleButton(h, rule, "delete", "delete"), ruleButton(h, rule, "preview again", "resume", true)];
+      return [ruleButton(h, rule, "delete", "delete", false, wait), ruleButton(h, rule, "preview again", "resume", true)];
   }
 };
 

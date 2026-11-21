@@ -109,13 +109,15 @@ export const ruleMachine = setupEffect({
                 case "stop":
                   return { target: "#rule.paused", context: pause(context, out.why) };
                 case "started":
-                  return out.plan === context.starting ? { target: "applying", context: { ...context, fresh: false, starting: null } } : { target: "#rule.paused", context: pause(context, "its check crashed") };
+                  return out.plan === context.starting
+                    ? { target: "applying", context: { ...context, fresh: false, starting: null, runs: [out.plan, ...context.runs].slice(0, KEPT_RUNS) } }
+                    : { target: "#rule.paused", context: pause(context, "its check crashed") };
               }
             },
             onError: ({ context }) => ({ target: "#rule.paused", context: pause(context, "its check crashed") }),
           },
           on: {
-            STARTING: ({ context, event }) => ({ context: { ...context, starting: event.plan, runs: [event.plan, ...context.runs].slice(0, KEPT_RUNS) } }),
+            STARTING: ({ context, event }) => ({ context: { ...context, starting: event.plan } }),
           },
         },
         applying: {
@@ -174,7 +176,11 @@ export const settleRuleAfterRestart = (snapshot: RuleSnapshot): RuleSnapshot => 
 
   if (cutOffCheck) return ruleMachine.resolveState({ value: { active: "waiting" }, context: snapshot.context });
 
-  return snapshot.matches("active") && !isWaiting(snapshot) ? transition(ruleMachine, resolved, { type: "PAUSE", why: CUT_OFF })[0] : snapshot;
+  if (!snapshot.matches("active") || isWaiting(snapshot)) return snapshot;
+  const { starting, runs } = snapshot.context;
+  const kept = starting === null ? resolved : ruleMachine.resolveState({ value: snapshot.value, context: { ...snapshot.context, runs: [starting, ...runs].slice(0, KEPT_RUNS) } });
+
+  return transition(ruleMachine, kept, { type: "PAUSE", why: CUT_OFF })[0];
 };
 
 const PersistedRule = Schema.Struct({

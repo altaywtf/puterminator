@@ -16,7 +16,7 @@ Init ==
   /\ issued = 0
   /\ cur = 0
   /\ runs = [d \in Dues |-> 0]
-  /\ needsApproval = FALSE
+  /\ needsApproval = TRUE
   /\ plan = "idle"
   /\ failed = FALSE
 
@@ -80,6 +80,19 @@ Started ==
   /\ rule' = "applying" /\ phase' = "none"
   /\ UNCHANGED <<nextDue, issued, cur, runs, needsApproval, plan, failed>>
 
+Delete ==
+  /\ rule # "deleted"
+  /\ rule' = "deleted" /\ phase' = "none" /\ nextDue' = 0 /\ needsApproval' = TRUE
+  /\ UNCHANGED <<issued, cur, runs, plan, failed>>
+
+UndoRun ==
+  /\ plan = "settled"
+  /\ plan' = "running" /\ needsApproval' = TRUE
+  /\ rule' = IF rule \in {"waiting", "checking", "applying"} THEN "paused" ELSE rule
+  /\ nextDue' = IF rule \in {"waiting", "checking", "applying"} THEN 0 ELSE nextDue
+  /\ phase' = IF rule \in {"waiting", "checking", "applying"} THEN "none" ELSE phase
+  /\ UNCHANGED <<issued, cur, runs, failed>>
+
 PlanEnds ==
   /\ plan = "running"
   /\ plan' = "settled" /\ failed' \in BOOLEAN
@@ -109,12 +122,12 @@ Next ==
   \/ Approve \/ Preview \/ Pause \/ Deliver
   \/ CheckLater \/ CheckNothing \/ CheckStop
   \/ Mark \/ Launch \/ Fizzle \/ Started
-  \/ PlanEnds \/ Settle \/ Evict
+  \/ PlanEnds \/ Settle \/ Evict \/ Delete \/ UndoRun
 
 Spec == Init /\ [][Next]_vars
 
 TypeOK ==
-  /\ rule \in {"previewed", "waiting", "checking", "applying", "paused"}
+  /\ rule \in {"previewed", "waiting", "checking", "applying", "paused", "deleted"}
   /\ phase \in {"none", "marked", "launched"}
   /\ nextDue \in 0..MaxDue /\ issued \in 0..MaxDue /\ cur \in 0..MaxDue
   /\ runs \in [Dues -> Nat] /\ needsApproval \in BOOLEAN

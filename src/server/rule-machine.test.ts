@@ -50,6 +50,10 @@ describe("rule machine", () => {
     expect(later.context).toMatchObject({ fresh: true, nextAt: 5000 });
   });
 
+  it("keeps a plan out of its receipts until the plan has started", () => {
+    expect(starting.context).toMatchObject({ starting: "p1", runs: [] });
+  });
+
   it("ignores an approval of any preview but the one it holds", () => {
     expect(transition(ruleMachine, previewed, { type: "APPROVE", now: 1000, preview: "stale" })[0].value).toBe("previewed");
   });
