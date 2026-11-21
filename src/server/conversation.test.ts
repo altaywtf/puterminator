@@ -166,6 +166,17 @@ describe("a turn", () => {
     expect(t.events.filter((e) => e.type === "state").map((e) => e.type === "state" && e.state.busy)).toContain(true);
   });
 
+  it("never shows busy for a turn stopped before Claude was called", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const t = await setup([say("hi.")], { pool: () => Effect.promise(() => held).pipe(Effect.as(0)) });
+    await Effect.runPromise(t.agent.receive(send("hello")));
+    await t.receive({ type: "stop" });
+    release();
+    await t.settle();
+    expect([t.anthropic.requests.length, t.events.some((e) => e.type === "state" && e.state.busy)]).toEqual([0, false]);
+  });
+
   it("stop aborts the Anthropic stream, clears busy and sends no error", async () => {
     const t = await setup([{ kind: "hang" }]);
     await Effect.runPromise(t.agent.receive(send("Audit my library")));
@@ -932,6 +943,17 @@ describe("plans", () => {
         ],
       ]);
     }
+  });
+
+  it("keeps a plan the model was told about reported when a restart meets a stale frame for it", async () => {
+    const t = await setup([...proposeTurn(), say("done.")]);
+    await t.receive(send("clean up"));
+    const id = planOf(t).plan.id;
+    await t.receive({ type: "apply", plan: id, exclude: [] });
+    await t.receive(send("thanks"));
+    const restarted = await t.restart();
+    await restarted.receive({ type: "discard", plan: id });
+    expect(t.store.plans().map((p) => [p.record.status, p.reported])).toEqual([["done", true]]);
   });
 
   it("tells the model in the next context what happened to the plan", async () => {

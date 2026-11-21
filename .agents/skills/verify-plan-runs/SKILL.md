@@ -73,6 +73,6 @@ Move the sync commit in the table above forward only after confirming the model 
 
 ## Scope
 
-- One plan, 3 steps, 2 of them trash, at most 2 retries. Runs on two plans at once are left out: the `planRun` state in [`activity-machine.ts`](../../../src/server/activity-machine.ts) keeps them apart, and the runner sends `RUN_ENDED` only once it has exited.
+- One plan, 3 steps, 2 of them trash, at most 2 retries. Runs on two plans at once are left out: the `plans` region of [`activity-machine.ts`](../../../src/server/activity-machine.ts) keeps them apart, and the runner sends `RUN_ENDED` only once it has exited.
 - A 4xx from put.io means the write did not happen. A lost response or a stopped or evicted request may or may not have landed.
 - Left out: translate steps (parallel uploads, subtitle ids saved after the upload), the video-then-subtitle ordering in `failedVideos`, folder creation inside a move, unticked changes, and the snapshot rescans themselves. A pass says nothing about those paths.

@@ -23,12 +23,11 @@ const turn = createEffectLogic({
 
 const refresh = createEffectLogic({ effect: () => AgentWork.use((work) => work.refresh) });
 
-const chatIdle = (value: Parameters<typeof matchesState>[1]) => matchesState({ chat: "idle" }, value);
-
 /**
  * What the Durable Object is doing. `chat` holds the turn: it is `replying` once Claude is called, and a stopped turn
- * stays `stopping` until its cleanup has run. `library` holds the background rescan and the one plan run at a time.
- * A turn may start during a rescan or a run; a rescan or a run only starts while no turn is running.
+ * stays `stopping` until its cleanup has run. `rescan` holds the background rescan and `plans` the one plan run at a
+ * time. A turn may start during a rescan or a run, and a run during a rescan; a rescan or a run only starts while no
+ * turn is running, and a rescan only while nothing else is.
  */
 export const activityMachine = setupEffect({
   schemas: {
@@ -66,33 +65,40 @@ export const activityMachine = setupEffect({
           },
           initial: "preparing",
           states: {
-            preparing: { on: { REPLYING: { target: "replying" } } },
-            replying: {},
+            preparing: { on: { REPLYING: { target: "replying" }, STOP: { target: "#activity.chat.stopping.quiet" } } },
+            replying: { on: { STOP: { target: "#activity.chat.stopping.replying" } } },
           },
-          on: {
-            STOP: { target: "stopping" },
-            TURN_SETTLED: { target: "idle" },
-          },
+          on: { TURN_SETTLED: { target: "idle" } },
         },
-        stopping: { on: { TURN_SETTLED: { target: "idle" } } },
+        stopping: {
+          initial: "quiet",
+          states: { quiet: {}, replying: {} },
+          on: { TURN_SETTLED: { target: "idle" } },
+        },
       },
     },
-    library: {
+    rescan: {
       initial: "idle",
       states: {
         idle: {
           on: {
-            REFRESH: ({ value }) => (chatIdle(value) ? { target: "refreshing" } : undefined),
-            RUN: ({ context, event, value }) => (chatIdle(value) ? { target: "planRun", context: { ...context, plan: event.plan } } : undefined),
+            REFRESH: ({ value }) => (matchesState({ chat: "idle", plans: "idle" }, value) ? { target: "refreshing" } : undefined),
           },
         },
         refreshing: {
           invoke: { src: "refresh", onDone: { target: "idle" }, onError: { target: "idle" } },
+        },
+      },
+    },
+    plans: {
+      initial: "idle",
+      states: {
+        idle: {
           on: {
-            RUN: ({ context, event, value }) => (chatIdle(value) ? { target: "planRun", context: { ...context, plan: event.plan } } : undefined),
+            RUN: ({ context, event, value }) => (matchesState({ chat: "idle" }, value) ? { target: "running", context: { ...context, plan: event.plan } } : undefined),
           },
         },
-        planRun: {
+        running: {
           on: {
             RUN_ENDED: ({ context, event }) => (event.plan === context.plan ? { target: "idle", context: { ...context, plan: null } } : undefined),
           },
@@ -104,8 +110,10 @@ export const activityMachine = setupEffect({
 
 export type Activity = SnapshotFrom<typeof activityMachine>;
 
-export const isBusy = (activity: Activity) => activity.matches({ chat: { turn: "replying" } }) || activity.matches({ chat: "stopping" });
+export const isBusy = (activity: Activity) => activity.matches({ chat: { turn: "replying" } }) || activity.matches({ chat: { stopping: "replying" } });
 
-export const isIdle = (activity: Activity) => activity.matches({ chat: "idle" }) && !activity.matches({ library: "planRun" });
+export const isIdle = (activity: Activity) => activity.matches({ chat: "idle" }) && activity.matches({ plans: "idle" });
 
-export const runningPlan = (activity: Activity) => (activity.matches({ library: "planRun" }) ? activity.context.plan : null);
+export const isRescanning = (activity: Activity) => activity.matches({ rescan: "refreshing" });
+
+export const runningPlan = (activity: Activity) => (activity.matches({ plans: "running" }) ? activity.context.plan : null);

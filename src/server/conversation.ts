@@ -16,7 +16,7 @@ import { audit, isMessyName, junkFinder } from "./audit";
 import type { Change, Run } from "../shared/actions";
 import { createEffectActor, type EffectActor, sendAndAwait, waitFor } from "@xstate/effect";
 import { initialTransition, type EventFromLogic } from "xstate";
-import { activityMachine, AgentWork, type Activity, isBusy, isIdle, runningPlan } from "./activity-machine";
+import { activityMachine, AgentWork, type Activity, isBusy, isIdle, isRescanning, runningPlan } from "./activity-machine";
 import { accepts, fromRecord, isRunning, type PlanEvent, encodeSnapshot, planCodec, planMachine, PlanSteps, type PlanSnapshot, recordOf, settleAfterRestart } from "./plan-machine";
 import { AskInput, applyChange, cleanPath, type StoredPlan, uploadedKey, validateTranslation, untranslated, folderIds, nameOf, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion, videoOf } from "./changes";
 import { createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, mediaInfo, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
@@ -374,8 +374,8 @@ export const makeAgent = (deps: AgentDeps) =>
 
       if (scannedHere() && scanAgeMs(yield* Clock.currentTimeMillis) <= STALE_AFTER_MS) return;
 
-      if (!(yield* tellActivity({ type: "REFRESH" })).matches({ library: "refreshing" })) return;
-      yield* waitFor(activity, (a) => !a.matches({ library: "refreshing" })).pipe(Effect.ignore);
+      if (!isRescanning(yield* tellActivity({ type: "REFRESH" }))) return;
+      yield* waitFor(activity, (a) => !isRescanning(a)).pipe(Effect.ignore);
     });
 
     const plans = new Map(store.plans().map((p) => [p.record.plan.id, p]));
@@ -429,6 +429,7 @@ export const makeAgent = (deps: AgentDeps) =>
         );
 
         planActors.set(id, actor);
+        snapshots.set(id, actor.getSnapshot());
         actor.subscribe(persistPlan(id));
 
         return actor;
@@ -442,7 +443,7 @@ export const makeAgent = (deps: AgentDeps) =>
         const first = plans.get(planId);
         const run = actor ? currentRun(actor.getSnapshot(), undoing) : null;
 
-        if (!actor || !first || !run) return Effect.die(new Error(`plan ${planId} has no run`));
+        if (!actor || !first || !run) return Effect.die(new Error(`plan ${planId} has no run`)).pipe(Effect.ensuring(tellActivity({ type: "RUN_ENDED", plan: planId })));
         const token = store.token();
         const changed = undoing ? "undo it by hand" : "ask for a new one";
         const tell = (event: PlanEvent) => sendAndAwait(actor, event).pipe(Effect.orDie);
@@ -592,7 +593,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
         return work.pipe(
           Effect.provide(putioLayer(token ?? undefined, deps.putioFetch)),
-          Effect.catchDefect((defect) => Effect.logError("run crashed", defect).pipe(Effect.andThen(finish("stopped")), Effect.andThen(Effect.sync(rescanLater)))),
+          Effect.catchDefect((defect) => Effect.logError("run crashed", defect).pipe(Effect.andThen(Effect.sync(rescanLater)), Effect.andThen(finish("stopped")))),
           Effect.onInterrupt(() => Effect.sync(() => finished || rescanLater())),
           Effect.ensuring(tellActivity({ type: "RUN_ENDED", plan: planId })),
         );
@@ -610,7 +611,12 @@ export const makeAgent = (deps: AgentDeps) =>
 
         if (runningPlan(yield* tellActivity({ type: "RUN", plan: planId })) !== planId) return;
 
-        if (!isRunning(yield* sendAndAwait(actor, event).pipe(Effect.orDie))) return yield* tellActivity({ type: "RUN_ENDED", plan: planId }).pipe(Effect.asVoid);
+        const started = yield* sendAndAwait(actor, event).pipe(
+          Effect.map(isRunning),
+          Effect.catchCause(() => Effect.succeed(false)),
+        );
+
+        if (!started) return yield* tellActivity({ type: "RUN_ENDED", plan: planId }).pipe(Effect.asVoid);
         deps.background(waitFor(activity, (a) => runningPlan(a) !== planId).pipe(Effect.ignore));
       });
 
