@@ -27,7 +27,7 @@ pnpm install
 pnpm dev:fake
 ```
 
-Opens `https://<branch>.puterminator.localhost:1355` with put.io and Anthropic faked. Needs Node 24.
+Opens `https://<branch>.puterminator.localhost:1355` with put.io and Anthropic faked. Needs Node 26.
 
 For the real APIs, fill `.env` from `.env.example` and run `pnpm dev`. The put.io OAuth app's callback is `<origin>/auth/callback`.
 

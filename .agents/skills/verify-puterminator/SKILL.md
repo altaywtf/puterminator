@@ -5,7 +5,7 @@ description: Drive puterminator's browser UI against the local put.io and Anthro
 
 # Verify puterminator
 
-`verify.ts` (beside this file, Node 24) runs one isolated instance per checkout and drives it headless with `@playwright/cli`. Every command below runs from the repository root.
+`verify.ts` (beside this file, Node 26) runs one isolated instance per checkout and drives it headless with `@playwright/cli`. Every command below runs from the repository root.
 
 ```bash
 V=.agents/skills/verify-puterminator/verify.ts
