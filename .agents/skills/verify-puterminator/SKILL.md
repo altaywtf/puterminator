@@ -28,7 +28,7 @@ $V up
 $V doctor
 ```
 
-Run it first whenever anything looks off. It checks that the process is alive, the Worker answers `/api/me`, and the fake answers. It exits non-zero when the instance isn't worth driving.
+Run it first whenever anything looks off. It exits non-zero unless the process is alive, the Worker answers `/api/me`, and the fake answers.
 
 ## Drive
 
@@ -44,7 +44,7 @@ $V pw snapshot
 ```
 
 - Sign-in goes through the fake OAuth with no form: the click lands back on `/` signed in as `altay` (user id 4242). The library tree attaches once the sign-in scan lands; tools answer from that snapshot, so wait for it before asking for anything.
-- Wait with `run-code` and `locator.waitFor`, never a fixed sleep. Replies stream word by word.
+- Wait with `run-code` and `locator.waitFor`. Replies stream word by word.
 - `$V pw snapshot` prints the accessibility tree with refs. `$V pw find "<text or regexp>"` searches it.
 - The fake picks the model's reply from keywords in your message, so the message decides the journey. [`dev-fake.ts`](../../../src/server/testing/dev-fake.ts) `plan()` holds the keyword table. Each feature file names the exact message to send.
 - A phone layout: `$V pw resize 375 812` before driving.
@@ -68,7 +68,7 @@ A proof has three parts, each saved under `.verify/<run>/evidence/`:
 2. **The writes put.io received**: `$V writes` prints every library write the fake logged, in order. `$V log` prints every fake call, Anthropic requests included. Save the output into the evidence folder.
 3. **What the Durable Object stored**: `$V db "<SQL>"` runs read-only SQL on the signed-in user's SQLite. Tables are in [`store.ts`](../../../src/server/store.ts). For example: `$V db "SELECT json_extract(json, '\$.record.status') AS status FROM plans"`.
 
-Drive the real path: the composer, the suggestion buttons, the card buttons. A frame sent from `run-code` straight into the WebSocket proves the server, not the feature.
+Drive the feature through its UI: the composer, the suggestion buttons, the card buttons.
 
 ## Cleanup
 
@@ -76,7 +76,7 @@ Drive the real path: the composer, the suggestion buttons, the card buttons. A f
 $V down
 ```
 
-Closes the browser, stops every process `up` started, puts the stashed storage back, and drops `.verify/current`. A run that stopped any other way stays `current`; run `down` before the next `up`. The run folder stays, with `server.log` and `evidence/`. `.verify/` is gitignored; delete old runs by hand.
+Closes the browser, stops every process `up` started, puts the stashed storage back, and drops `.verify/current`. A run that stopped any other way stays `current`; run `down` before the next `up`. The run folder stays, with `server.log` and `evidence/`; delete old runs by hand.
 
 ## Feature map
 

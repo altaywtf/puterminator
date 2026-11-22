@@ -26,6 +26,6 @@ Preconditions:
 
 ## Gotchas
 
-- Check `/api/me` from the browser (`$V pw eval`). `curl` carries no session cookie and always prints `signedIn: false`.
+- Check `/api/me` from the browser (`$V pw eval`), which carries the session cookie.
 - `forget me` answers `busy` while a turn runs. Wait for `send` first.
 - Sign-out bumps `session_gen`, so another tab signed in as the same user is signed out too.

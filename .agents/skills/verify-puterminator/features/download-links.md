@@ -26,6 +26,5 @@ Preconditions:
 
 ## Gotchas
 
-- The fake's link job reports `PROCESSING` for 1.2 s before `DONE`. Wait on the link, not a sleep.
+- The fake's link job reports `PROCESSING` for 1.2 s before `DONE`. Wait on the link.
 - Assert links by accessible name: the URL lives in `href`, and text locators on the region miss it.
-- After another reply, `send` is `stop reply` until it finishes; wait for `send` first.

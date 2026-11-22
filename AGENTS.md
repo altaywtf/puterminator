@@ -38,11 +38,11 @@ pnpm lab                         # every card in every fixture state on :5174/sr
 pnpm verify                      # the gate: typecheck, lint, knip, test, build
 ```
 
-Every commit runs `pnpm verify` through the lefthook pre-commit hook, which `pnpm install` installs. Don't skip it: in Pi and Claude Code, [`.pi/extensions/hook-guard`](.pi/extensions/hook-guard) (wired through [`.claude/settings.json`](.claude/settings.json)) blocks `--no-verify`, `git commit -n`, `LEFTHOOK=0` and edits under `.git/hooks`. CI runs the same gate.
+Every commit runs `pnpm verify` through the lefthook pre-commit hook, and CI runs it again. [`.pi/extensions/hook-guard`](.pi/extensions/hook-guard) blocks bypasses in Pi and Claude Code.
 
 The Tokenmaxx workshop tools live in the git-ignored `workshop/`: `pnpm pi` and `pnpm ex <id> <command>`.
 
-`pnpm dev` runs on :1337 against the real put.io and Anthropic with a local `.env`; `PORTLESS=0 pnpm dev:fake` also boots on :1337. `alchemy dev` doesn't typecheck; `pnpm verify` does. Stop dev servers by the PID you started.
+`pnpm dev` runs on :1337 against the real put.io and Anthropic with a local `.env`; `PORTLESS=0 pnpm dev:fake` also boots on :1337. `alchemy dev` skips typechecking; `pnpm verify` covers it. Stop dev servers by the PID you started.
 
 ## Proof map
 
@@ -58,7 +58,7 @@ The Tokenmaxx workshop tools live in the git-ignored `workshop/`: `pnpm pi` and 
 
 Add a test only when it catches something existing coverage misses, and prove it fails with the fix reverted.
 
-## Don't break
+## Hazards
 
 - The Durable Object class `Puterminator`, its `putio-<user_id>` instance names, the `pool` instance that sums everyone's credits, and the v1 SQLite tables in [`store.ts`](src/server/store.ts) hold users' data. Renaming any of them strands it.
 - Every Anthropic request is charged, stopped ones included, before the next one starts; the shared budget only holds if no path skips the pool.
@@ -70,11 +70,11 @@ Add a test only when it catches something existing coverage misses, and prove it
 - The `rule-due` callback name in [`agent.ts`](src/server/agent.ts) keys pending alarms; renaming it strands them.
 - A deploy deletes any live secret that [`config.ts`](src/server/config.ts) doesn't read through `Config`.
 - Roll back by redeploying an earlier commit; `wrangler rollback` fails on this script.
-- No code comments: the `uinaf/no-comments` lint rule enforces it. Names, types and tests carry intent; the commit message carries the why.
+- The `uinaf/no-comments` lint rule fails code comments. Names, types and tests carry intent; the commit message carries the why.
 
 ## Needs the user
 
-- Writes against a real put.io library, including Altay's own. Use `pnpm dev:fake` instead.
+- Writes against a real put.io library, including Altay's own. `pnpm dev:fake` needs no approval.
 - Secrets, the put.io OAuth app's settings, the domain and Cloudflare tokens.
 - Showing UI changes: iterate locally and ship once Altay signs off.
 

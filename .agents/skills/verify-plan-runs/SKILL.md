@@ -5,9 +5,9 @@ description: Model-check the plan run engine (apply, stop, retry, undo, eviction
 
 # Verify plan runs
 
-[`PlanRuns.tla`](PlanRuns.tla) models one plan's runs against put.io. TLC checks every order of user frames, write outcomes, stops and evictions for 3 steps (2 of them trash) and up to 2 retries. Its `Apply` is any start of a run, from an `apply` frame or from a rule's alarm.
+[`PlanRuns.tla`](PlanRuns.tla) models one plan's runs against put.io. TLC checks every order of user frames, write outcomes, stops and evictions. Its `Apply` is any start of a run, from an `apply` frame or from a rule's alarm.
 
-[`RuleRuns.tla`](RuleRuns.tla) models one standing rule and the runs its alarm starts, with each run's plan reduced to running, then settled with or without a failed step. TLC checks every order of alarm deliveries, checks, pauses, previews, approvals (stale ones included), run outcomes, undos, deletes and evictions for 4 due times and 3 previews.
+[`RuleRuns.tla`](RuleRuns.tla) models one standing rule and the runs its alarm starts, with each run's plan reduced to running, then settled with or without a failed step. TLC checks every order of alarm deliveries, checks, pauses, previews, approvals (stale ones included), run outcomes, undos, deletes and evictions. [Scope](#scope) gives the bounds.
 
 ## The promises
 
@@ -57,11 +57,11 @@ The change touches the verification when a hunk lands in a function in the table
 .agents/skills/verify-plan-runs/check.sh
 ```
 
-It needs Java 11 or newer. It downloads TLC 1.7.4 once into `~/.cache/tla2tools`, checks the jar's SHA-256, and finishes in a few seconds. It checks both models in turn; a pass prints `Model checking completed. No error has been found.` under each `== <model>` line.
+It needs Java 11 or newer and downloads TLC 1.7.4 once into `~/.cache/tla2tools`. A pass prints `Model checking completed. No error has been found.` under each `== <model>` line.
 
 ## Read a failure
 
-TLC prints `Invariant <name> is violated` and the shortest trace from `Init`. Retell it as steps in the code's words: each state's action name maps through the table above. `step`, `ustep` are the apply and undo runs' step states, `maybe`/`umaybe` are `maybeApplied`, `lib` is whether put.io holds the changed (`"changed"`) or original (`"orig"`) file, and `fiber` is where the run's fiber waits.
+TLC prints `Invariant <name> is violated` and the shortest trace from `Init`. Retell it as steps in the code's words, mapping each state's action name through the table above. `step`, `ustep` are the apply and undo runs' step states, `maybe`/`umaybe` are `maybeApplied`, `lib` is whether put.io holds the changed (`"changed"`) or original (`"orig"`) file, and `fiber` is where the run's fiber waits.
 
 - **Real bug**: every transition in the trace can happen in the code. Report it with the trace in plain steps, the invariant's promise and its harm. Leave the invariant and the product code as they are unless the user asks for a fix.
 - **Modeling error**: a transition can't happen in the code (an action allows an order the code forbids). Fix the action so it matches the code, and say what you changed.

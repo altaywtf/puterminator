@@ -29,6 +29,6 @@ Preconditions:
 ## Gotchas
 
 - Signing in starts a background scan; the tree can fill before any audit. The score card only comes from the audit turn.
-- The score depends on the seed. Assert the card's shape, not a number.
+- The score depends on the seed, so assert the card's shape.
 - `browse library` shows only after a scan.
 - The open tree panel covers the composer, and Escape leaves it open. Choose `close library` before the next send.

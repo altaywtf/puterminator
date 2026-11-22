@@ -30,4 +30,4 @@ Preconditions:
 
 - A message with no planner keyword gets the fake's 12-line reply at 120 ms per word: about 10 s, long enough to stop. A keyword message finishes too fast.
 - `new thread` is missing from the menu while a reply streams or the thread is empty.
-- History is append-only. Prove a stop by the kept text, not by an edited message row.
+- History is append-only, so prove a stop by the kept text.
