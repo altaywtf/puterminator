@@ -1,9 +1,9 @@
 catalog:
-  effect: 4.1.4
-  "@effect/platform-browser": 4.1.4
-  "@effect/platform-node": 4.1.4
-  "@effect/platform-node-shared": 4.1.4
-  "@effect/sql-d1": 4.1.4
+  effect: 4.1.5
+  "@effect/platform-browser": 4.1.5
+  "@effect/platform-node": 4.1.5
+  "@effect/platform-node-shared": 4.1.5
+  "@effect/sql-d1": 4.1.5
 overrides:
   effect: "catalog:"
   "@effect/platform-browser": "catalog:"

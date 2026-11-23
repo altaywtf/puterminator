@@ -34,7 +34,7 @@
     "@xstate/effect": "1.0.0-beta.3",
     "alchemy": "2.0.0-beta.87",
     "effect": "catalog:",
-    "foldkit": "0.170.0",
+    "foldkit": "0.171.0",
     "hls.js": "1.7.4",
     "remark-gfm": "4.0.1",
     "remark-parse": "11.0.0",
@@ -43,7 +43,7 @@
   },
   "devDependencies": {
     "@effect/platform-node": "catalog:",
-    "@foldkit/vite-plugin": "0.29.0",
+    "@foldkit/vite-plugin": "0.29.1",
     "@oxlint/plugins": "1.94.0",
     "@playwright/cli": "0.1.25",
     "@tailwindcss/vite": "4.3.5",
