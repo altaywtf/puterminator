@@ -10,8 +10,7 @@ export default defineConfig({
   rules: {
     "@nkzw/no-instanceof": "off",
     "curly": "off",
-    eqeqeq: ["error", "always", { null: "ignore" }],
-    "no-control-regex": "off",
+    "eqeqeq": ["error", "always", { null: "ignore" }],
     "no-empty": "off",
     "import/no-namespace": ["error", { ignore: ["alchemy", "@alchemy.run/*"] }],
     "react-hooks/rules-of-hooks": "off",
@@ -34,6 +33,10 @@ export default defineConfig({
     {
       files: ["scripts/**", "src/server/testing/**", "src/client/main.ts"],
       rules: { "no-console": "off" },
+    },
+    {
+      files: ["src/server/worker.ts"],
+      rules: { "no-control-regex": "off" },
     },
   ],
 });
