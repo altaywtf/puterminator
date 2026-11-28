@@ -511,7 +511,7 @@ export const makeAgent = (deps: AgentDeps) =>
     };
 
     const savePlanSafely = (id: string) => (snapshot: PlanSnapshot) =>
-      Effect.runSync(Effect.try(() => persistPlan(id)(snapshot)).pipe(Effect.catch((e) => Effect.logError(`couldn't save plan ${id}`, e))));
+      Effect.runSync(Effect.try(() => persistPlan(id)(snapshot)).pipe(Effect.catch((error) => Effect.logError(`couldn't save plan ${id}`, error))));
 
     const saved = (id: string, actor: EffectActor<typeof planMachine>) =>
       Effect.suspend(() => {
@@ -1312,7 +1312,7 @@ export const makeAgent = (deps: AgentDeps) =>
 
             const checks = yield* Effect.forEach(
               out.plan.changes,
-              (c) => checkSource(out.ids[c.id] ?? 0, c.path, spend, sources).pipe(Effect.as(null), Effect.catch((e) => Effect.succeed({ path: c.path, why: stepMessage(e) }))),
+              (c) => checkSource(out.ids[c.id] ?? 0, c.path, spend, sources).pipe(Effect.as(null), Effect.catch((error) => Effect.succeed({ path: c.path, why: stepMessage(error) }))),
               { concurrency: SOURCE_CHECKS },
             ).pipe(Effect.provide(Layer.merge(deps.anthropic, putioLayer(store.token() ?? undefined, deps.putioFetch))));
 
@@ -1540,13 +1540,13 @@ export const makeAgent = (deps: AgentDeps) =>
 
         return converse(text);
       }).pipe(
-        Effect.catch((e: TurnError) =>
+        Effect.catch((error: TurnError) =>
           Effect.gen(function* () {
-            if (Predicate.isTagged(e, "PutioUnauthorized")) {
+            if (Predicate.isTagged(error, "PutioUnauthorized")) {
               store.deleteToken();
               yield* pauseRules("put.io signed you out");
-            } else yield* Effect.logError("turn failed", e);
-            broadcast({ type: "error", message: errorMessage(e) });
+            } else yield* Effect.logError("turn failed", error);
+            broadcast({ type: "error", message: errorMessage(error) });
           }),
         ),
         Effect.catchDefect((defect) =>

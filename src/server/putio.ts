@@ -70,13 +70,13 @@ const read = <A, R>(
 ): Effect.Effect<A, PutioError, R> => {
   const loop = (attempt: number): Effect.Effect<A, PutioError, R> =>
     effect.pipe(
-      Effect.catch((err) => {
-        if (isPutioAuthError(err)) return Effect.fail(new PutioUnauthorized({ status: err.status }));
+      Effect.catch((error) => {
+        if (isPutioAuthError(error)) return Effect.fail(new PutioUnauthorized({ status: error.status }));
 
-        if (!isPutioRateLimitError(err)) return Effect.fail(new PutioFailed({ message: failedMessage(label, err) }));
+        if (!isPutioRateLimitError(error)) return Effect.fail(new PutioFailed({ message: failedMessage(label, error) }));
 
         return Effect.gen(function* () {
-          const waitMs = resetWaitMs(err.reset, yield* Clock.currentTimeMillis) ?? 1000 * 2 ** attempt;
+          const waitMs = resetWaitMs(error.reset, yield* Clock.currentTimeMillis) ?? 1000 * 2 ** attempt;
 
           if (attempt >= MAX_ATTEMPTS || waitMs > MAX_WAIT_MS) {
             return yield* new PutioRateLimited({ retryAfterMs: Math.max(waitMs, 0) });
@@ -240,16 +240,16 @@ export const hlsUrl = (id: number, token: string, base: string = PUTIO_API) =>
 
 const write = <A, R>(label: string, effect: Effect.Effect<A, PutioSdkError, R>): Effect.Effect<A, PutioError, R> =>
   effect.pipe(
-    Effect.catch((err): Effect.Effect<never, PutioError> => {
-      if (isPutioAuthError(err)) return Effect.fail(new PutioUnauthorized({ status: err.status }));
+    Effect.catch((error): Effect.Effect<never, PutioError> => {
+      if (isPutioAuthError(error)) return Effect.fail(new PutioUnauthorized({ status: error.status }));
 
-      if (isPutioRateLimitError(err))
+      if (isPutioRateLimitError(error))
         return Clock.currentTimeMillis.pipe(
-          Effect.flatMap((now) => Effect.fail(new PutioRateLimited({ retryAfterMs: Math.max(resetWaitMs(err.reset, now) ?? 60_000, 0) }))),
+          Effect.flatMap((now) => Effect.fail(new PutioRateLimited({ retryAfterMs: Math.max(resetWaitMs(error.reset, now) ?? 60_000, 0) }))),
         );
 
-      const message = failedMessage(label, err);
-      const refused = "status" in err && err.status >= 400 && err.status < 500;
+      const message = failedMessage(label, error);
+      const refused = "status" in error && error.status >= 400 && error.status < 500;
 
       return Effect.fail(refused ? new PutioFailed({ message, refused }) : new PutioFailed({ message }));
     }),
