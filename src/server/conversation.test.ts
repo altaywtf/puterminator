@@ -1082,7 +1082,7 @@ describe("plans", () => {
     await t.receive(send("thanks"));
     const lastUser = t.store.history().filter((m) => m.role === "user").at(-1);
     const context = JSON.stringify(lastUser?.content);
-    expect(context).toContain('applied plan \\"clean up Movies\\": 2 done, 0 failed');
+    expect(context).toContain(String.raw`applied plan \"clean up Movies\": 2 done, 0 failed`);
   });
 
   it("ends the turn once a question is asked, and takes the answer next", async () => {
