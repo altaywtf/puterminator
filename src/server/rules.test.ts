@@ -2,7 +2,8 @@ import * as Arbitrary from "effect/Arbitrary";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
-import { checkRule, DAY_MS, matchRule, validateRule, type Criteria } from "./rules";
+import { checkRule, DAY_MS, matchRule, validateRule } from "./rules";
+import type { Criteria } from "./rules";
 import type { WalkedFile } from "./tree";
 
 const NOW = Date.parse("2026-11-21T12:00:00Z");

@@ -1,8 +1,10 @@
 import * as Option from "effect/Option";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { FileFlag } from "../shared/contract";
-import { has, type Index, isFolder, isRegular, libraryIndex, type Node, putioUrl } from "./library";
-import { Message, type Model, PLAYER_CLOSE_ID, PLAYER_ID, treeNodeId } from "./main";
+import { has, isFolder, isRegular, libraryIndex, putioUrl } from "./library";
+import type { Index, Node } from "./library";
+import { Message, PLAYER_CLOSE_ID, PLAYER_ID, treeNodeId } from "./main";
+import type { Model } from "./main";
 import { bytes, isPlayable } from "./cards";
 import { fmt, size } from "./steps";
 

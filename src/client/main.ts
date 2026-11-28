@@ -1,5 +1,6 @@
 import { Duration, Effect, Exit, Match, Option, Queue, Schema, Stream } from "effect";
-import { Command, ManagedResource, Render, type Runtime, Subscription, type Update } from "foldkit";
+import { Command, ManagedResource, Render, Subscription } from "foldkit";
+import type { Runtime, Update } from "foldkit";
 import { defineMessageUnion } from "foldkit/message";
 import { defineTaggedUnion } from "foldkit/schema";
 import { modifyFields } from "foldkit/struct";
@@ -16,8 +17,8 @@ import {
   MessageParam,
   ROOT_FOLDER,
   ServerFrame,
-  type ServerEvent,
 } from "../shared/contract";
+import type { ServerEvent } from "../shared/contract";
 import { PlanRecord, RuleRecord } from "../shared/actions";
 import { DownloadLinksResponse } from "../shared/tools";
 import { emptyClock, onMessage, onPartial, ThinkingClock } from "./thinking";

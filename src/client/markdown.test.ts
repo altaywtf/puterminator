@@ -1,7 +1,8 @@
 import * as Predicate from "effect/Predicate";
 import type { Html } from "foldkit/html";
 import { describe, expect, it } from "vitest";
-import { FileFlag, type Library } from "../shared/contract";
+import { FileFlag } from "../shared/contract";
+import type { Library } from "../shared/contract";
 import { renderMarkdown } from "./markdown";
 
 type VNode = NonNullable<Html>;

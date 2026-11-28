@@ -1,12 +1,28 @@
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
-import { createKeyedLazy, type Document, type Html, type HtmlBuilder } from "foldkit/html";
-import { blockedText, type Credits, creditsLeft, creditsTotal, feedbackText, shortDate, unlimitedCredits } from "../shared/contract";
-import { type Item, type Turn, toTurns } from "../shared/thread";
-import { art, type IconName, icon } from "./art";
+import { createKeyedLazy } from "foldkit/html";
+import type { Document, Html, HtmlBuilder } from "foldkit/html";
+import { blockedText, creditsLeft, creditsTotal, feedbackText, shortDate, unlimitedCredits } from "../shared/contract";
+import type { Credits } from "../shared/contract";
+import { toTurns } from "../shared/thread";
+import type { Item, Turn } from "../shared/thread";
+import { art, icon } from "./art";
+import type { IconName } from "./art";
 import logoUrl from "./logo.svg?inline";
-import { COMPOSER_ID, DELETE_CANCEL_ID, FEEDBACK_CLOSE_ID, FEEDBACK_TEXT_ID, isBusy, isLocked, LENGTH_ERROR, Message, type Model, Session, THREAD_ID } from "./main";
+import {
+  COMPOSER_ID,
+  DELETE_CANCEL_ID,
+  FEEDBACK_CLOSE_ID,
+  FEEDBACK_TEXT_ID,
+  isBusy,
+  isLocked,
+  LENGTH_ERROR,
+  Message,
+  Session,
+  THREAD_ID,
+} from "./main";
+import type { Model } from "./main";
 import { toolCard } from "./cards";
 import { rulesElsewhere } from "./rules";
 import { playerView, treeDrawer } from "./files";

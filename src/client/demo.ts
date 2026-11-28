@@ -1,5 +1,6 @@
 import type { Audit } from "../shared/audit";
-import { FileFlag, type Library } from "../shared/contract";
+import { FileFlag } from "../shared/contract";
+import type { Library } from "../shared/contract";
 
 const GB = 2 ** 30;
 const MB = 2 ** 20;

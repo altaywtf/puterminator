@@ -1,4 +1,5 @@
-import { type Blocked, CREDIT_TOKENS } from "../shared/contract";
+import { CREDIT_TOKENS } from "../shared/contract";
+import type { Blocked } from "../shared/contract";
 
 const PACE_FLOOR = 0.1;
 

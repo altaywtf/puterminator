@@ -1,4 +1,5 @@
-import { FileFlag, type Library } from "../shared/contract";
+import { FileFlag } from "../shared/contract";
+import type { Library } from "../shared/contract";
 
 export type Node = {
   id: number;

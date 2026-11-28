@@ -1,5 +1,6 @@
 import { junkFinder, stemOf } from "./audit";
-import { joinPath, MAX_CHANGES, nameOf, parentOf, type ProposeInput, sidecarsOf } from "./changes";
+import { joinPath, MAX_CHANGES, nameOf, parentOf, sidecarsOf } from "./changes";
+import type { ProposeInput } from "./changes";
 import { isExtraVideo, resolveScope } from "./layout";
 import type { WalkedFile } from "./tree";
 

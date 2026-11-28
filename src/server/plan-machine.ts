@@ -3,8 +3,10 @@ import * as Effect from "effect/Effect";
 import * as Match from "effect/Match";
 import * as Schema from "effect/Schema";
 import { createEffectLogic, createSnapshotCodec, setupEffect } from "@xstate/effect";
-import { type EventFromLogic, isUnhandled, transition, type SnapshotFrom } from "xstate";
-import { type Plan, PlanRecord, Run, StepState } from "../shared/actions";
+import { isUnhandled, transition } from "xstate";
+import type { EventFromLogic, SnapshotFrom } from "xstate";
+import { PlanRecord, Run, StepState } from "../shared/actions";
+import type { Plan } from "../shared/actions";
 
 type Step = Run["steps"][number];
 

@@ -2,9 +2,11 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { createEffectLogic, createSnapshotCodec, setupEffect } from "@xstate/effect";
-import { type EventFromLogic, isUnhandled, transition, type SnapshotFrom } from "xstate";
+import { isUnhandled, transition } from "xstate";
+import type { EventFromLogic, SnapshotFrom } from "xstate";
 import { Folder } from "../shared/contract";
-import { RulePreview, type RuleRecord } from "../shared/actions";
+import { RulePreview } from "../shared/actions";
+import type { RuleRecord } from "../shared/actions";
 import { Criteria, intervalMs } from "./rules";
 
 const CheckInput = Schema.Struct({ rule: Schema.String, fresh: Schema.Boolean });

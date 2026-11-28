@@ -6,7 +6,8 @@ import Puterminator from "./agent";
 import { readConfig } from "./config";
 import { upstreamFetch } from "./dev";
 // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- composition root: the Worker wires route dependencies here
-import { makeHandler, type RouteDeps } from "./routes";
+import { makeHandler } from "./routes";
+import type { RouteDeps } from "./routes";
 import type { RuntimeContext } from "alchemy/RuntimeContext";
 
 const PUBLIC_ORIGIN = "https://puterminator.com";

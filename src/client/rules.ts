@@ -7,7 +7,8 @@ import type { MessageParam } from "../shared/contract";
 import { RuleOutput } from "../shared/tools";
 import { runCard } from "./actions";
 import { cardHead, panel, term } from "./cards";
-import { Message, type Model } from "./main";
+import { Message } from "./main";
+import type { Model } from "./main";
 import { fmt, size } from "./steps";
 
 type H = HtmlBuilder<Message>;

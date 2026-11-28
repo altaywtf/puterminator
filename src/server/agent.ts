@@ -4,10 +4,12 @@ import { RuntimeContext } from "alchemy/RuntimeContext";
 import * as Effect from "effect/Effect";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import { ServerFrame, type ServerEvent } from "../shared/contract";
+import { ServerFrame } from "../shared/contract";
+import type { ServerEvent } from "../shared/contract";
 import { readConfig } from "./config";
 // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- composition root: the Durable Object wires the agent's dependencies here
-import { type AgentDeps, makeAgent } from "./conversation";
+import { makeAgent } from "./conversation";
+import type { AgentDeps } from "./conversation";
 import { upstreamFetch } from "./dev";
 import { consoleFloor } from "./credits";
 // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- composition root: the Durable Object builds the OpenSubtitles client from config
@@ -16,7 +18,8 @@ import { makeOpenSubtitles } from "./opensubtitles";
 import { makeTmdb } from "./tmdb";
 import { anthropicLayer } from "./runner";
 // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- composition root: the Durable Object owns the SQLite handle it passes in
-import { makeStore, type Sql } from "./store";
+import { makeStore } from "./store";
+import type { Sql } from "./store";
 
 const encodeEvent = Schema.encodeSync(ServerFrame);
 
