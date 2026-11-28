@@ -11,7 +11,6 @@ export default defineConfig({
     "@nkzw/no-instanceof": "off",
     "curly": "off",
     "eqeqeq": "off",
-    "no-console": "off",
     "no-control-regex": "off",
     "no-empty": "off",
     "import/no-namespace": "off",
@@ -31,4 +30,10 @@ export default defineConfig({
     "oxc/no-accumulating-spread": "error",
     "xstate-effect/no-inline-effect": "error",
   },
+  overrides: [
+    {
+      files: ["scripts/**", "src/server/testing/**", "src/client/main.ts"],
+      rules: { "no-console": "off" },
+    },
+  ],
 });
