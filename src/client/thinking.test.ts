@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MessageParam } from "../shared/contract";
+import type { MessageParam } from "../shared/contract";
 import { toTurns } from "../shared/thread";
 import { emptyClock, onMessage, onPartial, thoughtSeconds } from "./thinking";
 

@@ -16,7 +16,8 @@ import * as Queue from "effect/Queue";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { type PutioError, PutioUnauthorized, rateLimitMessage } from "./putio";
+import type { PutioUnauthorized } from "./putio";
+import { type PutioError, rateLimitMessage } from "./putio";
 
 export class AnthropicClient extends Context.Service<AnthropicClient, Anthropic>()("puterminator/AnthropicClient") {}
 
