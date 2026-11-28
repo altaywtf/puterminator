@@ -408,7 +408,7 @@ const waited = (model: Model) => {
 const lastLine = (text: string) =>
   text
     .split("\n")
-    .map((l) => l.replace(/\*\*|^#+\s*/g, "").trim())
+    .map((l) => l.replaceAll(/\*\*|^#+\s*/g, "").trim())
     .findLast((l) => l.length > 0) ?? null;
 
 const thinkingRow = (h: H, item: ThinkingItem, model: Model) => {

@@ -46,8 +46,8 @@ const isFolder = (f: WalkedFile) => f.file_type === "FOLDER";
 export const stemOf = (name: string) => name.replace(/\.[a-z0-9]{2,4}$/i, "");
 
 export function isMessyName(name: string, folder = false) {
-  const stem = (folder ? name : stemOf(name)).replace(MEDIA_SERVER_ID_TAG, "").replace(MEDIA_SERVER_RESOLUTION_SUFFIX, "");
-  const spaced = stem.replace(/_/g, " ");
+  const stem = (folder ? name : stemOf(name)).replaceAll(MEDIA_SERVER_ID_TAG, "").replace(MEDIA_SERVER_RESOLUTION_SUFFIX, "");
+  const spaced = stem.replaceAll("_", " ");
   const dotted = (stem.match(/\./g) ?? []).length >= 3 && !stem.includes(" ");
   const group = stem.match(GROUP_SUFFIX)?.[0].slice(1) ?? "";
   const prefix = stem.slice(0, stem.length - group.length - 1);
@@ -85,7 +85,7 @@ export function junkFinder(files: ReadonlyArray<WalkedFile>) {
 }
 
 const NOISE = new RegExp(`${RELEASE_TAG.source}|\\b(web|remux|hdr|dts|atmos|truehd)\\b`, "gi");
-const words = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const words = (s: string) => s.replaceAll(/[^\p{L}\p{N}]+/gu, " ").trim();
 const PART = /\b(?:part|pt|cd|disc|disk)[\s._-]*(\d{1,2})\b/i;
 const EDITION = /\{edition-([^}]+)\}|\b(director'?s cut|final cut|extended(?: cut| edition)?|theatrical(?: cut)?|unrated|uncut|special edition|ultimate (?:cut|edition)|remastered|imax)\b/i;
 const PLEX_EXTRA = /-(trailer|featurette|deleted|scene|short|interview|behindthescenes|other|extra)s?$/i;
@@ -98,7 +98,7 @@ export const showOf = (path: string) =>
 /** Normalised identity for duplicate detection: title (and year) + episode, or title + year + whatever
     tells cuts and parts apart, with release noise dropped. `show` names a file that starts at its episode. */
 export function mediaKey(name: string, show = "") {
-  const stem = stemOf(name).replace(MEDIA_SERVER_ID_TAG, "").toLowerCase();
+  const stem = stemOf(name).replaceAll(MEDIA_SERVER_ID_TAG, "").toLowerCase();
   const ep = stem.match(/s(\d{1,2})((?:[\s._-]?e\d{1,3})+)/i);
   const part = stem.match(PART)?.[1];
   const edition = stem.match(EDITION);
@@ -121,7 +121,7 @@ export function mediaKey(name: string, show = "") {
 
   if (!year) return null;
   const after = stem.slice(year.at + 4).replace(PART, " ").replace(EDITION, " ");
-  const rest = words((PLEX_EXTRA.test(after) ? after : after.replace(GROUP_SUFFIX, "")).replace(BRACKET_GROUP, " ").replace(NOISE, " "));
+  const rest = words((PLEX_EXTRA.test(after) ? after : after.replace(GROUP_SUFFIX, "")).replace(BRACKET_GROUP, " ").replaceAll(NOISE, " "));
 
   return `${title}|${year.value}${rest ? `|${rest}` : ""}${extras}`;
 }

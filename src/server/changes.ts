@@ -34,7 +34,7 @@ export type AskInput = typeof AskInput.Type;
     when it was proposed, so undo can put it back. */
 export type StoredPlan = { plan: Plan; ids: Record<string, number>; parents: Record<string, number> };
 
-export const cleanPath = (path: string) => `/${path.trim().replace(/^\/+|\/+$/g, "")}`;
+export const cleanPath = (path: string) => `/${path.trim().replaceAll(/^\/+|\/+$/g, "")}`;
 export const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 export const parentOf = (path: string) => path.slice(0, path.lastIndexOf("/")) || "/";
 export const joinPath = (folder: string, name: string) => `${folder.replace(/\/$/, "")}/${name}`;
