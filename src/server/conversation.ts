@@ -902,7 +902,7 @@ export const makeAgent = (deps: AgentDeps) =>
     }
 
     const stopCheck = (why: string): CheckOutcome => ({ kind: "stop", why });
-    const sameIds = (a: ReadonlyArray<number>, b: ReadonlyArray<number>) => a.length === b.length && [...a].sort().every((id, i) => id === [...b].sort()[i]);
+    const sameIds = (a: ReadonlyArray<number>, b: ReadonlyArray<number>) => a.length === b.length && a.toSorted((x, y) => x - y).every((id, i) => id === b.toSorted((x, y) => x - y)[i]);
 
     const checkDue = ({ rule: id, fresh }: { readonly rule: string; readonly fresh: boolean }) =>
       Effect.gen(function* () {
