@@ -63,7 +63,7 @@ const cueText = (translated: string | undefined, original: string) => {
   return text || original;
 };
 
-const parseSrt = (srt: string): Cue[] =>
+const parseSrt = (srt: string): Array<Cue> =>
   srt
     .replace(/^﻿/, "")
     .replace(/\r\n?/g, "\n")
@@ -87,7 +87,7 @@ const MAX_GROUP = 8;
 const endsSentence = (text: string) => /[.!?…♪"”)\]]$/.test(text.replace(/<[^>]*>/g, "").trim());
 
 const toSentences = (cues: ReadonlyArray<Cue>) => {
-  const groups: Array<{ id: number; lines: string[] }> = [];
+  const groups: Array<{ id: number; lines: Array<string> }> = [];
 
   for (const [i, cue] of cues.entries()) {
     const last = groups.at(-1);
@@ -108,12 +108,12 @@ const balanceItalics = (piece: string) => {
   return `${"<i>".repeat(Math.max(0, closes - opens))}${piece}${"</i>".repeat(Math.max(0, opens - closes))}`;
 };
 
-const splitAcross = (text: string, english: ReadonlyArray<string>): string[] => {
+const splitAcross = (text: string, english: ReadonlyArray<string>): Array<string> => {
   if (english.length === 1) return [text];
   const words = text.split(/\s+/).filter(Boolean);
   const weights = english.map((l) => Math.max(1, l.replace(/<[^>]*>/g, "").length));
   const total = weights.reduce((a, b) => a + b, 0);
-  const pieces: string[] = [];
+  const pieces: Array<string> = [];
   let start = 0;
   let seen = 0;
 
@@ -131,7 +131,7 @@ const splitAcross = (text: string, english: ReadonlyArray<string>): string[] => 
 };
 
 const toBatches = (sentences: ReadonlyArray<Sentence>) => {
-  const batches: Array<{ size: number; groups: Sentence[] }> = [];
+  const batches: Array<{ size: number; groups: Array<Sentence> }> = [];
 
   for (const s of sentences) {
     const last = batches.at(-1);

@@ -31,7 +31,7 @@ const CRT = [
 
 type Put = [x: number, y: number, run: string];
 
-const compose = (puts: Put[]): string[] => {
+const compose = (puts: Array<Put>): Array<string> => {
   const cells = new Map<string, string>();
 
   for (const [x, y, run] of [...CRT.map((r, y): Put => [0, y, r]), ...puts])
@@ -48,20 +48,20 @@ const compose = (puts: Put[]): string[] => {
   );
 };
 
-const screenOff: Put[] = Array.from({ length: 8 }, (_, i): Put => [3, 2 + i, "oooooooooo"]);
+const screenOff: Array<Put> = Array.from({ length: 8 }, (_, i): Put => [3, 2 + i, "oooooooooo"]);
 
-const shades: Put[] = [
+const shades: Array<Put> = [
   [3, 3, "kkkkkkkkkk"],
   [4, 4, "kkk"],
   [9, 4, "kkk"],
 ];
 
-const slimeFrom = (top: number): Put[] => [
+const slimeFrom = (top: number): Array<Put> => [
   [-3, top, "ss sss  ssss sss  ss"],
   ...Array.from({ length: 13 - top }, (_, i): Put => [-3, top + 1 + i, "ssssssssssssssssssssss"]),
 ];
 
-const SPRITES: Record<Mood, string[]> = {
+const SPRITES: Record<Mood, Array<string>> = {
   idle: compose([]),
   asleep: compose([[4, 3, "##"], [10, 3, "##"], [4, 4, "kk"], [10, 4, "kk"], [15, -4, "www"], [16, -3, "w"], [15, -2, "www"]]),
   unplugged: compose([...screenOff, [4, 6, "wwwwwwww"], [14, 10, "#"], [15, 11, "#"], [16, 12, "##"], [17, 13, "##"]]),
@@ -89,9 +89,9 @@ export const moodOf = (a: Audit): Mood =>
               ? "wading"
               : "flood";
 
-const pixels = <M>(h: HtmlBuilder<M>, rows: readonly string[], fills: Record<string, string>, height: number, cls: string): Html => {
+const pixels = <M>(h: HtmlBuilder<M>, rows: ReadonlyArray<string>, fills: Record<string, string>, height: number, cls: string): Html => {
   const w = Math.max(...rows.map((r) => r.length));
-  const rects: Html[] = [];
+  const rects: Array<Html> = [];
   rows.forEach((row, y) => {
     for (let x = 0; x < row.length; ) {
       const c = row[x] ?? ".";

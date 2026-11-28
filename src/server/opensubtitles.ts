@@ -202,7 +202,7 @@ export const makeOpenSubtitles = (credentials: OpenSubtitlesCredentials, fetchIm
         pages = body.value.total_pages ?? 1;
       }
 
-      return found.flatMap((a): Candidate[] => {
+      return found.flatMap((a): Array<Candidate> => {
         const only = a.files.length === 1 ? a.files[0] : undefined;
 
         if (only === undefined || a.ai_translated || a.machine_translated || a.foreign_parts_only || !isFor(release, a.feature_details)) return [];

@@ -112,7 +112,7 @@ export const folders: Array<[string, ListFolderOutput]> = [
   ["Downloads", listing("/Downloads", downloads)],
 ];
 
-const found = (paths: string[], total: number, bytes: string): SearchFilesOutput => ({
+const found = (paths: Array<string>, total: number, bytes: string): SearchFilesOutput => ({
   total,
   bytes,
   byMime: [{ mime: "video/x-matroska", count: total, bytes }],
@@ -145,7 +145,7 @@ export const searches: Array<[string, SearchFilesOutput]> = [
 const trash = (id: string, path: string, bytes: number): Change => ({ id, op: "trash", path, to: null, bytes });
 const FILMS_DL = FILMS.slice(0, 4).map((t, i) => ({ t, year: 1979 + i * 4, dir: `/Downloads/${t}.${1979 + i * 4}.1080p.BluRay.x264-RIPGROVE` }));
 
-const cleanup: Change[] = [
+const cleanup: Array<Change> = [
   ...FILMS_DL.flatMap(({ t, year, dir }, i) => [
     trash(`t${i}a`, `${dir}/www.Ripgrove.to.txt`, 1024),
     trash(`t${i}b`, `${dir}/${t}.${year}.nfo`, 4096),
@@ -155,7 +155,7 @@ const cleanup: Change[] = [
   ...FILMS_DL.map(({ t, year, dir }, i): Change => ({ id: `m${i}`, op: "move", path: dir, to: `/Movies/${t} (${year})`, bytes: 0 })),
 ];
 
-export const questions: Array<[string, Question, string[]]> = [
+export const questions: Array<[string, Question, Array<string>]> = [
   [
     "one answer",
     {
@@ -192,7 +192,7 @@ const steps = (states: Array<Run["steps"][number]["state"]>, fail: Record<number
 const run = (id: string, s: Run["steps"]): Run => ({ id, title: "clean up Downloads", changes: cleanup, steps: s });
 const N = cleanup.length;
 
-export const runs: Array<[string, Run, string[]]> = [
+export const runs: Array<[string, Run, Array<string>]> = [
   ["running", run("r1", steps([...Array(13).fill("done"), "running"])), []],
   ["running, one failed", run("r2", steps([...Array(9).fill("done"), "failed", "done", "done", "done", "running"], { 9: "put.io said the file is locked by a transfer" })), []],
   ["done", run("r3", steps(Array(N).fill("done"))), []],
@@ -218,13 +218,13 @@ const undoRun = (id: string, states: Array<Run["steps"][number]["state"]>, fail:
   steps: back.map((c, i) => ({ change: c.id, state: states[i] ?? "queued", error: fail[i] ?? null })),
 });
 
-export const undos: Array<[string, Run, string[]]> = [
+export const undos: Array<[string, Run, Array<string>]> = [
   ["undoing", undoRun("u1", [...Array(5).fill("done"), "running"]), []],
   ["undone", undoRun("u2", Array(N).fill("done")), []],
   ["undone, one failed", undoRun("u3", [...Array(N - 1).fill("done"), "failed"], { [N - 1]: "put.io: not in the trash any more" }), []],
 ];
 
-export const plans: Array<[string, Plan, string[]]> = [
+export const plans: Array<[string, Plan, Array<string>]> = [
   ["proposed", { id: "d1", title: "clean up Downloads", changes: cleanup }, []],
   ["two lines and the moves left out", { id: "d2", title: "clean up Downloads", changes: cleanup }, ["plan.d2.off.t0c", "plan.d2.off.r1", "plan.d2.hunkoff.moves"]],
   [

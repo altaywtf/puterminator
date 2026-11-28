@@ -10,8 +10,8 @@ export type FreeSpace = {
   freed: number;
   safe: number;
   left: number;
-  choices: { title: string; options: { path: string; size: number }[] }[];
-  hints: { path: string; size: number; why: string }[];
+  choices: Array<{ title: string; options: Array<{ path: string; size: number }> }>;
+  hints: Array<{ path: string; size: number; why: string }>;
 };
 
 const bySize = (a: WalkedFile, b: WalkedFile) => b.size - a.size;
@@ -28,11 +28,11 @@ export function planFreeSpace(snapshot: ReadonlyArray<WalkedFile>, target: numbe
   const videos = snapshot.filter((f) => f.file_type === "VIDEO");
   const junkReason = junkFinder(snapshot);
   const isJunk = (f: WalkedFile) => junkReason(f) !== null;
-  const copies: WalkedFile[] = [];
-  const versionGroups: WalkedFile[][] = [];
+  const copies: Array<WalkedFile> = [];
+  const versionGroups: Array<Array<WalkedFile>> = [];
 
   for (const group of duplicateGroups(videos, rootShow)) {
-    const byContent = new Map<string, WalkedFile[]>();
+    const byContent = new Map<string, Array<WalkedFile>>();
 
     for (const f of group.filter((v) => !isJunk(v))) byContent.set(contentOf(f), [...(byContent.get(contentOf(f)) ?? []), f]);
 
@@ -48,7 +48,7 @@ export function planFreeSpace(snapshot: ReadonlyArray<WalkedFile>, target: numbe
 
   const junk = snapshot.filter(isJunk);
   const candidates = [...new Map([...copies.sort(bySize), ...junk.sort(bySize)].map((f) => [f.id, f])).values()];
-  const picked: WalkedFile[] = [];
+  const picked: Array<WalkedFile> = [];
   let freed = 0;
 
   for (const f of candidates) {

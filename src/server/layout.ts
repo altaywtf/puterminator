@@ -47,7 +47,7 @@ type Pack = { show: string; year: string | null; season: number };
 type LayoutChange = ProposeInput["changes"][number];
 
 export type LayoutResult = {
-  changes: LayoutChange[];
+  changes: Array<LayoutChange>;
   skipped: Array<{ path: string; why: string }>;
   remaining: number;
 };
@@ -125,7 +125,7 @@ const trailingYear = (lead: string, latest: number) => {
 const movieOf = (stem: string, latest: number): Movie | null => {
   if (EPISODIC.test(stem) || DATED.test(stem) || RANGE.test(stem)) return null;
 
-  const readings = [...stem.matchAll(YEAR_CANDIDATE)].flatMap((m): Movie[] => {
+  const readings = [...stem.matchAll(YEAR_CANDIDATE)].flatMap((m): Array<Movie> => {
     const at = m.index;
     const end = at + m[0].length;
     const value = m[2] ?? "";
@@ -292,7 +292,7 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
   const junk = junkFinder(snapshot);
   const same = (a: string, b: string) => pathKey(a) === pathKey(b);
   const isUnder = (path: string, root: string) => pathKey(path).startsWith(`${pathKey(root)}/`);
-  const byParent = new Map<string, WalkedFile[]>();
+  const byParent = new Map<string, Array<WalkedFile>>();
 
   for (const f of snapshot) {
     const siblings = byParent.get(pathKey(parentOf(f.path)));
@@ -338,7 +338,7 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
 
   type ShowFolder = { name: string; key: string; year: string | null; ids: string };
 
-  const showFolders: ShowFolder[] = childrenOf(shows).flatMap((f) => (f.file_type === "FOLDER" ? [{ name: f.name, key: showKey(f.name), year: folderYear(f.name), ids: idsOf(f.name) }] : []));
+  const showFolders: Array<ShowFolder> = childrenOf(shows).flatMap((f) => (f.file_type === "FOLDER" ? [{ name: f.name, key: showKey(f.name), year: folderYear(f.name), ids: idsOf(f.name) }] : []));
   const showElsewhere = new Map<string, string>();
 
   for (const f of snapshot) {
@@ -382,7 +382,7 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
   const plannedEpisodes = new Map<string, Array<{ first: number; last: number }>>();
   const plannedMovies = new Map<string, Array<{ part: number | null; edition: string | null; ext: string }>>();
   const createdMovies = new Map<string, string>();
-  const changes: LayoutChange[] = [];
+  const changes: Array<LayoutChange> = [];
   const skipped: LayoutResult["skipped"] = [];
   let budget = MAX_CHANGES;
   let remaining = 0;

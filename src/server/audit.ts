@@ -32,11 +32,11 @@ export type Audit = {
   totals: { items: number; files: number; folders: number; videos: number; bytes: number };
   score: number;
   scores: { naming: number; structure: number; junk: number; duplicates: number };
-  naming: { messy: number; examples: string[] };
-  structure: { rootFiles: number; wrapperFolders: number; emptyFolders: number; deepest: number; examples: string[] };
-  junk: { count: number; bytes: number; examples: Finding[] };
-  duplicates: { groups: number; wastedBytes: number; examples: { keep: string; drop: string[]; size: number }[] };
-  neverPlayed: { count: number; bytes: number; examples: Finding[] };
+  naming: { messy: number; examples: Array<string> };
+  structure: { rootFiles: number; wrapperFolders: number; emptyFolders: number; deepest: number; examples: Array<string> };
+  junk: { count: number; bytes: number; examples: Array<Finding> };
+  duplicates: { groups: number; wastedBytes: number; examples: Array<{ keep: string; drop: Array<string>; size: number }> };
+  neverPlayed: { count: number; bytes: number; examples: Array<Finding> };
 };
 
 const ext = (f: WalkedFile) => (f.extension ?? f.name.split(".").pop() ?? "").toLowerCase();
@@ -126,7 +126,7 @@ export function mediaKey(name: string, show = "") {
   return `${title}|${year.value}${rest ? `|${rest}` : ""}${extras}`;
 }
 
-export function duplicateGroups(videos: ReadonlyArray<WalkedFile>, rootShow = ""): WalkedFile[][] {
+export function duplicateGroups(videos: ReadonlyArray<WalkedFile>, rootShow = ""): Array<Array<WalkedFile>> {
   const crcOf = (v: WalkedFile) => (v.crc32 ? `crc:${v.crc32}:${v.size}` : null);
   const link = new Map<WalkedFile, WalkedFile>();
 
@@ -148,7 +148,7 @@ export function duplicateGroups(videos: ReadonlyArray<WalkedFile>, rootShow = ""
     }
   }
 
-  const byKey = new Map<WalkedFile, WalkedFile[]>();
+  const byKey = new Map<WalkedFile, Array<WalkedFile>>();
 
   for (const v of videos) byKey.set(find(v), [...(byKey.get(find(v)) ?? []), v]);
 
@@ -164,7 +164,7 @@ export function duplicateGroups(videos: ReadonlyArray<WalkedFile>, rootShow = ""
 const pct = (good: number, total: number) => (total === 0 ? 100 : Math.round((100 * good) / total));
 
 /** `rootShow` names the show when the scanned folder is one, so its bare `S01E01` files still have a title. */
-export function audit(files: WalkedFile[], rootName: string, truncated: boolean, now = new Date(), rootShow = ""): Audit {
+export function audit(files: Array<WalkedFile>, rootName: string, truncated: boolean, now = new Date(), rootShow = ""): Audit {
   const videos = files.filter(isVideo);
   const folders = files.filter(isFolder);
   const bytes = files.filter((f) => !isFolder(f)).reduce((a, f) => a + f.size, 0);
@@ -172,7 +172,7 @@ export function audit(files: WalkedFile[], rootName: string, truncated: boolean,
   const messy = videos.filter((f) => isMessyName(f.name));
   const junkReason = junkFinder(files);
 
-  const children = new Map<number, WalkedFile[]>();
+  const children = new Map<number, Array<WalkedFile>>();
 
   for (const f of files) if (f.parent_id != null) children.set(f.parent_id, [...(children.get(f.parent_id) ?? []), f]);
   const emptyFolders = folders.filter((f) => !children.get(f.id)?.length);

@@ -9,7 +9,7 @@ export type Node = {
   /** Relative to the scan root, as tool results write it: `/Movies/Haze.mkv`. */
   path: string;
   depth: number;
-  children: number[];
+  children: Array<number>;
   /** Files under a folder (itself for a file) that are junk / never-played videos. */
   junk: number;
   unplayed: number;
@@ -19,7 +19,7 @@ export type Index = {
   rootId: number;
   rootName: string;
   nodes: Map<number, Node>;
-  top: number[];
+  top: Array<number>;
   total: number;
   byPath: Map<string, number>;
   /** File name → id; -1 when two files share the name. */
@@ -41,7 +41,7 @@ const build = (lib: Library): Index => {
 
   for (const [id, parent, name, size, flags] of lib.files)
     nodes.set(id, { id, parent, name, size, flags, path: "", depth: 0, children: [], junk: 0, unplayed: 0 });
-  const top: number[] = [];
+  const top: Array<number> = [];
 
   for (const n of nodes.values()) (n.parent === lib.rootId ? top : nodes.get(n.parent)?.children)?.push(n.id);
 

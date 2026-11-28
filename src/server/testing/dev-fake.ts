@@ -117,7 +117,7 @@ add(0, "Thumbs.db", "TEXT", 12_000);
 add(add(0, "New Folder", "FOLDER"), "Untitled", "FOLDER");
 
 const LINK_JOB_MS = 1200;
-const linkJobs = new Map<number, { ids: number[]; readyAt: number }>();
+const linkJobs = new Map<number, { ids: Array<number>; readyAt: number }>();
 const byParent = (parent: number) => files.filter((f) => parent === -1 || f.parent_id === parent);
 
 const log = (line: string) => console.log(`[fake] ${line}`);

@@ -25,7 +25,7 @@ const putioLink = (h: H, n: Node): Html =>
       )
     : h.span([], []);
 
-const treeRow = (h: H, model: Model, ix: Index, n: Node, prefix: string, last: boolean): Html[] => {
+const treeRow = (h: H, model: Model, ix: Index, n: Node, prefix: string, last: boolean): Array<Html> => {
   const folder = isFolder(n);
   const open = folder && model.treeExpanded.includes(n.id);
   const focused = model.treeFocus === n.id;

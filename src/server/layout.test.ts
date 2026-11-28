@@ -40,7 +40,7 @@ const library = (...paths: Array<string | [string, Partial<WalkedFile>]>) => {
   return all.map((f) => ({ ...f, parent_id: idOf.get(f.path.slice(0, f.path.lastIndexOf("/"))) ?? 0 }));
 };
 
-const plan = (files: WalkedFile[], movies = "/Movies", shows = "/TV Shows", within = ""): LayoutResult => {
+const plan = (files: Array<WalkedFile>, movies = "/Movies", shows = "/TV Shows", within = ""): LayoutResult => {
   const out = planLayout(files, movies, shows, within, NOW);
 
   if ("error" in out) throw new Error(out.error);

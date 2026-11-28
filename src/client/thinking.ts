@@ -18,7 +18,7 @@ export const emptyClock: ThinkingClock = { started: {}, ended: {}, seconds: {} }
 
 const toSeconds = (ms: number) => Math.max(1, Math.round(ms / 1000));
 
-export function onPartial(clock: ThinkingClock, content: readonly ContentBlock[], at: number): ThinkingClock {
+export function onPartial(clock: ThinkingClock, content: ReadonlyArray<ContentBlock>, at: number): ThinkingClock {
   const started = { ...clock.started };
   const ended = { ...clock.ended };
   content.forEach((b, i) => {

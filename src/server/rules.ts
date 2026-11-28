@@ -41,7 +41,7 @@ const byOpenedThenPath = (a: WalkedFile, b: WalkedFile) =>
   putioTime(a.first_accessed_at ?? "") - putioTime(b.first_accessed_at ?? "") || (a.path < b.path ? -1 : a.path > b.path ? 1 : a.id - b.id);
 
 /** Videos in the rule's folders, outside its protected ones, first opened at least `openedDaysAgo` days before `now`. */
-export const matchRule = (files: ReadonlyArray<WalkedFile>, rule: Criteria, now: number): WalkedFile[] => {
+export const matchRule = (files: ReadonlyArray<WalkedFile>, rule: Criteria, now: number): Array<WalkedFile> => {
   const cutoff = now - rule.openedDaysAgo * DAY_MS;
 
   return files

@@ -16,7 +16,7 @@ describe("thinking clock", () => {
   });
 
   it("moves the time to the key toTurns gives the landed message", () => {
-    const history: MessageParam[] = [{ role: "user", content: "Audit my library" }];
+    const history: Array<MessageParam> = [{ role: "user", content: "Audit my library" }];
     let c = onPartial(emptyClock, [thinking("Scan first.")], 1_000);
     c = onMessage(c, history.length, 3_000);
     const landed = toTurns([...history, { role: "assistant", content: [thinking("Scan first."), tool] }], null, true);

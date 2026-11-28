@@ -15,7 +15,7 @@ export type PutioFile = {
 export type WalkedFile = PutioFile & { path: string; depth: number };
 
 /** Rebuilds paths for everything under `rootId` (0 is Your Files) from the flat, unordered `listAll`. */
-export function buildTree(all: readonly PutioFile[], rootId: number) {
+export function buildTree(all: ReadonlyArray<PutioFile>, rootId: number) {
   const byId = new Map(all.map((f) => [f.id, f]));
   const memo = new Map<number, { path: string; depth: number } | null>([[rootId, { path: "", depth: 0 }]]);
 
@@ -34,7 +34,7 @@ export function buildTree(all: readonly PutioFile[], rootId: number) {
     return here;
   };
 
-  const files: WalkedFile[] = [];
+  const files: Array<WalkedFile> = [];
 
   for (const f of all) {
     if (f.id === rootId) continue;

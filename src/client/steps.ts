@@ -44,7 +44,7 @@ const mediaLine = ({ mime, info, error }: MediaInfoOutput["files"][number]) => {
   return [mime, ...video, ...audio, info.minutes === null ? null : `${info.minutes} min`].filter(Boolean).join(" · ");
 };
 
-export type StepText = { title: string; detail: string | null; lines: string[] };
+export type StepText = { title: string; detail: string | null; lines: Array<string> };
 
 /** One-line summary of a tool step: what ran, a short result, and detail lines for the folded body. */
 export function describeStep(name: string, input: Schema.Json, output: string | null): StepText {
