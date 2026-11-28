@@ -64,7 +64,7 @@ describe("ServerEvent", () => {
     const v1 = {
       username: "altay",
       folder: { id: 0, name: "Your Files" },
-      credits: { month: "2026-10", used: 12345, cap: 1000000 },
+      credits: { month: "2026-10", used: 12_345, cap: 1_000_000 },
       lastAudit: { at: "2026-10-28T10:00:00.000Z", rootName: "Your Files", score: 71, items: 5120 },
       busy: false,
     };

@@ -41,7 +41,7 @@ describe("put.io scan", () => {
 describe("put.io 429", () => {
   it("waits until x-ratelimit-reset when it is near, then goes on", async () => {
     const fake = makeFakePutio({ files: library, pageSize: 2, rateLimitContinue: { times: 1, resetAt: T0 / 1000 + 3 } });
-    const exit = await scan(fake, 3_000);
+    const exit = await scan(fake, 3000);
     expect(Exit.isSuccess(exit) && exit.value.length).toBe(5);
     expect(fake.log.filter((r) => r.url.pathname === "/v2/files/list/continue")).toHaveLength(3);
   });
@@ -54,7 +54,7 @@ describe("put.io 429", () => {
         yield* TestClock.setTime(T0);
         const fiber = yield* Effect.forkChild(listAll.pipe(Effect.provide(putioLayer("tok", fake.fetch))));
         yield* waitForFakeFetch;
-        yield* TestClock.adjust(2_000);
+        yield* TestClock.adjust(2000);
         yield* waitForFakeFetch;
         const done = fiber.pollUnsafe();
         yield* Fiber.interrupt(fiber);

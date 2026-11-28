@@ -10,8 +10,8 @@ const base = { now: NOV_1_NOON, used: 0, cap: 300, pool: 0, budget: 19_000 };
 
 describe("blockedBy", () => {
   it("lets the shared budget out at 10% on day one plus an even share of the rest per day, and says which day it reopens", () => {
-    expect(blockedBy({ ...base, pool: 2_000 })).toBeNull();
-    expect(blockedBy({ ...base, pool: 3_800 })).toEqual({ reason: "paused", until: "2026-11-05" });
+    expect(blockedBy({ ...base, pool: 2000 })).toBeNull();
+    expect(blockedBy({ ...base, pool: 3800 })).toEqual({ reason: "paused", until: "2026-11-05" });
   });
 
   it("says out until the 1st when the reopening day would fall next month or the budget is spent", () => {

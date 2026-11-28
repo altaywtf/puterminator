@@ -160,7 +160,7 @@ const askHaiku = (system: string, content: string, schema: JSONOutputFormat["sch
         const stream = client.messages.stream(
           {
             model: TRANSLATOR,
-            max_tokens: 32000,
+            max_tokens: 32_000,
             thinking: think ? { type: "adaptive" } : { type: "disabled" },
             output_config: { effort: "low", format: { type: "json_schema", schema } },
             system,

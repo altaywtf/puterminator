@@ -8,17 +8,17 @@ const tool = { type: "tool_use", id: "t1", name: "scan_library", input: {} };
 
 describe("thinking clock", () => {
   it("times a block from its first partial until the next block starts", () => {
-    let c = onPartial(emptyClock, [thinking("Sc")], 1_000);
+    let c = onPartial(emptyClock, [thinking("Sc")], 1000);
     expect(thoughtSeconds(c, "live.0")).toBeNull();
-    c = onPartial(c, [thinking("Scan first.")], 2_000);
-    c = onPartial(c, [thinking("Scan first."), tool], 4_400);
+    c = onPartial(c, [thinking("Scan first.")], 2000);
+    c = onPartial(c, [thinking("Scan first."), tool], 4400);
     expect(thoughtSeconds(c, "live.0")).toBe(3);
   });
 
   it("moves the time to the key toTurns gives the landed message", () => {
     const history: Array<MessageParam> = [{ role: "user", content: "Audit my library" }];
-    let c = onPartial(emptyClock, [thinking("Scan first.")], 1_000);
-    c = onMessage(c, history.length, 3_000);
+    let c = onPartial(emptyClock, [thinking("Scan first.")], 1000);
+    c = onMessage(c, history.length, 3000);
     const landed = toTurns([...history, { role: "assistant", content: [thinking("Scan first."), tool] }], null, true);
     const item = landed[1]!.items[0]!;
     expect(item.kind).toBe("thinking");

@@ -30,7 +30,6 @@ export default defineConfig({
     "typescript/unbound-method": "off",
     "unicorn/catch-error-name": "off",
     "unicorn/consistent-function-scoping": "off",
-    "unicorn/numeric-separators-style": "off",
     "unicorn/prefer-native-coercion-functions": "off",
     "unicorn/prefer-number-properties": "off",
     "unicorn/prefer-set-has": "off",
