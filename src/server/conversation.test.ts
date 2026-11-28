@@ -1291,7 +1291,7 @@ describe("translate subtitles", () => {
     await proposeAndApply(t);
     expect([
       JSON.parse(t.toolOutput("toolu_t")).already_translated,
-      t.putio.uploads.map((u) => [u.name, u.parentId]).toSorted(),
+      t.putio.uploads.toSorted((a, b) => a.name.localeCompare(b.name)).map((u) => [u.name, u.parentId]),
       t.store.plans()[0]?.record.status,
     ]).toEqual([
       1,
@@ -1408,7 +1408,7 @@ describe("translate with a subtitle from OpenSubtitles", () => {
     await t.receive(send("turkish subtitles for lantern street"));
     await t.receive({ type: "apply", plan: t.store.plans()[0]?.record.plan.id ?? "", exclude: [] });
 
-    expect([t.opensubtitles.logins(), t.opensubtitles.downloads.toSorted()]).toEqual([1, [101, 102, 103]]);
+    expect([t.opensubtitles.logins(), t.opensubtitles.downloads.toSorted((a, b) => a - b)]).toEqual([1, [101, 102, 103]]);
   });
 
   it("fails the step, saying when the quota resets, once OpenSubtitles' daily downloads are used up", async () => {
