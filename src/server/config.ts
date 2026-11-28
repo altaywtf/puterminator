@@ -1,9 +1,4 @@
-import * as Config from "effect/Config";
-import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
-import * as Record from "effect/Record";
-import * as Redacted from "effect/Redacted";
-import * as Schema from "effect/Schema";
+import { Config, Effect, Option, Record, Redacted, Schema } from "effect";
 import { DevUpstream } from "./dev";
 import type { OpenSubtitlesCredentials } from "./opensubtitles";
 

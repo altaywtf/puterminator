@@ -1,4 +1,4 @@
-import * as Option from "effect/Option";
+import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { FileFlag } from "../shared/contract";
 import { has, isFolder, isRegular, libraryIndex, putioUrl } from "./library";

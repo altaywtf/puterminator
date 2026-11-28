@@ -1,4 +1,4 @@
-import * as Schema from "effect/Schema";
+import { Schema } from "effect";
 import type { ContentBlock } from "../shared/contract";
 
 /**

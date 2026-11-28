@@ -1,6 +1,4 @@
-import * as Context from "effect/Context";
-import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
+import { Context, Effect, Schema } from "effect";
 import { createEffectLogic, createSnapshotCodec, setupEffect } from "@xstate/effect";
 import { isUnhandled, transition } from "xstate";
 import type { EventFromLogic, SnapshotFrom } from "xstate";

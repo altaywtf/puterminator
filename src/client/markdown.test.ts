@@ -1,4 +1,4 @@
-import * as Predicate from "effect/Predicate";
+import { Predicate } from "effect";
 import type { Html } from "foldkit/html";
 import { describe, expect, it } from "vitest";
 import { FileFlag } from "../shared/contract";

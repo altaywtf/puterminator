@@ -10,13 +10,7 @@ import {
   requestText,
 } from "@putdotio/sdk";
 import type { PutioSdkContext, PutioSdkError } from "@putdotio/sdk";
-import * as Clock from "effect/Clock";
-import * as Duration from "effect/Duration";
-import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
-import * as Match from "effect/Match";
-import * as Predicate from "effect/Predicate";
-import * as Schema from "effect/Schema";
+import { Clock, Duration, Effect, Layer, Match, Predicate, Schema } from "effect";
 import type { DownloadLinksResponse } from "../shared/tools";
 import { PUTIO_API, UPLOAD_API } from "./dev";
 import type { PutioFile } from "./tree";

@@ -1,4 +1,4 @@
-import * as Schema from "effect/Schema";
+import { Schema } from "effect";
 import { PlanRecord, RuleRecord } from "./actions";
 
 /** Wire contract between the Worker, the Puterminator Durable Object and the browser. */

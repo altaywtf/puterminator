@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { buffer as readBytes, text as readBody } from "node:stream/consumers";
-import * as Predicate from "effect/Predicate";
+import { Predicate } from "effect";
 import type { Json, JsonObject } from "effect/Schema";
 
 let upstream = "http://localhost";

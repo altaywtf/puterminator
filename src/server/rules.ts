@@ -1,4 +1,4 @@
-import * as Schema from "effect/Schema";
+import { Schema } from "effect";
 import { RuleCriteria } from "../shared/actions";
 import { cleanPath, MAX_CHANGES } from "./changes";
 import type { ProposeInput } from "./changes";

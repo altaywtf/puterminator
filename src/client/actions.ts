@@ -1,4 +1,4 @@
-import * as Match from "effect/Match";
+import { Match } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Change, Plan, Question, Run } from "../shared/actions";
 import { cardHead, panel, shareBar, term } from "./cards";

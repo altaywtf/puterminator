@@ -1,5 +1,4 @@
-import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
+import { Option, Schema } from "effect";
 import { PlanRecord } from "../shared/actions";
 import { AgentState, Folder, initialAgentState, MessageParam } from "../shared/contract";
 import type { WalkedFile } from "./tree";

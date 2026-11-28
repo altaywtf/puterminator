@@ -1,4 +1,4 @@
-import * as Predicate from "effect/Predicate";
+import { Predicate } from "effect";
 import type { Json } from "effect/Schema";
 
 const CONTENT_TYPES = { FOLDER: "application/x-directory", VIDEO: "video/x-matroska", TEXT: "text/plain" } as const;

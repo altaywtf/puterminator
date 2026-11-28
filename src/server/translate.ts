@@ -1,8 +1,5 @@
 import type { JSONOutputFormat } from "@anthropic-ai/sdk/resources/messages/messages";
-import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
-import * as Schema from "effect/Schema";
+import { Effect, Option, Predicate, Schema } from "effect";
 import { nameOf } from "./changes";
 import { parseRelease, rankCandidates } from "./opensubtitles";
 import type { OpenSubtitles } from "./opensubtitles";

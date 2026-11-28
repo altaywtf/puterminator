@@ -1,9 +1,4 @@
-import * as Clock from "effect/Clock";
-import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
-import * as Redacted from "effect/Redacted";
-import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
+import { Clock, Effect, Option, Redacted, Schema, Semaphore } from "effect";
 import { PutioFailed } from "./putio";
 
 const OPENSUBTITLES_API = "https://api.opensubtitles.com";

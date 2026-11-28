@@ -1,4 +1,4 @@
-import * as Effect from "effect/Effect";
+import { Effect } from "effect";
 import { createEffectActor, sendAndAwait, waitFor } from "@xstate/effect";
 import { describe, expect, it } from "vitest";
 import { initialTransition, transition } from "xstate";

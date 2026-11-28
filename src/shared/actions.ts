@@ -1,4 +1,4 @@
-import * as Schema from "effect/Schema";
+import { Schema } from "effect";
 
 /** One change to one file or folder. `to` is the new name (rename) or the new full path (move). Paths are
     relative to the target folder, as the snapshot writes them. `restore` only appears when undoing a trash.

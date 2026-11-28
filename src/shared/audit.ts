@@ -1,4 +1,4 @@
-import * as Schema from "effect/Schema";
+import { Schema } from "effect";
 
 const Finding = Schema.Struct({ path: Schema.String, size: Schema.Finite, why: Schema.String });
 

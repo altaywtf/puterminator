@@ -1,9 +1,7 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Alchemy from "alchemy";
 import { RuntimeContext } from "alchemy/RuntimeContext";
-import * as Effect from "effect/Effect";
-import * as Predicate from "effect/Predicate";
-import * as Schema from "effect/Schema";
+import { Effect, Predicate, Schema } from "effect";
 import { ServerFrame } from "../shared/contract";
 import type { ServerEvent } from "../shared/contract";
 import { readConfig } from "./config";

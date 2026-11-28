@@ -1,8 +1,5 @@
-import * as ConfigProvider from "effect/ConfigProvider";
-import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
-import * as HttpServerRequest from "effect/http/HttpServerRequest";
-import * as HttpServerResponse from "effect/http/HttpServerResponse";
+import { ConfigProvider, Effect, Exit } from "effect";
+import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import { describe, expect, it } from "vitest";
 import type { Feedback } from "../shared/contract";
 import { readConfig } from "./config";
