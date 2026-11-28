@@ -257,8 +257,8 @@ importers:
         specifier: 26.6.11
         version: 26.6.11
       '@uinaf/oxlint-config':
-        specifier: 1.0.1
-        version: 1.0.1(oxlint@1.95.0)(tsrs@7.1.0-beta.tsrs5)
+        specifier: 1.0.3
+        version: 1.0.3(oxlint@1.95.0)(tsrs@7.1.0-beta.tsrs5)
       knip:
         specifier: 6.48.0
         version: 6.48.0
@@ -1661,8 +1661,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@uinaf/oxlint-config@1.0.1':
-    resolution: {integrity: sha512-1p41DSKyR+DqlsnShp4rz+c6F8ZBXkA0n1MsXGye/AMvzOFIXQxmUlVqQf/ZLNpurWU+t8A7XKunW1akBUHAHQ==}
+  '@uinaf/oxlint-config@1.0.3':
+    resolution: {integrity: sha512-qxAX17mde3A/VnBXhRU6N4mgd8Q/tgru85ZEeda3lm1fqDApXaZWj8VnFglhen93cRgSnLs+eMCe0s08OaMvdQ==}
     engines: {node: ^22.18.0 || >=24.0.0}
     peerDependencies:
       oxlint: '>=1.94.0'
@@ -1673,8 +1673,8 @@ packages:
       vite-plus:
         optional: true
 
-  '@uinaf/oxlint-plugin-no-comments@1.1.1':
-    resolution: {integrity: sha512-/rurT1L+Zi3IXFBkjyLOyWVwJATAnlOCvR8eMw3LoNz0mhkbcXeq78Ii9GHuF7t7TTaZgEnsxkN6vaIr9f13LQ==}
+  '@uinaf/oxlint-plugin-no-comments@1.1.2':
+    resolution: {integrity: sha512-WjcARqtYKxo2YrwzWKOLKwQzIpmg5dIYmMa/6Px87qG4XiBWWDRVfX+vnkwNuMPhU0U0x/C5eoV69RRjp4T+fw==}
     engines: {node: '>=20.19.0'}
 
   '@vitest/mocker@5.1.2':
@@ -3439,10 +3439,10 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@uinaf/oxlint-config@1.0.1(oxlint@1.95.0)(tsrs@7.1.0-beta.tsrs5)':
+  '@uinaf/oxlint-config@1.0.3(oxlint@1.95.0)(tsrs@7.1.0-beta.tsrs5)':
     dependencies:
       '@cloudflare/oxlint-config': 0.2.0(oxlint@1.95.0)(tsrs@7.1.0-beta.tsrs5)
-      '@uinaf/oxlint-plugin-no-comments': 1.1.1
+      '@uinaf/oxlint-plugin-no-comments': 1.1.2
     optionalDependencies:
       oxlint: 1.95.0
     transitivePeerDependencies:
@@ -3450,7 +3450,7 @@ snapshots:
       - eslint-plugin-perfectionist
       - tsrs
 
-  '@uinaf/oxlint-plugin-no-comments@1.1.1': {}
+  '@uinaf/oxlint-plugin-no-comments@1.1.2': {}
 
   '@vitest/mocker@5.1.2(vite@8.4.0(@types/node@26.6.11)(jiti@2.7.0)(yaml@2.9.1))':
     dependencies:
