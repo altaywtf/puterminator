@@ -188,7 +188,11 @@ describe("a turn", () => {
 
   it("never shows busy for a turn stopped before Claude was called", async () => {
     let release = () => {};
-    const held = new Promise<void>((resolve) => (release = resolve));
+
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
     const t = await setup([say("hi.")], { pool: () => Effect.promise(() => held).pipe(Effect.as(0)) });
     await Effect.runPromise(t.agent.receive(send("hello")));
     await t.receive({ type: "stop" });
@@ -698,7 +702,11 @@ describe("plans", () => {
 
   it("checks the folder a run started in, and keeps its scans out of the snapshot of the folder a turn switched to", async () => {
     let release = () => {};
-    const slow = new Promise<void>((resolve) => (release = resolve));
+
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
     const rename = JSON.stringify({ title: "tidy", changes: [{ op: "rename", path: haze, to: "Haze (1995).mkv" }] });
     const row = (id: number, parent: number, name: string, path: string, type: string) => ({ id, parent_id: parent, name, path, depth: path.split("/").length - 1, size: 1, file_type: type, content_type: null, extension: null, crc32: null, created_at: "2026-01-01T00:00:00", first_accessed_at: null });
 
@@ -1142,7 +1150,10 @@ describe("library freshness", () => {
 
   it("never lets a slow background refresh overwrite a newer scan of another folder", async () => {
     let release = () => {};
-    const slow = new Promise<void>((resolve) => (release = resolve));
+
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
 
     const t = await setup(
       [
@@ -1164,7 +1175,10 @@ describe("library freshness", () => {
 
   it("never lets a slow background refresh overwrite a newer scan of the same folder", async () => {
     let release = () => {};
-    const slow = new Promise<void>((resolve) => (release = resolve));
+
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
 
     const t = await setup(
       [
@@ -1714,7 +1728,10 @@ describe("delete data", () => {
 
   it("lets a rescan that was already listing finish without bringing the snapshot back", async () => {
     let release = () => {};
-    const slow = new Promise<void>((resolve) => (release = resolve));
+
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
 
     const t = await setup([], { seed: scanned("2026-01-01T00:00:00.000Z"), holdFirstListing: slow });
 
@@ -1728,7 +1745,10 @@ describe("delete data", () => {
 
   it("refuses while a reply is still running", async () => {
     let release = () => {};
-    const slow = new Promise<void>((resolve) => (release = resolve));
+
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
 
     const t = await setup(
       [

@@ -8,7 +8,13 @@ import { file, makeFakePutio } from "./testing/fake-putio";
 
 const T0 = Date.UTC(2026, 9, 29);
 const library = Array.from({ length: 5 }, (_, i) => file(i + 1, 0, `f${i + 1}.mkv`, "VIDEO", 1));
-const waitForFakeFetch = Effect.promise(() => new Promise((r) => setTimeout(r, 20)));
+
+const waitForFakeFetch = Effect.promise(
+  () =>
+    new Promise((r) => {
+      setTimeout(r, 20);
+    }),
+);
 
 const scan = (fake: ReturnType<typeof makeFakePutio>, advance: number) =>
   Effect.runPromiseExit(
