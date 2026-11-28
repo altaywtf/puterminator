@@ -34,7 +34,6 @@ export default defineConfig({
     "unicorn/prefer-number-properties": "off",
     "unicorn/prefer-set-has": "off",
     "unicorn/prefer-string-raw": "off",
-    "unicorn/prefer-string-replace-all": "off",
     "unicorn/prefer-structured-clone": "off",
     "oxc/no-accumulating-spread": "error",
     "xstate-effect/no-inline-effect": "error",

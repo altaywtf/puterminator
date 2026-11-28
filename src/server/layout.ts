@@ -62,19 +62,19 @@ const latestYearAt = (now: number) => new Date(now).getUTCFullYear() + 1;
 const showKey = (name: string) =>
   name
     .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
-    .replace(TAGS, " ")
-    .replace(PAREN_YEAR, " ")
+    .replaceAll(/\p{M}/gu, "")
+    .replaceAll(TAGS, " ")
+    .replaceAll(PAREN_YEAR, " ")
     .toLowerCase()
-    .replace(/['’]/g, "")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replaceAll(/['’]/g, "")
+    .replaceAll(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 
 const cleanName = (s: string) =>
   s
     .normalize("NFC")
-    .replace(ILLEGAL, " ")
-    .replace(/\s+/g, " ")
+    .replaceAll(ILLEGAL, " ")
+    .replaceAll(/\s+/g, " ")
     .trim()
     .replace(/(?<![\s.]\p{L})\.+$/u, "")
     .trim();
@@ -98,12 +98,12 @@ const spaced = (raw: string) =>
     .join(" ");
 
 const capitalized = (title: string) =>
-  /\p{Lu}/u.test(title) ? title : title.replace(/(^|\s)(\p{Ll})/gu, (_, gap: string, letter: string) => `${gap}${letter.toUpperCase()}`);
+  /\p{Lu}/u.test(title) ? title : title.replaceAll(/(^|\s)(\p{Ll})/gu, (_, gap: string, letter: string) => `${gap}${letter.toUpperCase()}`);
 
 const pretty = (raw: string) =>
   capitalized(
     cleanName(
-      spaced(raw.replace(TAGS, " "))
+      spaced(raw.replaceAll(TAGS, " "))
         .replace(/[\s\-–]+$/, "")
         .replace(/^[\s\-–]+/, ""),
     ),
@@ -115,7 +115,7 @@ const beforeRelease = (text: string) => {
   return at < 0 ? text : text.slice(0, at);
 };
 
-const blank = (text: string) => text.replace(/[\s._\-–()[\]]+/g, "") === "";
+const blank = (text: string) => text.replaceAll(/[\s._\-–()[\]]+/g, "") === "";
 
 const trailingYear = (lead: string, latest: number) => {
   const year = lead.match(/^(.+?)(?:[\s._\-–]+[([]?|[([])((?:19|20)\d{2})[)\]]?[\s._\-–]*$/);
@@ -141,7 +141,7 @@ const movieOf = (stem: string, latest: number): Movie | null => {
     const head = beforeRelease(tail);
     const discs = [...head.matchAll(DISC)];
 
-    if (SPLIT.test(tail.slice(head.length)) || discs.length > 1 || !blank(head.replace(ID_TAG, " ").replace(EDITION, " ").replace(DISC, " "))) return [];
+    if (SPLIT.test(tail.slice(head.length)) || discs.length > 1 || !blank(head.replaceAll(ID_TAG, " ").replaceAll(EDITION, " ").replaceAll(DISC, " "))) return [];
     const edition = [...tail.matchAll(EDITION)].at(0);
 
     return [
@@ -178,7 +178,7 @@ const episodeOf = (stem: string, pack: Pack | null, latest: number): Episode | n
 
   if (!parts) return null;
   const { lead: raw, ...range } = parts;
-  const lead = raw.replace(ID_TAG, " ");
+  const lead = raw.replaceAll(ID_TAG, " ");
 
   if (beforeRelease(lead) !== lead || EPISODIC.test(lead) || RANGE.test(lead) || DOMAIN.test(lead) || COLLECTION.test(lead)) return null;
   const year = trailingYear(lead, latest);
@@ -322,7 +322,7 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
 
   const idsOf = (name: string) =>
     (name.match(ID_TAG) ?? [])
-      .map((t) => t.toLowerCase().replace(/[[\]{}]/g, "").replace("id-", "-"))
+      .map((t) => t.toLowerCase().replaceAll(/[[\]{}]/g, "").replace("id-", "-"))
       .toSorted()
       .join(" ");
 
@@ -556,7 +556,7 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
         continue;
       }
 
-      if (place(f, `${season.path}/${show.name.replace(TAGS, "").trim()} - ${episodeToken(media.season, media.first, media.last)}.${ext}`))
+      if (place(f, `${season.path}/${show.name.replaceAll(TAGS, "").trim()} - ${episodeToken(media.season, media.first, media.last)}.${ext}`))
         plannedEpisodes.set(pathKey(season.path), [...(plannedEpisodes.get(pathKey(season.path)) ?? []), { first: media.first, last: media.last }]);
 
       continue;
@@ -605,7 +605,7 @@ export function planLayout(snapshot: ReadonlyArray<WalkedFile>, moviesRoot: stri
       continue;
     }
 
-    if (place(f, `${target}/${nameOf(target).replace(TAGS, "").trim()}${movieSuffix(media)}.${ext}`)) {
+    if (place(f, `${target}/${nameOf(target).replaceAll(TAGS, "").trim()}${movieSuffix(media)}.${ext}`)) {
       plannedMovies.set(pathKey(target), [...arrivals, { part: media.part, edition: media.edition, ext }]);
       createdMovies.set(key, nameOf(target));
     }

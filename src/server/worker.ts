@@ -15,7 +15,7 @@ const LIVE_SCRIPT_NAME = "puterminator";
 const BUNDLED_WORKERD_MAX_COMPATIBILITY_DATE = "2026-10-19";
 const FEEDBACK_FROM = "puterminator@uinaf.dev";
 const FEEDBACK_TO = "dev@uinaf.dev";
-const oneLine = (text: string) => text.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+const oneLine = (text: string) => text.replaceAll(/[\u0000-\u001f\u007f]+/g, " ").trim();
 const FeedbackEmail = Cloudflare.Email.SendEmail("FeedbackEmail", { allowedSenderAddresses: [FEEDBACK_FROM] });
 const portlessPort = Number(globalThis.process?.env.PORT ?? 0);
 const isLocal = (hostname: string) => hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".localhost");

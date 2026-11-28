@@ -29,12 +29,12 @@ export type OpenSubtitles = {
 const words = (text: string): ReadonlyArray<string> =>
   text
     .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
+    .replaceAll(/\p{M}/gu, "")
     .toLowerCase()
-    .replace(/['’]/g, "")
+    .replaceAll(/['’]/g, "")
     .match(/[\p{L}\p{N}]+/gu) ?? [];
 
-const titleOf = (raw: string) => raw.replace(/[._]+/g, " ").replace(/[\s([-]+$/, "").trim();
+const titleOf = (raw: string) => raw.replaceAll(/[._]+/g, " ").replace(/[\s([-]+$/, "").trim();
 
 const showOf = (raw: string) => {
   const title = titleOf(raw);
@@ -130,8 +130,8 @@ const sourceOf = (tokens: ReadonlyArray<string>) => SOURCES.findIndex((s) => tok
 const groupOf = (name: string) => name.replace(/\.[a-z0-9]{2,4}$/i, "").match(/-([a-z0-9]+)(?:\[[^\]]*\])?$/i)?.[1]?.toLowerCase() ?? null;
 
 const affinity = (videoName: string, release: string) => {
-  const ours = words(videoName.replace(/web[.\s-]?dl/gi, "webdl"));
-  const theirs = words(release.replace(/web[.\s-]?dl/gi, "webdl"));
+  const ours = words(videoName.replaceAll(/web[.\s-]?dl/gi, "webdl"));
+  const theirs = words(release.replaceAll(/web[.\s-]?dl/gi, "webdl"));
   const shared = (pick: (t: string) => boolean) => ours.some((t) => pick(t) && theirs.includes(t));
   const group = groupOf(videoName);
   let score = 0;

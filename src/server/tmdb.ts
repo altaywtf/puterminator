@@ -53,7 +53,7 @@ const decodeMovie = Schema.decodeUnknownOption(
   ),
 );
 
-const normal = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+const normal = (text: string) => text.toLowerCase().replaceAll(/[^\p{L}\p{N}]/gu, "");
 const yearOf = (date: string | null | undefined) => (date && /^\d{4}/.test(date) ? Number(date.slice(0, 4)) : null);
 
 const PERFORMERS = new Map<number, "actress" | "actor">([
@@ -67,7 +67,7 @@ const charactersOf = (credits: typeof Credits.Type | undefined): Facts["characte
   const seen = new Set<string>();
 
   return [...(credits?.cast ?? []), ...(credits?.guest_stars ?? [])].flatMap((c) => {
-    const name = (c.character ?? "").split(" / ")[0]?.replace(/\s*\((voice|uncredited)\)/gi, "").trim() ?? "";
+    const name = (c.character ?? "").split(" / ")[0]?.replaceAll(/\s*\((voice|uncredited)\)/gi, "").trim() ?? "";
 
     if (name === "" || seen.has(name) || seen.size >= MAX_CHARACTERS) return [];
     seen.add(name);

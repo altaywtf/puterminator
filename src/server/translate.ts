@@ -60,7 +60,7 @@ type Spend = { readonly blocked: () => string | null; readonly charge: (tokens: 
 const nothingWritten = (e: PutioError): PutioError => (Predicate.isTagged(e, "PutioFailed") ? new PutioFailed({ message: e.message, refused: true }) : e);
 
 const cueText = (translated: string | undefined, original: string) => {
-  const text = (translated ?? "").replace(/\r/g, "").replace(/\n{2,}/g, "\n").trim();
+  const text = (translated ?? "").replaceAll("\r", "").replaceAll(/\n{2,}/g, "\n").trim();
 
   return text || original;
 };
@@ -68,7 +68,7 @@ const cueText = (translated: string | undefined, original: string) => {
 const parseSrt = (srt: string): Array<Cue> =>
   srt
     .replace(/^﻿/, "")
-    .replace(/\r\n?/g, "\n")
+    .replaceAll(/\r\n?/g, "\n")
     .split(/\n{2,}/)
     .map((block) => block.trim())
     .flatMap((block) => {
@@ -86,7 +86,7 @@ const decodeSentences = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.
 type Sentence = { readonly id: number; readonly lines: ReadonlyArray<string> };
 
 const MAX_GROUP = 8;
-const endsSentence = (text: string) => /[.!?…♪"”)\]]$/.test(text.replace(/<[^>]*>/g, "").trim());
+const endsSentence = (text: string) => /[.!?…♪"”)\]]$/.test(text.replaceAll(/<[^>]*>/g, "").trim());
 
 const toSentences = (cues: ReadonlyArray<Cue>) => {
   const groups: Array<{ id: number; lines: Array<string> }> = [];
@@ -101,7 +101,7 @@ const toSentences = (cues: ReadonlyArray<Cue>) => {
   return groups;
 };
 
-const sentenceText = (s: Sentence) => (s.lines.length === 1 ? (s.lines[0] ?? "") : s.lines.map((l) => l.replace(/\s*\n\s*/g, " ")).join(" "));
+const sentenceText = (s: Sentence) => (s.lines.length === 1 ? (s.lines[0] ?? "") : s.lines.map((l) => l.replaceAll(/\s*\n\s*/g, " ")).join(" "));
 
 const balanceItalics = (piece: string) => {
   const opens = piece.match(/<i>/g)?.length ?? 0;
@@ -113,7 +113,7 @@ const balanceItalics = (piece: string) => {
 const splitAcross = (text: string, english: ReadonlyArray<string>): Array<string> => {
   if (english.length === 1) return [text];
   const words = text.split(/\s+/).filter(Boolean);
-  const weights = english.map((l) => Math.max(1, l.replace(/<[^>]*>/g, "").length));
+  const weights = english.map((l) => Math.max(1, l.replaceAll(/<[^>]*>/g, "").length));
   const total = weights.reduce((a, b) => a + b, 0);
   const pieces: Array<string> = [];
   let start = 0;
@@ -201,7 +201,7 @@ const decodeVerdict = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.St
 const belongsTo = (videoPath: string, cues: ReadonlyArray<Cue>, spend: Spend) =>
   Effect.gen(function* () {
     const start = Math.floor(cues.length / 4);
-    const sample = cues.slice(start, start + SAMPLE).map((c) => c.text.replace(/\n/g, " "));
+    const sample = cues.slice(start, start + SAMPLE).map((c) => c.text.replaceAll("\n", " "));
 
     const reply = yield* askHaiku(
       "Subtitle sites match subtitles to videos by file hash and name, and sometimes pick a different film, episode or talk. Given a video's path in someone's library and lines from a subtitle, decide whether the subtitle is for that video. Say it doesn't match only when the lines clearly belong to something else.",
@@ -285,7 +285,7 @@ const pickSource = (videoId: number, videoPath: string, spend: Spend, online: Op
     return yield* fromOnline(online, videoId, videoPath, spend, fetch);
   });
 
-const letters = (text: string) => text.replace(/<[^>]*>/g, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+const letters = (text: string) => text.replaceAll(/<[^>]*>/g, "").toLowerCase().replaceAll(/[^\p{L}\p{N}]/gu, "");
 const ANCHOR = 16;
 
 const sameSentence = (echo: string, source: string | undefined) => {
@@ -333,7 +333,7 @@ const translatorNotes = (cues: ReadonlyArray<Cue>, facts: string, language: stri
   Effect.gen(function* () {
     const reply = yield* askHaiku(
       `You brief a subtitler who will translate English subtitles into ${language} in separate chunks. From the facts and the whole English subtitle, write short notes that keep the chunks consistent: each recurring character's gender as the dialogue shows it, not who plays them, and how others address them, who speaks formally or informally to whom in ${language}, recurring names, places and terms with how to render them, and the tone. At most 200 words.`,
-      JSON.stringify({ facts, subtitle: cues.slice(0, MAX_BRIEF_LINES).map((c) => c.text.replace(/\n/g, " ")).join("\n") }),
+      JSON.stringify({ facts, subtitle: cues.slice(0, MAX_BRIEF_LINES).map((c) => c.text.replaceAll("\n", " ")).join("\n") }),
       NOTES_SCHEMA,
       spend,
       false,
