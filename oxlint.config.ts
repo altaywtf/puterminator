@@ -18,7 +18,6 @@ export default defineConfig({
     "react-hooks/rules-of-hooks": "off",
     "typescript/no-explicit-any": "off",
     "typescript/no-misused-spread": "off",
-    "typescript/no-non-null-assertion": "off",
     "typescript/no-unsafe-argument": "off",
     "typescript/no-unsafe-assignment": "off",
     "typescript/no-unsafe-call": "off",

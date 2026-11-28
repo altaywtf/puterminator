@@ -105,7 +105,7 @@ export function mediaKey(name: string, show = "") {
   const extras = `${part ? `|part ${Number(part)}` : ""}${edition ? `|${words(edition[1] ?? edition[2] ?? "")}` : ""}`;
   const paren = stem.match(/\(((?:19|20)\d{2})\)/);
   const bare = [...stem.matchAll(/\b(?:19|20)\d{2}\b/g)].find((m) => m.index > 0);
-  const year = paren ? { at: paren.index! + 1, value: paren[1]! } : bare ? { at: bare.index, value: bare[0] } : null;
+  const year = paren ? { at: (paren.index ?? 0) + 1, value: paren[1] ?? "" } : bare ? { at: bare.index, value: bare[0] } : null;
   const marks = [stem.search(/s\d{1,2}e\d{1,3}/i), year?.at ?? -1, stem.search(/2160p|1080p|720p|480p/i)].filter((i) => i >= 0);
   const cut = marks.length > 0 ? Math.min(...marks) : -1;
   const title = words(cut > 0 ? stem.slice(0, cut) : cut === 0 ? show.toLowerCase().replace(/\((19|20)\d{2}\)/, "") : stem);
@@ -113,8 +113,8 @@ export function mediaKey(name: string, show = "") {
   if (!title) return null;
 
   if (ep) {
-    const showYear = year && year.at < ep.index! ? year.value : (show.match(/\b(19|20)\d{2}\b/)?.[0] ?? null);
-    const episodes = [...ep[2]!.matchAll(/\d+/g)].map((m) => Number(m[0])).join("e");
+    const showYear = year && year.at < (ep.index ?? 0) ? year.value : (show.match(/\b(19|20)\d{2}\b/)?.[0] ?? null);
+    const episodes = [...(ep[2] ?? "").matchAll(/\d+/g)].map((m) => Number(m[0])).join("e");
 
     return `${title}${showYear ? `|${showYear}` : ""}|s${Number(ep[1])}e${episodes}${extras}`;
   }
@@ -240,7 +240,9 @@ export function audit(files: Array<WalkedFile>, rootName: string, truncated: boo
     duplicates: {
       groups: dupGroups.length,
       wastedBytes: wasted,
-      examples: dupGroups.slice(0, 8).map((g) => ({ keep: g[0]!.path, drop: g.slice(1, 6).map((f) => f.path), size: g[0]!.size })),
+      examples: dupGroups
+        .slice(0, 8)
+        .flatMap(([keep, ...rest]) => (keep ? [{ keep: keep.path, drop: rest.slice(0, 5).map((f) => f.path), size: keep.size }] : [])),
     },
     neverPlayed: {
       count: never.length,
