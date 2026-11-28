@@ -3,6 +3,7 @@ import { Command, ManagedResource, Render, type Runtime, Subscription, type Upda
 import { defineMessageUnion } from "foldkit/message";
 import { defineTaggedUnion } from "foldkit/schema";
 import { modifyFields } from "foldkit/struct";
+import type { Folder } from "../shared/contract";
 import {
   AgentState,
   ClientEvent,
@@ -10,7 +11,6 @@ import {
   ContentBlock,
   Feedback,
   feedbackText,
-  Folder,
   Library,
   Me,
   MessageParam,

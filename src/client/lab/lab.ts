@@ -5,7 +5,7 @@ import { PlanRecord, RuleRecord } from "../../shared/actions";
 import { Library } from "../../shared/contract";
 import { planCard, questionCard, runCard } from "../actions";
 import { toolCard } from "../cards";
-import { Message } from "../main";
+import type { Message } from "../main";
 import { ruleCard } from "../rules";
 import { audits, downloadLinks, feedbackDrafts, folders, library, plans, questions, rulePlans, rules, runs, searches, undos } from "./fixtures";
 

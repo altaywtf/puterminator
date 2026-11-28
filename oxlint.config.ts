@@ -18,7 +18,6 @@ export default defineConfig({
     "import/consistent-type-specifier-style": "off",
     "import/no-namespace": "off",
     "react-hooks/rules-of-hooks": "off",
-    "typescript/consistent-type-imports": "off",
     "typescript/no-explicit-any": "off",
     "typescript/no-misused-spread": "off",
     "typescript/no-non-null-assertion": "off",
