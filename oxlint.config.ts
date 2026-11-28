@@ -29,7 +29,6 @@ export default defineConfig({
     "typescript/require-array-sort-compare": "off",
     "typescript/unbound-method": "off",
     "unicorn/consistent-function-scoping": "off",
-    "unicorn/prefer-native-coercion-functions": "off",
     "unicorn/prefer-number-properties": "off",
     "unicorn/prefer-set-has": "off",
     "unicorn/prefer-string-raw": "off",

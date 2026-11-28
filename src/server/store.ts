@@ -43,9 +43,9 @@ const encodeRecord = Schema.encodeSync(Schema.fromJsonString(StoredRecord));
 
 type SqlCell = Row[string] | undefined;
 
-const str = (v: SqlCell) => String(v);
+const str = String;
 const strOrNull = (v: SqlCell) => (v == null ? null : str(v));
-const num = (v: SqlCell) => Number(v);
+const num = Number;
 
 export const month = (now: number) => new Date(now).toISOString().slice(0, 7);
 
