@@ -15,9 +15,9 @@ export const memorySql = (): Sql => {
         db.exec("COMMIT");
 
         return result;
-      } catch (e) {
+      } catch (error) {
         db.exec("ROLLBACK");
-        throw e;
+        throw error;
       }
     },
   };
