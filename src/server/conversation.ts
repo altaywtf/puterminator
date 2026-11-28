@@ -1411,7 +1411,7 @@ export const makeAgent = (deps: AgentDeps) =>
             const missing = clean.filter((p) => !byPath.has(p));
 
             if (missing.length > 0) return JSON.stringify({ error: `Not in the snapshot: ${missing.slice(0, 5).join(", ")}` });
-            const id = yield* createDownloadLinks([...new Set(clean.map((p) => byPath.get(p)!))]);
+            const id = yield* createDownloadLinks([...new Set(clean.flatMap((p) => byPath.get(p) ?? []))]);
 
             for (let i = 0; i < 10; i++) {
               const job = yield* downloadLinks(id);
