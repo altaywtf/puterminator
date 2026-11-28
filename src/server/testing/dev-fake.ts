@@ -11,7 +11,11 @@ import type { Json, JsonObject } from "effect/Schema";
 let upstream = "http://localhost";
 const TOKEN = "fake-putio-token";
 const CODE = "fake-code";
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const sleep = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 type File = {
   id: number;
