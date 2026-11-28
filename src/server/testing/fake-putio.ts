@@ -157,7 +157,7 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
       return json(200, { links_status: "DONE", links: { download_links: links, media_links: [], mp4_links: [] }, status: "OK" });
     }
 
-    const target = Number(body.get("file_ids") ?? body.get("file_id") ?? NaN);
+    const target = Number(body.get("file_ids") ?? body.get("file_id") ?? Number.NaN);
     const fails = (opts.failWrites ?? []).includes(target);
 
     if (url.pathname === "/v2/trash/restore" && !fails && opts.restoreLagListings) lagging.set(target, opts.restoreLagListings);
