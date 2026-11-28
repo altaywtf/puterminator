@@ -35,3 +35,4 @@ minimumReleaseAgeExclude:
   - alchemy@2.0.0-beta.85
   - "@putdotio/*"
   - "@uinaf/oxlint-config"
+  - "@uinaf/oxlint-plugin-no-comments"
