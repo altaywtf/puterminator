@@ -410,10 +410,10 @@ describe("feedback sender", () => {
 
 describe("plans", () => {
   const haze = "/Movies/Haze.1995.1080p.BluRay.x264-GRP.mkv";
-  const WRITES = ["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/files/create-folder", "/v2/trash/restore"];
+  const WRITES = new Set(["/v2/files/delete", "/v2/files/rename", "/v2/files/move", "/v2/files/create-folder", "/v2/trash/restore"]);
 
   const writes = (t: Awaited<ReturnType<typeof setup>>) =>
-    t.putio.log.filter((r) => WRITES.includes(r.url.pathname)).map((r) => [r.url.pathname, Object.fromEntries(r.body)]);
+    t.putio.log.filter((r) => WRITES.has(r.url.pathname)).map((r) => [r.url.pathname, Object.fromEntries(r.body)]);
 
   const proposal = JSON.stringify({
     title: "clean up Movies",
