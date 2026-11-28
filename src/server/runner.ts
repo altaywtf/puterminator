@@ -260,7 +260,7 @@ export const runTurn = <T extends EffectTool<any>>(
           const runner = client.beta.messages.toolRunner(
             {
               model: input.model,
-              max_tokens: 16000,
+              max_tokens: 16_000,
               stream: true,
               max_iterations: 8,
               thread: false,

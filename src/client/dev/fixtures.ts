@@ -9,7 +9,7 @@ export const audit: Audit = {
     files: 3122,
     folders: 566,
     videos: 1910,
-    bytes: 1841896724889.6
+    bytes: 1_841_896_724_889.6
   },
   score: 64,
   scores: {
@@ -35,7 +35,7 @@ export const audit: Audit = {
   },
   junk: {
     count: 351,
-    bytes: 2254857830.4,
+    bytes: 2_254_857_830.4,
     examples: [
       {
         path: "movies/Haze.1995/www.Ripgrove.to.txt",
@@ -46,24 +46,24 @@ export const audit: Audit = {
   },
   duplicates: {
     groups: 12,
-    wastedBytes: 40802189312,
+    wastedBytes: 40_802_189_312,
     examples: [
       {
         keep: "movies/Haze (1995)/Haze.mkv",
         drop: [
           "movies/Haze.1995.720p.mkv"
         ],
-        size: 4724464025.6
+        size: 4_724_464_025.6
       }
     ]
   },
   neverPlayed: {
     count: 214,
-    bytes: 431644213248,
+    bytes: 431_644_213_248,
     examples: [
       {
         path: "movies/Stallwart (1979)/Stallwart.mkv",
-        size: 6549825126.4,
+        size: 6_549_825_126.4,
         why: "never played"
       }
     ]
