@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { audit, isMessyName, junkFinder, mediaKey, showOf } from "./audit";
-import { buildTree, type WalkedFile } from "./tree";
+import { buildTree } from "./tree";
+import type { WalkedFile } from "./tree";
 
 let id = 1;
 

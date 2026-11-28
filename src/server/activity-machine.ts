@@ -2,7 +2,8 @@ import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { createEffectLogic, setupEffect } from "@xstate/effect";
-import { assertEvent, matchesState, type SnapshotFrom } from "xstate";
+import { assertEvent, matchesState } from "xstate";
+import type { SnapshotFrom } from "xstate";
 import { Folder } from "../shared/contract";
 
 const TurnInput = Schema.Struct({ text: Schema.String, folder: Folder });

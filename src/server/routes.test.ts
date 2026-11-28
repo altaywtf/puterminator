@@ -6,7 +6,8 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 import { describe, expect, it } from "vitest";
 import type { Feedback } from "../shared/contract";
 import { readConfig } from "./config";
-import { makeHandler, type UserAgent } from "./routes";
+import { makeHandler } from "./routes";
+import type { UserAgent } from "./routes";
 import { makeStore } from "./store";
 import { memorySql } from "./testing/sqlite";
 

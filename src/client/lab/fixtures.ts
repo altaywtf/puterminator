@@ -1,7 +1,8 @@
 import { Match } from "effect";
 import type { Change, Plan, PlanRecord, Question, RuleRecord, Run } from "../../shared/actions";
 import type { Audit } from "../../shared/audit";
-import { type Feedback, FileFlag, type Library } from "../../shared/contract";
+import { FileFlag } from "../../shared/contract";
+import type { Feedback, Library } from "../../shared/contract";
 import type { DownloadLinksOutput, ListFolderOutput, SearchFilesOutput } from "../../shared/tools";
 
 const GB = 2 ** 30;

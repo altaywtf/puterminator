@@ -1,11 +1,13 @@
 import * as Predicate from "effect/Predicate";
-import { type Html, inertHtml as ih } from "foldkit/html";
+import { inertHtml as ih } from "foldkit/html";
+import type { Html } from "foldkit/html";
 import type { Nodes, Root } from "mdast";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import type { Library } from "../shared/contract";
-import { type Index, isRegular, libraryIndex, putioUrl, resolve } from "./library";
+import { isRegular, libraryIndex, putioUrl, resolve } from "./library";
+import type { Index } from "./library";
 
 const processor = unified().use(remarkParse).use(remarkGfm);
 const SAFE_URL = /^(https?:|mailto:)/i;

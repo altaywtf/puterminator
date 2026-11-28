@@ -15,7 +15,6 @@ export default defineConfig({
     "no-control-regex": "off",
     "no-empty": "off",
     "no-promise-executor-return": "off",
-    "import/consistent-type-specifier-style": "off",
     "import/no-namespace": "off",
     "react-hooks/rules-of-hooks": "off",
     "typescript/no-explicit-any": "off",

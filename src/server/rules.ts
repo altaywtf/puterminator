@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 import { RuleCriteria } from "../shared/actions";
-import { cleanPath, MAX_CHANGES, type ProposeInput } from "./changes";
+import { cleanPath, MAX_CHANGES } from "./changes";
+import type { ProposeInput } from "./changes";
 import type { WalkedFile } from "./tree";
 
 export const DAY_MS = 86_400_000;

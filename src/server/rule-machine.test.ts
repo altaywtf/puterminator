@@ -2,7 +2,15 @@ import * as Effect from "effect/Effect";
 import { createEffectActor, sendAndAwait, waitFor } from "@xstate/effect";
 import { describe, expect, it } from "vitest";
 import { initialTransition, transition } from "xstate";
-import { type CheckOutcome, encodeRuleSnapshot, RuleChecks, ruleCodec, ruleMachine, ruleRecordOf, settleRuleAfterRestart } from "./rule-machine";
+import {
+  encodeRuleSnapshot,
+  RuleChecks,
+  ruleCodec,
+  ruleMachine,
+  ruleRecordOf,
+  settleRuleAfterRestart,
+} from "./rule-machine";
+import type { CheckOutcome } from "./rule-machine";
 
 const input = {
   id: "r1",

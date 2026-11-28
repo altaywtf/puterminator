@@ -7,10 +7,13 @@ import { Feedback, FileFlag } from "../shared/contract";
 import { Plan, Question } from "../shared/actions";
 import { DownloadLinksOutput, FreeSpaceOutput, LayoutOutput, ListFolderOutput, SearchFilesOutput } from "../shared/tools";
 import { discardedLine, planCard, questionCard, runCard } from "./actions";
-import { art, type Mood, moodOf } from "./art";
+import { art, moodOf } from "./art";
+import type { Mood } from "./art";
 import { proposedRuleCard } from "./rules";
-import { has, type Index, isFolder, isRegular, libraryIndex, type Node, putioUrl, resolve } from "./library";
-import { Message, type Model } from "./main";
+import { has, isFolder, isRegular, libraryIndex, putioUrl, resolve } from "./library";
+import type { Index, Node } from "./library";
+import { Message } from "./main";
+import type { Model } from "./main";
 import { auditOf, fmt, size } from "./steps";
 
 type H = HtmlBuilder<Message>;

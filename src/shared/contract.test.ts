@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { audit } from "../server/audit";
 import { buildTree } from "../server/tree";
 import { Audit } from "./audit";
-import { AgentState, ClientFrame, ServerFrame, type ServerEvent } from "./contract";
+import { AgentState, ClientFrame, ServerFrame } from "./contract";
+import type { ServerEvent } from "./contract";
 
 const decodeClient = Schema.decodeUnknownExit(ClientFrame);
 const encodeServer = Schema.encodeSync(ServerFrame);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { type LayoutResult, parseMedia, planLayout, targetPath } from "./layout";
+import { parseMedia, planLayout, targetPath } from "./layout";
+import type { LayoutResult } from "./layout";
 import type { WalkedFile } from "./tree";
 
 const NOW = Date.UTC(2026, 10, 3);

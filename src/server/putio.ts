@@ -6,11 +6,10 @@ import {
   isPutioRateLimitError,
   makePutioFetchLayer,
   putioSdkLayer,
-  type PutioSdkContext,
-  type PutioSdkError,
   requestJson,
   requestText,
 } from "@putdotio/sdk";
+import type { PutioSdkContext, PutioSdkError } from "@putdotio/sdk";
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";

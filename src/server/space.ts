@@ -1,5 +1,6 @@
 import { duplicateGroups, isMessyName, junkFinder } from "./audit";
-import { MAX_CHANGES, type ProposeInput } from "./changes";
+import { MAX_CHANGES } from "./changes";
+import type { ProposeInput } from "./changes";
 import type { WalkedFile } from "./tree";
 
 const MAX_CHOICES = 10;

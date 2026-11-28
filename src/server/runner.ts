@@ -1,4 +1,5 @@
-import Anthropic, { type ClientOptions } from "@anthropic-ai/sdk";
+import Anthropic from "@anthropic-ai/sdk";
+import type { ClientOptions } from "@anthropic-ai/sdk";
 import { betaStandardSchemaTool } from "@anthropic-ai/sdk/helpers/beta/standard-schema";
 import type { BetaRunnableTool } from "@anthropic-ai/sdk/lib/tools/BetaRunnableTool";
 import { ToolError } from "@anthropic-ai/sdk/lib/tools/ToolError";
@@ -17,7 +18,8 @@ import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import type { PutioUnauthorized } from "./putio";
-import { type PutioError, rateLimitMessage } from "./putio";
+import { rateLimitMessage } from "./putio";
+import type { PutioError } from "./putio";
 
 export class AnthropicClient extends Context.Service<AnthropicClient, Anthropic>()("puterminator/AnthropicClient") {}
 

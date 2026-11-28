@@ -11,21 +11,95 @@ import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
-import { type AgentState, type Blocked, blockedText, ClientFrame, ContentBlock, CREDIT_TOKENS, type Credits, creditsLeft, Feedback, FEEDBACK_MAX_CHARS, feedbackText, type Folder, MessageParam, type ServerEvent, FileFlag, initialAgentState, type Library } from "../shared/contract";
+import {
+  blockedText,
+  ClientFrame,
+  ContentBlock,
+  CREDIT_TOKENS,
+  creditsLeft,
+  Feedback,
+  FEEDBACK_MAX_CHARS,
+  feedbackText,
+  MessageParam,
+  FileFlag,
+  initialAgentState,
+} from "../shared/contract";
+import type { AgentState, Blocked, Credits, Folder, ServerEvent, Library } from "../shared/contract";
 import { audit, isMessyName, junkFinder } from "./audit";
 import type { Change, Run } from "../shared/actions";
-import { createEffectActor, type EffectActor, sendAndAwait, waitFor } from "@xstate/effect";
-import { initialTransition, type EventFromLogic } from "xstate";
-import { activityMachine, AgentWork, type Activity, isBusy, isIdle, isRescanning, runOf } from "./activity-machine";
-import { type CheckOutcome, encodeRuleSnapshot, isApplying, isDeleted, isWaiting, ruleAccepts, ruleCodec, type RuleEvent, RuleChecks, ruleMachine, ruleRecordOf, type RuleSnapshot, settleRuleAfterRestart } from "./rule-machine";
+import { createEffectActor, sendAndAwait, waitFor } from "@xstate/effect";
+import type { EffectActor } from "@xstate/effect";
+import { initialTransition } from "xstate";
+import type { EventFromLogic } from "xstate";
+import { activityMachine, AgentWork, isBusy, isIdle, isRescanning, runOf } from "./activity-machine";
+import type { Activity } from "./activity-machine";
+import {
+  encodeRuleSnapshot,
+  isApplying,
+  isDeleted,
+  isWaiting,
+  ruleAccepts,
+  ruleCodec,
+  RuleChecks,
+  ruleMachine,
+  ruleRecordOf,
+  settleRuleAfterRestart,
+} from "./rule-machine";
+import type { CheckOutcome, RuleEvent, RuleSnapshot } from "./rule-machine";
 import { checkRule, intervalMs, RuleInput, validateRule } from "./rules";
-import { accepts, fromRecord, isRunning, type PlanEvent, encodeSnapshot, planCodec, planMachine, PlanSteps, type PlanSnapshot, recordOf, settleAfterRestart } from "./plan-machine";
-import { AskInput, applyChange, cleanPath, type StoredPlan, uploadedKey, validateTranslation, untranslated, folderIds, nameOf, ProposeInput, parentOf, staleChanges, undoChanges, validatePlan, validateQuestion, videoOf } from "./changes";
-import { accountInfo, createDownloadLinks, diskUsage, downloadLinks, downloadToken, fileMedia, hlsUrl, listAll, maybeApplied, mediaInfo, type PutioError, putioLayer, stepMessage, trashEnabled } from "./putio";
+import {
+  accepts,
+  fromRecord,
+  isRunning,
+  encodeSnapshot,
+  planCodec,
+  planMachine,
+  PlanSteps,
+  recordOf,
+  settleAfterRestart,
+} from "./plan-machine";
+import type { PlanEvent, PlanSnapshot } from "./plan-machine";
+import {
+  AskInput,
+  applyChange,
+  cleanPath,
+  uploadedKey,
+  validateTranslation,
+  untranslated,
+  folderIds,
+  nameOf,
+  ProposeInput,
+  parentOf,
+  staleChanges,
+  undoChanges,
+  validatePlan,
+  validateQuestion,
+  videoOf,
+} from "./changes";
+import type { StoredPlan } from "./changes";
+import {
+  accountInfo,
+  createDownloadLinks,
+  diskUsage,
+  downloadLinks,
+  downloadToken,
+  fileMedia,
+  hlsUrl,
+  listAll,
+  maybeApplied,
+  mediaInfo,
+  putioLayer,
+  stepMessage,
+  trashEnabled,
+} from "./putio";
+import type { PutioError } from "./putio";
 import { blockedBy, outOfBudget } from "./credits";
-import { type AnthropicClient, effectTool, runTurn, type TurnError } from "./runner";
-import { month, type Store, type StoredRecord } from "./store";
-import { buildTree, type WalkedFile } from "./tree";
+import { effectTool, runTurn } from "./runner";
+import type { AnthropicClient, TurnError } from "./runner";
+import { month } from "./store";
+import type { Store, StoredRecord } from "./store";
+import { buildTree } from "./tree";
+import type { WalkedFile } from "./tree";
 import type { DownloadLinksOutput, DownloadLinksResponse, FreeSpaceOutput, LayoutOutput, ListFolderOutput, MediaInfoOutput, SearchFilesOutput } from "../shared/tools";
 import { planLayout } from "./layout";
 import { planFreeSpace } from "./space";

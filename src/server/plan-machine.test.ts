@@ -4,7 +4,8 @@ import { createEffectActor, sendAndAwait, waitFor } from "@xstate/effect";
 import { describe, expect, it } from "vitest";
 import { isUnhandled, transition } from "xstate";
 import type { Run } from "../shared/actions";
-import { isRunning, type PlanEvent, planMachine, type PlanSnapshot, PlanSteps } from "./plan-machine";
+import { isRunning, planMachine, PlanSteps } from "./plan-machine";
+import type { PlanEvent, PlanSnapshot } from "./plan-machine";
 
 const STATUSES = ["proposed", "discarded", "applying", "done", "undoing", "undone"] as const;
 

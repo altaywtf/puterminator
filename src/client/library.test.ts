@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { FileFlag, type Library } from "../shared/contract";
+import { FileFlag } from "../shared/contract";
+import type { Library } from "../shared/contract";
 import { indexOf, isRegular, resolve } from "./library";
 
 const { folder, video, played, junk } = FileFlag;

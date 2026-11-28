@@ -1,5 +1,6 @@
 import { junkFinder, stemOf } from "./audit";
-import { MAX_CHANGES, nameOf, type ProposeInput, sidecarsOf } from "./changes";
+import { MAX_CHANGES, nameOf, sidecarsOf } from "./changes";
+import type { ProposeInput } from "./changes";
 import type { WalkedFile } from "./tree";
 
 const MAX_NAME_BYTES = 255;
