@@ -1,6 +1,4 @@
-import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
-import * as Schema from "effect/Schema";
+import { Option, Predicate, Schema } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { RuleRecord } from "../shared/actions";
 import type { MessageParam } from "../shared/contract";

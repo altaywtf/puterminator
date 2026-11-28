@@ -1,9 +1,7 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Alchemy from "alchemy";
 import { inMemoryState } from "alchemy/State";
-import * as Config from "effect/Config";
-import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
+import { Config, Effect, Option } from "effect";
 import Worker from "./src/server/worker";
 
 const adoptLiveWorker = Effect.gen(function* () {

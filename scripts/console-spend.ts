@@ -1,4 +1,4 @@
-import * as Schema from "effect/Schema";
+import { Schema } from "effect";
 
 const CostReport = Schema.Struct({
   data: Schema.Array(Schema.Struct({ results: Schema.Array(Schema.Struct({ amount: Schema.String, workspace_id: Schema.NullOr(Schema.String) })) })),

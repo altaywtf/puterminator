@@ -1,6 +1,4 @@
-import * as Match from "effect/Match";
-import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
+import { Match, Option, Predicate } from "effect";
 import { createKeyedLazy } from "foldkit/html";
 import type { Document, Html, HtmlBuilder } from "foldkit/html";
 import { blockedText, creditsLeft, creditsTotal, feedbackText, shortDate, unlimitedCredits } from "../shared/contract";

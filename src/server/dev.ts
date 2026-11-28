@@ -1,4 +1,4 @@
-import * as Schema from "effect/Schema";
+import { Schema } from "effect";
 
 export const PUTIO_API = "https://api.put.io";
 export const UPLOAD_API = "https://upload.put.io";

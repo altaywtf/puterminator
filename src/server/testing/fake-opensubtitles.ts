@@ -1,4 +1,4 @@
-import * as Schema from "effect/Schema";
+import { Schema } from "effect";
 import type { Json } from "effect/Schema";
 
 type FakeSubtitle = {

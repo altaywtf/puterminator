@@ -1,10 +1,5 @@
-import * as Clock from "effect/Clock";
-import * as Duration from "effect/Duration";
-import * as Effect from "effect/Effect";
-import type * as Cookies from "effect/http/Cookies";
-import * as Option from "effect/Option";
-import * as Redacted from "effect/Redacted";
-import * as Schema from "effect/Schema";
+import { Clock, Duration, Effect, Option, Redacted, Schema } from "effect";
+import type { Cookies } from "effect/http";
 
 /** `__Host-`: only this exact origin over https can set them, so a sibling subdomain can't plant a session. */
 export const SESSION_COOKIE = "__Host-pt_session";

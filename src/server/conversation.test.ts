@@ -1,8 +1,5 @@
 import type { ProposeInput } from "./changes";
-import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
-import * as Predicate from "effect/Predicate";
-import * as Redacted from "effect/Redacted";
+import { Effect, Exit, Predicate, Redacted } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { CREDIT_TOKENS, FileFlag } from "../shared/contract";
 import type { ClientEvent, MessageParam, ServerEvent } from "../shared/contract";

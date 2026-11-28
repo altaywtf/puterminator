@@ -1,6 +1,4 @@
-import * as Option from "effect/Option";
-import * as Predicate from "effect/Predicate";
-import * as Schema from "effect/Schema";
+import { Option, Predicate, Schema } from "effect";
 import type { ContentBlock, MessageParam } from "./contract";
 
 const toJson = Schema.decodeUnknownOption(Schema.Json);

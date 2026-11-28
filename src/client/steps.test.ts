@@ -1,4 +1,4 @@
-import * as Option from "effect/Option";
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { audit, search } from "./dev/fixtures";
 import { auditOf, callLine, describeStep } from "./steps";

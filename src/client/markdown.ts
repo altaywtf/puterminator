@@ -1,4 +1,4 @@
-import * as Predicate from "effect/Predicate";
+import { Predicate } from "effect";
 import { inertHtml as ih } from "foldkit/html";
 import type { Html } from "foldkit/html";
 import type { Nodes, Root } from "mdast";

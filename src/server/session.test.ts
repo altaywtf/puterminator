@@ -1,7 +1,5 @@
-import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
-import * as Redacted from "effect/Redacted";
-import * as TestClock from "effect/testing/TestClock";
+import { Effect, Option, Redacted } from "effect";
+import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
 import { SESSION_MAX_AGE_SEC, signSession, verifySession } from "./session";
 

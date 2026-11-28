@@ -1,5 +1,5 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
-import * as Effect from "effect/Effect";
+import { Effect } from "effect";
 import { HttpServerRequest } from "effect/http/HttpServerRequest";
 import { WORKER_ROUTES } from "../shared/contract";
 import Puterminator from "./agent";

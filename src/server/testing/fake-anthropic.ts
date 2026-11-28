@@ -1,4 +1,4 @@
-import * as Predicate from "effect/Predicate";
+import { Predicate } from "effect";
 import type { Json } from "effect/Schema";
 
 type Ev = { readonly type: string; readonly [field: string]: Json };

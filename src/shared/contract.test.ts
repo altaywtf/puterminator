@@ -1,5 +1,4 @@
-import * as Exit from "effect/Exit";
-import * as Schema from "effect/Schema";
+import { Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { audit } from "../server/audit";
 import { buildTree } from "../server/tree";

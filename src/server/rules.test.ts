@@ -1,6 +1,4 @@
-import * as Arbitrary from "effect/Arbitrary";
-import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
+import { Arbitrary, Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { checkRule, DAY_MS, matchRule, validateRule } from "./rules";
 import type { Criteria } from "./rules";

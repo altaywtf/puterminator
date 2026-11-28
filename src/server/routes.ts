@@ -1,11 +1,7 @@
-import * as Effect from "effect/Effect";
+import { Effect, Option, Redacted, Result, Schema } from "effect";
 import type { HttpServerError } from "effect/http/HttpServerError";
 import type { HttpServerRequest } from "effect/http/HttpServerRequest";
-import * as HttpServerResponse from "effect/http/HttpServerResponse";
-import * as Option from "effect/Option";
-import * as Redacted from "effect/Redacted";
-import * as Result from "effect/Result";
-import * as Schema from "effect/Schema";
+import { HttpServerResponse } from "effect/http";
 import { Feedback, FEEDBACK_MAX_CHARS, feedbackText } from "../shared/contract";
 import type { Me } from "../shared/contract";
 import type { DownloadLinksResponse } from "../shared/tools";

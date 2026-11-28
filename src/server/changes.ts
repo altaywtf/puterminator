@@ -1,5 +1,4 @@
-import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
+import { Effect, Schema } from "effect";
 import type { PutioSdkContext } from "@putdotio/sdk";
 import type { Change, Plan, Question, Run } from "../shared/actions";
 import { createFolder, moveFile, PutioFailed, renameFile, restoreFile, stepMessage, trashFile } from "./putio";
