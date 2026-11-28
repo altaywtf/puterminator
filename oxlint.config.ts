@@ -11,7 +11,6 @@ export default defineConfig({
     "@nkzw/no-instanceof": "off",
     "curly": "off",
     "eqeqeq": ["error", "always", { null: "ignore" }],
-    "no-empty": "off",
     "import/no-namespace": ["error", { ignore: ["alchemy", "@alchemy.run/*"] }],
     "react-hooks/rules-of-hooks": "off",
     "typescript/no-explicit-any": "off",
