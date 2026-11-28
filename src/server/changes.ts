@@ -48,10 +48,10 @@ export const validatePlan = (snapshot: ReadonlyArray<WalkedFile>, input: Propose
   const byPath = new Map(snapshot.map((f) => [f.path, f]));
   const taken = takenIn(snapshot);
   const seen = new Set<number>();
-  const changes: Change[] = [];
+  const changes: Array<Change> = [];
   const ids: Record<string, number> = {};
   const parents: Record<string, number> = {};
-  const problems: string[] = [];
+  const problems: Array<string> = [];
   input.changes.forEach((c, i) => {
     const path = cleanPath(c.path);
     const f = byPath.get(path);
@@ -112,9 +112,9 @@ const takenIn = (snapshot: ReadonlyArray<WalkedFile>) => {
 const finalPath = (c: Change) => (c.op === "rename" ? joinPath(parentOf(c.path), c.to ?? "") : (c.to ?? c.path));
 const within = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
-const conflicts = (changes: ReadonlyArray<Change>): string[] => {
+const conflicts = (changes: ReadonlyArray<Change>): Array<string> => {
   const trashed = changes.flatMap((c) => (c.op === "trash" ? [c.path] : []));
-  const problems: string[] = [];
+  const problems: Array<string> = [];
   const ends = new Set<string>();
 
   for (const c of changes) {
@@ -145,7 +145,7 @@ const subtitlesFor = (
   seen: Set<number>,
   ids: Record<string, number>,
   parents: Record<string, number>,
-): Change[] => {
+): Array<Change> => {
   const video = byPath.get(c.path);
 
   if (!video || video.file_type !== "VIDEO" || c.op === "trash" || !c.to) return [];
@@ -271,10 +271,10 @@ export const validateTranslation = (
 ): (StoredPlan & { skipped: number }) | { error: string } => {
   if (paths.length === 0) return { error: "Give at least one video or folder." };
   const byPath = new Map(snapshot.map((f) => [f.path.toLowerCase(), f]));
-  const changes: Change[] = [];
+  const changes: Array<Change> = [];
   const ids: Record<string, number> = {};
   const parents: Record<string, number> = {};
-  const problems: string[] = [];
+  const problems: Array<string> = [];
   const seenVideos = new Set<number>();
   const targets = new Set<string>();
   let skipped = 0;
@@ -351,7 +351,7 @@ export const uploadedKey = (changeId: string) => `${changeId}u`;
 
 /** The reverse of every step that may have reached put.io, last first. Each keeps its change id, so it acts on the same file,
     except a translation, whose reverse trashes the uploaded subtitle under `uploadedKey`. */
-export const undoChanges = (run: Run): Change[] => {
+export const undoChanges = (run: Run): Array<Change> => {
   const done = new Set(run.steps.filter((s) => s.state === "done" || (s.state === "failed" && s.maybeApplied)).map((s) => s.change));
   const reversed = run.changes.filter((c) => done.has(c.id)).reverse();
   const videosFirst = reversed.flatMap((c) => (videoOf(c.id) !== c.id && done.has(videoOf(c.id)) ? [] : [c, ...reversed.filter((s) => s.id !== c.id && videoOf(s.id) === c.id)]));

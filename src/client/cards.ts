@@ -28,7 +28,7 @@ export const isPlayable = (n: Node) => has(n, FileFlag.video) && isRegular(n);
 
 /** A sunk mono block, like terminal output; diffs, listings and the score report all sit in one.
     `last` ends the card with it, so a card with nothing under its output has no empty strip. */
-export const term = (h: H, children: Html[], last = false) =>
+export const term = (h: H, children: Array<Html>, last = false) =>
   h.div(
     [h.Class(`-mx-5 grid overflow-x-auto border-t border-line bg-sunk py-2 font-mono text-mono leading-[1.7] max-[480px]:-mx-4 ${last ? "-mb-4" : "border-b"}`)],
     children,
@@ -226,7 +226,7 @@ const scoreCard = (h: H, ctx: Ctx, a: Audit, uid: string, live: boolean) => {
   );
 };
 
-export const panel = (h: H, label: string, live: boolean, children: Html[]) =>
+export const panel = (h: H, label: string, live: boolean, children: Array<Html>) =>
   h.section([h.Class(`${live ? "enter" : ""} grid gap-3 overflow-hidden rounded-xl border border-line bg-raised px-5 pt-3 pb-4 max-[480px]:px-4`), h.AriaLabel(label)], children);
 
 /** A terminal window's title line: small, mono, quiet; the output below carries the weight. */

@@ -65,7 +65,7 @@ const status = (h: H, model: Model) =>
         ]),
       ];
 
-const frame = (h: H, topbarEnd: Html[], children: Html[], inert: boolean) =>
+const frame = (h: H, topbarEnd: Array<Html>, children: Array<Html>, inert: boolean) =>
   h.div(
     [h.Class("grid h-dvh grid-rows-[auto_minmax(0,1fr)] bg-bg text-fg"), ...(inert ? [h.Inert(true)] : [])],
     [
@@ -303,7 +303,7 @@ const feedbackDialog = (h: H, model: Model) => {
   ];
 };
 
-const shell = (h: H, model: Model, children: Html[]) =>
+const shell = (h: H, model: Model, children: Array<Html>) =>
   h.div([h.Class("contents")], [
     frame(
       h,
@@ -324,7 +324,7 @@ const loadingView = (h: H) => h.div([h.Class("h-dvh bg-bg"), h.AriaBusy(true)], 
 
 type SignIn = "unconfigured" | "failed";
 
-const signInOutput = (h: H, kind: SignIn): Html[] =>
+const signInOutput = (h: H, kind: SignIn): Array<Html> =>
   Match.value(kind).pipe(
     Match.when("unconfigured", () => [h.span([h.Class("text-warn")], ["! sign-in isn’t wired up yet"])]),
     Match.when("failed", () => [h.span([h.Class("text-danger"), h.Role("alert")], ["! couldn’t reach puterminator"])]),
@@ -364,13 +364,13 @@ const signInView = (h: H, kind: SignIn) =>
 const slot = (h: H, child: Html) => h.span([h.Class("grid w-2.5 flex-none place-items-center")], [child]);
 const chev = (h: H) => h.span([h.Class("chev leading-none"), h.AriaHidden(true)], ["›"]);
 
-const stepBody = (h: H, id: string, children: Html[]) =>
+const stepBody = (h: H, id: string, children: Array<Html>) =>
   h.div([h.Id(id), h.Class("ms-1 mb-1 grid min-w-0 gap-0.5 border-s border-line py-1 ps-4 text-fg-3")], children);
 
 const mono = (h: H, text: string, extra = "") =>
   h.div([h.Class(`min-w-0 truncate font-mono text-[12px] text-fg-2 ${extra}`), h.Title(text)], [text]);
 
-const toggle = (h: H, key: string, open: boolean, bodyId: string, children: Html[]) =>
+const toggle = (h: H, key: string, open: boolean, bodyId: string, children: Array<Html>) =>
   h.button(
     [h.Type("button"), h.Class("step-head hit"), h.AriaExpanded(open), ...(open ? [h.AriaControls(bodyId)] : []), h.OnClick(Message.ToggledStep({ key }))],
     [slot(h, chev(h)), ...children],
@@ -434,9 +434,9 @@ const toolRow = (h: H, item: ToolItem, model: Model) => {
   return h.keyed("div")(item.key, [h.Class(`grid min-w-0 ${item.state === "running" ? "enter-soft" : ""}`)], [head, ...(open || item.state === "running" ? [body] : [])]);
 };
 
-const runLog = (h: H, key: string, rows: Html[]) => h.keyed("div")(`log.${key}`, [h.Class("grid min-w-0")], rows);
+const runLog = (h: H, key: string, rows: Array<Html>) => h.keyed("div")(`log.${key}`, [h.Class("grid min-w-0")], rows);
 
-const doneLog = (h: H, model: Model, key: string, summary: string, rows: Html[]) => {
+const doneLog = (h: H, model: Model, key: string, summary: string, rows: Array<Html>) => {
   const k = `log.${key}`;
   const open = model.expanded.includes(k);
 
@@ -451,12 +451,12 @@ const doneLog = (h: H, model: Model, key: string, summary: string, rows: Html[])
 
 const lazyMarkdown = createKeyedLazy();
 
-const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live: boolean, settled: boolean): Html[] => {
-  const out: Html[] = [];
-  let rows: Html[] = [];
+const agentBody = (h: H, turn: Turn, model: Model, caretKey: string | null, live: boolean, settled: boolean): Array<Html> => {
+  const out: Array<Html> = [];
+  let rows: Array<Html> = [];
   let logKey = "";
   let running = false;
-  let calls: string[] = [];
+  let calls: Array<string> = [];
   let detail: string | null = null;
   let failed = 0;
 

@@ -32,7 +32,7 @@ describe("ClientEvent", () => {
 
 describe("ServerEvent", () => {
   it("round-trips every Anthropic block shape the history holds", () => {
-    const events: ServerEvent[] = [
+    const events: Array<ServerEvent> = [
       {
         type: "message",
         message: {

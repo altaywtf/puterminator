@@ -38,10 +38,10 @@ const hero = (h: H) =>
     h.div([h.Class("me-6 max-[860px]:hidden")], [art(h, "mop", 224)]),
   ]);
 
-const screen = (h: H, children: Html[]) =>
+const screen = (h: H, children: Array<Html>) =>
   h.div([h.Class("-mx-5 -mb-4 grid grow content-start overflow-hidden border-t border-line bg-sunk py-2 font-mono text-mono leading-[1.7] max-[480px]:-mx-4")], children);
 
-const tile = (h: H, span: string, title: string, prompt: string, body: Html[]) =>
+const tile = (h: H, span: string, title: string, prompt: string, body: Array<Html>) =>
   h.section([h.Class(`flex flex-col gap-3 overflow-hidden rounded-xl border border-line bg-raised px-5 pt-4 pb-4 max-[480px]:px-4 ${span}`), h.AriaLabel(title)], [
     h.h2([h.Class("m-0 font-display text-[18px] leading-tight font-medium text-fg-strong")], [title]),
     screen(h, [

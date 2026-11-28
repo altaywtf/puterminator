@@ -45,7 +45,7 @@ const folder = (path: string, i: number): WalkedFile => ({
   first_accessed_at: null,
 });
 
-const walked = (spec: Spec): WalkedFile[] => [
+const walked = (spec: Spec): Array<WalkedFile> => [
   ...FOLDERS.map(folder),
   ...spec.files.map((f, i): WalkedFile => ({
     id: i + 1,

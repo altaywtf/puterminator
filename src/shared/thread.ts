@@ -59,10 +59,10 @@ const resultText = (b: ContentBlock) => {
  * agent is busy and failed otherwise.
  */
 export function toTurns(
-  history: readonly MessageParam[],
-  partial: readonly ContentBlock[] | null,
+  history: ReadonlyArray<MessageParam>,
+  partial: ReadonlyArray<ContentBlock> | null,
   busy: boolean,
-): Turn[] {
+): Array<Turn> {
   const results = new Map<string, { text: string; error: boolean }>();
 
   for (const m of history) {
@@ -73,7 +73,7 @@ export function toTurns(
     }
   }
 
-  const turns: { key: string; role: "user" | "assistant"; items: Item[] }[] = [];
+  const turns: Array<{ key: string; role: "user" | "assistant"; items: Array<Item> }> = [];
 
   const assistant = (key: string) => {
     const last = turns.at(-1);
@@ -85,7 +85,7 @@ export function toTurns(
     return t;
   };
 
-  const addBlocks = (blocks: readonly ContentBlock[], key: string, live: boolean) => {
+  const addBlocks = (blocks: ReadonlyArray<ContentBlock>, key: string, live: boolean) => {
     const turn = assistant(key);
     blocks.forEach((b, i) => {
       const k = `${key}.${i}`;

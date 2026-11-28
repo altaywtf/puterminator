@@ -6,8 +6,8 @@ import { renderMarkdown } from "./markdown";
 
 type VNode = NonNullable<Html>;
 
-const elements = (n: Html | undefined): VNode[] => (n?.children ?? []).flatMap((c) => (Predicate.isString(c) ? [] : [c]));
-const walk = (n: VNode): VNode[] => [n, ...elements(n).flatMap(walk)];
+const elements = (n: Html | undefined): Array<VNode> => (n?.children ?? []).flatMap((c) => (Predicate.isString(c) ? [] : [c]));
+const walk = (n: VNode): Array<VNode> => [n, ...elements(n).flatMap(walk)];
 const nodes = (html: Html) => (html ? walk(html) : []);
 const tags = (html: Html) => nodes(html).flatMap((n) => (n.sel ? [n.sel.split(/[.#]/)[0]] : []));
 const text = (html: Html) => nodes(html).map((n) => n.text ?? "").join("");

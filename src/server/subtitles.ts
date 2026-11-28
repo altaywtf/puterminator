@@ -9,8 +9,8 @@ const MAX_NAME = 255;
 type Proposed = ProposeInput["changes"][number];
 
 type SubtitleTidy = {
-  changes: Proposed[];
-  skipped: { path: string; why: string }[];
+  changes: Array<Proposed>;
+  skipped: Array<{ path: string; why: string }>;
   remaining: number;
 };
 
@@ -25,7 +25,7 @@ export function planSubtitles(snapshot: ReadonlyArray<WalkedFile>, within: strin
   const junkReason = junkFinder(snapshot);
   const byId = new Map(snapshot.map((f) => [f.id, f]));
   const takenPaths = new Set(snapshot.map((f) => f.path.toLowerCase()));
-  const videosIn = new Map<number | null, WalkedFile[]>();
+  const videosIn = new Map<number | null, Array<WalkedFile>>();
 
   for (const f of snapshot)
     if (f.file_type === "VIDEO" && !junkReason(f) && !isExtraVideo(f)) videosIn.set(f.parent_id, [...(videosIn.get(f.parent_id) ?? []), f]);
@@ -37,7 +37,7 @@ export function planSubtitles(snapshot: ReadonlyArray<WalkedFile>, within: strin
     return here.length === 1 ? here[0] : undefined;
   };
 
-  const changes: Proposed[] = [];
+  const changes: Array<Proposed> = [];
   const skipped: SubtitleTidy["skipped"] = [];
   let remaining = 0;
 
@@ -59,7 +59,7 @@ export function planSubtitles(snapshot: ReadonlyArray<WalkedFile>, within: strin
       push({ op: "move", path: video.path, to: joinPath(folder, video.name) });
     }
 
-  const owners = new Map<number, WalkedFile[]>();
+  const owners = new Map<number, Array<WalkedFile>>();
 
   for (const s of snapshot.filter((f) => isSrt(f) && inScope(f) && !claimed.has(f.id))) {
     const parent = s.parent_id === null ? undefined : byId.get(s.parent_id);

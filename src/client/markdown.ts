@@ -15,7 +15,7 @@ type Child = Html | string;
 
 let files: Index | null = null;
 
-const children = (node: { children: ReadonlyArray<Nodes> }): Child[] => node.children.map(render);
+const children = (node: { children: ReadonlyArray<Nodes> }): Array<Child> => node.children.map(render);
 
 function render(node: Nodes): Child {
   switch (node.type) {

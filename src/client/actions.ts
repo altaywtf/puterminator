@@ -8,7 +8,7 @@ import { fmt, size } from "./steps";
 type H = HtmlBuilder<Message>;
 
 type Ctx = {
-  expanded: readonly string[];
+  expanded: ReadonlyArray<string>;
   agent?: { busy: boolean } | null;
   plans?: Readonly<Record<string, { status: string }>>;
 };
@@ -98,10 +98,10 @@ const offKey = (plan: Plan, id: string) => `plan.${plan.id}.off.${id}`;
 
 const videoOf = (c: Change) => c.id.replace(/s\d+$/, "");
 
-type Hunk = { key: string; title: string; changes: Change[] };
+type Hunk = { key: string; title: string; changes: Array<Change> };
 
-const hunks = (plan: Plan): Hunk[] => {
-  const byDir = new Map<string, Change[]>();
+const hunks = (plan: Plan): Array<Hunk> => {
+  const byDir = new Map<string, Array<Change>>();
 
   for (const c of plan.changes.filter((c) => c.op !== "move")) byDir.set(parentOf(c.path), [...(byDir.get(parentOf(c.path)) ?? []), c]);
   const moves = plan.changes.filter((c) => c.op === "move");
@@ -252,7 +252,7 @@ const runChange = (h: H, c: Change, state: State, error: string | null) => {
   );
 };
 
-const statLine = (changes: readonly Change[]) => {
+const statLine = (changes: ReadonlyArray<Change>) => {
   const n = (op: Change["op"]) => changes.filter((c) => c.op === op).length;
   const freed = changes.filter((c) => c.op === "trash").reduce((a, c) => a + c.bytes, 0);
 

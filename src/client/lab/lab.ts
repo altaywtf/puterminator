@@ -39,7 +39,7 @@ const specimen = (h: H, model: Model, c: (typeof CASES)[number], i: number): Htm
       h.p([h.Class("m-0 rounded-2xl border border-dashed border-line p-5 text-[13px] text-fg-4")], ["no card: the thread shows only the step line"]),
   );
 
-const section = (h: H, title: string, children: Html[]) =>
+const section = (h: H, title: string, children: Array<Html>) =>
   h.section([h.Class("grid gap-8")], [h.h2([h.Class("m-0 border-b border-line pb-2 text-[13px] font-normal text-fg-3")], [title]), ...children]);
 
 const actionSections = (h: H, model: Model) => [

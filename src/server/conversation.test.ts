@@ -631,7 +631,7 @@ describe("plans", () => {
   });
 
   it("undoes a write whose answer was lost, even after put.io refuses its retry, since the first try may have landed", async () => {
-    const failWrites: number[] = [];
+    const failWrites: Array<number> = [];
     const { t, id } = await applied(proposal, { loseWriteAnswers: [2], failWrites });
     expect(planOf(t).run?.steps[1]).toMatchObject({ change: "c2", state: "failed", maybeApplied: true });
     failWrites.push(2);

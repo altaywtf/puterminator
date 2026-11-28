@@ -73,7 +73,7 @@ export const makeFakePutio = (opts: FakePutioOptions) => {
 
   const uploads: Array<{ name: string; parentId: number; text: string }> = [];
   const lagging = new Map<number, number>();
-  const linkJobs = new Map<number, number[]>();
+  const linkJobs = new Map<number, Array<number>>();
   let heldListing = false;
   let tree = [...opts.files];
   const trash: typeof tree = [];

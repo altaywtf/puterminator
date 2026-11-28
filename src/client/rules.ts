@@ -52,7 +52,7 @@ const actionsOf = (h: H, ctx: Ctx, rule: RuleRecord) => {
   }
 };
 
-const receipt = (h: H, ctx: Ctx, planId: string): Html[] => {
+const receipt = (h: H, ctx: Ctx, planId: string): Array<Html> => {
   const record = ctx.plans[planId];
 
   if (!record?.run) return [];
@@ -98,7 +98,7 @@ const proposedIn = (history: ReadonlyArray<MessageParam>) =>
   );
 
 /** Rules proposed in an earlier thread, so a run days later still shows where the person is. */
-export const rulesElsewhere = (h: H, model: Model): Html[] => {
+export const rulesElsewhere = (h: H, model: Model): Array<Html> => {
   const here = proposedIn(model.history);
 
   return Object.values(model.rules)
