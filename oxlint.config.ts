@@ -10,7 +10,7 @@ export default defineConfig({
   rules: {
     "@nkzw/no-instanceof": "off",
     "curly": "off",
-    "eqeqeq": "off",
+    eqeqeq: ["error", "always", { null: "ignore" }],
     "no-control-regex": "off",
     "no-empty": "off",
     "import/no-namespace": ["error", { ignore: ["alchemy", "@alchemy.run/*"] }],
