@@ -244,9 +244,6 @@ importers:
       '@foldkit/vite-plugin':
         specifier: 0.29.1
         version: 0.29.1(effect@4.1.5)(foldkit@0.171.0(@effect/platform-browser@4.1.5(effect@4.1.5))(effect@4.1.5))(redis@6.3.1(@opentelemetry/api@1.10.0))(vite@8.4.0(@types/node@26.6.11)(jiti@2.7.0)(yaml@2.9.1))
-      '@oxlint/plugins':
-        specifier: 1.95.0
-        version: 1.95.0
       '@playwright/cli':
         specifier: 0.1.25
         version: 0.1.25
@@ -259,9 +256,9 @@ importers:
       '@types/node':
         specifier: 26.6.11
         version: 26.6.11
-      '@uinaf/oxlint-plugin-no-comments':
-        specifier: 1.1.0
-        version: 1.1.0
+      '@uinaf/oxlint-config':
+        specifier: 1.0.0
+        version: 1.0.0(oxlint@1.95.0)(tsrs@7.1.0-beta.tsrs5)
       knip:
         specifier: 6.48.0
         version: 6.48.0
@@ -277,6 +274,9 @@ importers:
       tailwindcss:
         specifier: 4.3.5
         version: 4.3.5
+      tsrs:
+        specifier: 7.1.0-beta.tsrs5
+        version: 7.1.0-beta.tsrs5
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -392,6 +392,21 @@ packages:
   '@babel/runtime@7.29.13':
     resolution: {integrity: sha512-v+oN26xP4YIlQsbQ/CbTH1WG5m/l/DjKKZNy/Kp3f/AFvbgt7Em/D0FeMM3O2hX0YzeN2M16W8lOpyhIkfCBcQ==}
     engines: {node: '>=6.9.0'}
+
+  '@cloudflare/oxlint-config@0.2.0':
+    resolution: {integrity: sha512-HENc8yIzCuIPvUyQbX47UKv2kgA26iZt1XRsrlQXayJG6cWmBNlnHXfPy7oNCghqWpTBcbFRdGwsHd1Ahe3zhw==}
+    engines: {node: ^22.18.0 || >=24.0.0}
+    peerDependencies:
+      oxlint: ^1.94.0
+      tsrs: '>=7.1.0-beta.tsrs2'
+      vite-plus: '>=1.7.0'
+    peerDependenciesMeta:
+      oxlint:
+        optional: true
+      tsrs:
+        optional: true
+      vite-plus:
+        optional: true
 
   '@cloudflare/unenv-preset@2.16.2':
     resolution: {integrity: sha512-JBP1+Z7ZSNG/d4mRP+y8VC5dka3tZVMLEZRvS+rzQ4DGV1EoxRFQckcJTTkXbHSQiTj0DtNI01Zwb/V2fX0mvQ==}
@@ -703,6 +718,31 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3
+
+  '@nkzw/eslint-plugin@3.0.0':
+    resolution: {integrity: sha512-J6Ms/OzUxx7BNBggCKOqFWbESgAJYjvXvekCjjpxVJA2fBv5xOsC5P+2WDYqQUMCvDOU3GxBgG/jrmbqf+/wQA==}
+    peerDependencies:
+      eslint: '>= 9'
+    peerDependenciesMeta:
+      eslint:
+        optional: true
+
+  '@nkzw/oxlint-config@4.1.0':
+    resolution: {integrity: sha512-uFJxSqD8LPGe+uYVh+EC9BwndUGr3h7+aHQhKcdUANNSV4c1vvRoOqqHUTlML5RnHtvABtapW1ZyY4gkz6sKOA==}
+    peerDependencies:
+      eslint-plugin-perfectionist: ^5.14.0
+      oxlint: '>=1.94.0'
+      tsrs: '>=0.25.0-ts7.1.0-beta || ^7.1.0-beta.tsrs2'
+      vite-plus: '>=1.7.0'
+    peerDependenciesMeta:
+      eslint-plugin-perfectionist:
+        optional: true
+      oxlint:
+        optional: true
+      tsrs:
+        optional: true
+      vite-plus:
+        optional: true
 
   '@opentelemetry/api@1.10.0':
     resolution: {integrity: sha512-lMkyes8iHrG+mk6WH7X70MdCLI2RS0FwNBY1PyQ8UemaijE2m5mv5A0Niy3HtbYTFrgkUEQjFMXmSAk2hQDuPQ==}
@@ -1419,6 +1459,58 @@ packages:
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
 
+  '@tsrs/darwin-arm64@7.1.0-beta.tsrs5':
+    resolution: {integrity: sha512-wRLJq3IDZjdLrh+lsipipCfYPpFjNW/0zjeM9azNLjA33OWjOIxT2THiKExf7bjkbr6SGCrrjDR+ZZyXYz4Rjg==}
+    engines: {node: '>=16.20.0'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@tsrs/darwin-x64@7.1.0-beta.tsrs5':
+    resolution: {integrity: sha512-jTZgFXcnDbkDZwq121fhcZv8YaoJCzSWshJJYRnfc2QqagI31Fn9Vjbiz/GgfoAvw32vK8OZrNCDzN2Cu9UkDQ==}
+    engines: {node: '>=16.20.0'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@tsrs/linux-arm64-gnu@7.1.0-beta.tsrs5':
+    resolution: {integrity: sha512-o0ofV8Yw5IbaXR7wjIHaqBv9YddJ6Weot+IpYWfUNqG3YpAe4N5G0dU9vsCLX7eNNYx1mMyIZK0eyMV1r6qg2g==}
+    engines: {node: '>=16.20.0'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@tsrs/linux-arm64-musl@7.1.0-beta.tsrs5':
+    resolution: {integrity: sha512-Nki4kxNnp8qO+/8MtZeO0cAt8ifGHPbC9R0BepVlLuDdvR2cqfzym+l75zXtvnwW1nekmKwbNpHqsuHXoITYGQ==}
+    engines: {node: '>=16.20.0'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@tsrs/linux-x64-gnu@7.1.0-beta.tsrs5':
+    resolution: {integrity: sha512-hyg70btCCaMT3RvFYU0KEibFyQjFUUfrqk4zTl7rf/7G3HPO3X6sEs8J/AHYUvJB0cA+dXgU/adkiZf1XJI/XA==}
+    engines: {node: '>=16.20.0'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@tsrs/linux-x64-musl@7.1.0-beta.tsrs5':
+    resolution: {integrity: sha512-5RI2Ziy8eSkvUi/oeQbrCSzJC/AP7DCtn9IEOWS74BhuQK7WUr1op5ozQMsn4kA6DfuCAuYSQZygTk2Zv3Ib+g==}
+    engines: {node: '>=16.20.0'}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@tsrs/win32-arm64@7.1.0-beta.tsrs5':
+    resolution: {integrity: sha512-RqvW3yaksYl8h8m+aHGfWT9He6AwgvhJ38+8rcuE+Mz12DxVLeRVvWco5k1DZ3nMT056Erohyuwuv4F3A5Tnww==}
+    engines: {node: '>=16.20.0'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@tsrs/win32-x64@7.1.0-beta.tsrs5':
+    resolution: {integrity: sha512-ZTEC3ITNsWH54a/0CtlRhNNfstVFHeg40sUjuQMYIlLiLxRFOXOPjFL/eyjZAS/1fNM+DGtz+6RY6AAMdqyoXw==}
+    engines: {node: '>=16.20.0'}
+    cpu: [x64]
+    os: [win32]
+
   '@tybys/wasm-util@0.10.4':
     resolution: {integrity: sha512-W3c4gRigFS0T/Ma4qIYF3GDAc5AQdHb1yL5znJT1Zv1YaD9Kitx656wBjvr19qbiosmZT8lWDM5BEMynUqX65A==}
 
@@ -1569,6 +1661,18 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@uinaf/oxlint-config@1.0.0':
+    resolution: {integrity: sha512-mijhPRhKF+MTJZHEh2aXWNAZpkeq1EF4J/sm2uh0NsoIioB8bW8AJJepqQ3+wXBCRB5k0d9K0aEUAuHyDPfhKw==}
+    engines: {node: ^22.18.0 || >=24.0.0}
+    peerDependencies:
+      oxlint: '>=1.94.0'
+      vite-plus: '>=1.7.0'
+    peerDependenciesMeta:
+      oxlint:
+        optional: true
+      vite-plus:
+        optional: true
+
   '@uinaf/oxlint-plugin-no-comments@1.1.0':
     resolution: {integrity: sha512-Jc1LomQyspHZCKNRX+5OLXqzWgz+Z1Jey1JxpbBITSxTrQ7RLR3JmWsSpbReyP8p6Xa/Bzx1+tVJJ67tD57kPw==}
     engines: {node: '>=20.19.0'}
@@ -1711,6 +1815,10 @@ packages:
   escape-string-regexp@5.0.0:
     resolution: {integrity: sha512-/veY75JbMK4j1yjvuUxuVsiS/hr/4iHs9FTT6cgTexxdE0Ly/glccBAkloH/DofkjRbZU3bnoj38mOmhkZ0lHw==}
     engines: {node: '>=12'}
+
+  eslint-plugin-no-only-tests@3.4.0:
+    resolution: {integrity: sha512-4S3/9Nb7A2tiMcpzEQE9bQSlpeOz6WJkgryBuou/SA8W2x2c8Zf4j0NvTKBjv6qNhF9T79tmkecm/0CHqV0UGg==}
+    engines: {node: '>=5.0.0'}
 
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
@@ -2244,6 +2352,11 @@ packages:
   tslib@2.9.1:
     resolution: {integrity: sha512-a4Ux9VKuIMHsOS7ENbEq6hK2ZGYIT27Rtl0E4eD9KqwxhKiQeMZE/9xb3IdYwWaSOyIBQLExhQgXDTYoiCxnWA==}
 
+  tsrs@7.1.0-beta.tsrs5:
+    resolution: {integrity: sha512-z+hNizBykB1mv/XxMnMYMSGuwnYEk6S708LGEEaTmdLu6eaH4NOtVemySycbEiW/SCjMeYMk+SZfVdRJwEmYXA==}
+    engines: {node: '>=16.20.0'}
+    hasBin: true
+
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -2539,6 +2652,16 @@ snapshots:
 
   '@babel/runtime@7.29.13': {}
 
+  '@cloudflare/oxlint-config@0.2.0(oxlint@1.95.0)(tsrs@7.1.0-beta.tsrs5)':
+    dependencies:
+      '@nkzw/oxlint-config': 4.1.0(oxlint@1.95.0)(tsrs@7.1.0-beta.tsrs5)
+    optionalDependencies:
+      oxlint: 1.95.0
+      tsrs: 7.1.0-beta.tsrs5
+    transitivePeerDependencies:
+      - eslint
+      - eslint-plugin-perfectionist
+
   '@cloudflare/unenv-preset@2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261026.1)':
     dependencies:
       unenv: 2.0.0-rc.24
@@ -2799,6 +2922,18 @@ snapshots:
       '@tybys/wasm-util': 0.10.4
     optional: true
 
+  '@nkzw/eslint-plugin@3.0.0': {}
+
+  '@nkzw/oxlint-config@4.1.0(oxlint@1.95.0)(tsrs@7.1.0-beta.tsrs5)':
+    dependencies:
+      '@nkzw/eslint-plugin': 3.0.0
+      eslint-plugin-no-only-tests: 3.4.0
+    optionalDependencies:
+      oxlint: 1.95.0
+      tsrs: 7.1.0-beta.tsrs5
+    transitivePeerDependencies:
+      - eslint
+
   '@opentelemetry/api@1.10.0': {}
 
   '@oxc-parser/binding-android-arm-eabi@0.156.0':
@@ -2980,7 +3115,8 @@ snapshots:
   '@oxlint/binding-win32-x64-msvc@1.95.0':
     optional: true
 
-  '@oxlint/plugins@1.95.0': {}
+  '@oxlint/plugins@1.95.0':
+    optional: true
 
   '@playwright/cli@0.1.25':
     dependencies:
@@ -3185,6 +3321,30 @@ snapshots:
       tailwindcss: 4.3.5
       vite: 8.4.0(@types/node@26.6.11)(jiti@2.7.0)(yaml@2.9.1)
 
+  '@tsrs/darwin-arm64@7.1.0-beta.tsrs5':
+    optional: true
+
+  '@tsrs/darwin-x64@7.1.0-beta.tsrs5':
+    optional: true
+
+  '@tsrs/linux-arm64-gnu@7.1.0-beta.tsrs5':
+    optional: true
+
+  '@tsrs/linux-arm64-musl@7.1.0-beta.tsrs5':
+    optional: true
+
+  '@tsrs/linux-x64-gnu@7.1.0-beta.tsrs5':
+    optional: true
+
+  '@tsrs/linux-x64-musl@7.1.0-beta.tsrs5':
+    optional: true
+
+  '@tsrs/win32-arm64@7.1.0-beta.tsrs5':
+    optional: true
+
+  '@tsrs/win32-x64@7.1.0-beta.tsrs5':
+    optional: true
+
   '@tybys/wasm-util@0.10.4':
     dependencies:
       tslib: 2.9.1
@@ -3278,6 +3438,17 @@ snapshots:
 
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
+
+  '@uinaf/oxlint-config@1.0.0(oxlint@1.95.0)(tsrs@7.1.0-beta.tsrs5)':
+    dependencies:
+      '@cloudflare/oxlint-config': 0.2.0(oxlint@1.95.0)(tsrs@7.1.0-beta.tsrs5)
+      '@uinaf/oxlint-plugin-no-comments': 1.1.0
+    optionalDependencies:
+      oxlint: 1.95.0
+    transitivePeerDependencies:
+      - eslint
+      - eslint-plugin-perfectionist
+      - tsrs
 
   '@uinaf/oxlint-plugin-no-comments@1.1.0': {}
 
@@ -3381,6 +3552,8 @@ snapshots:
   escalade@3.2.0: {}
 
   escape-string-regexp@5.0.0: {}
+
+  eslint-plugin-no-only-tests@3.4.0: {}
 
   estree-walker@3.0.3:
     dependencies:
@@ -4137,6 +4310,17 @@ snapshots:
 
   tslib@2.9.1:
     optional: true
+
+  tsrs@7.1.0-beta.tsrs5:
+    optionalDependencies:
+      '@tsrs/darwin-arm64': 7.1.0-beta.tsrs5
+      '@tsrs/darwin-x64': 7.1.0-beta.tsrs5
+      '@tsrs/linux-arm64-gnu': 7.1.0-beta.tsrs5
+      '@tsrs/linux-arm64-musl': 7.1.0-beta.tsrs5
+      '@tsrs/linux-x64-gnu': 7.1.0-beta.tsrs5
+      '@tsrs/linux-x64-musl': 7.1.0-beta.tsrs5
+      '@tsrs/win32-arm64': 7.1.0-beta.tsrs5
+      '@tsrs/win32-x64': 7.1.0-beta.tsrs5
 
   typescript@7.0.2:
     optionalDependencies:
